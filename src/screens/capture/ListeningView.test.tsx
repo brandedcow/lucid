@@ -1,12 +1,10 @@
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { ListeningView } from './ListeningView';
 
 const props = {
   durationMs: 5000,
   level: 0,
-  paused: false,
   saving: false,
-  onTogglePause: jest.fn(),
   onSave: jest.fn(),
 };
 
@@ -25,5 +23,12 @@ describe('ListeningView', () => {
   it('shows the debug note only when there is one', async () => {
     await render(<ListeningView {...props} transcriptNote="model missing" />);
     expect(screen.getByText('model missing')).toBeTruthy();
+  });
+
+  it('has no pause button and still saves', async () => {
+    await render(<ListeningView {...props} />);
+    expect(screen.queryByLabelText('Pause')).toBeNull();
+    await fireEvent.press(screen.getByText('Save dream'));
+    expect(props.onSave).toHaveBeenCalled();
   });
 });
