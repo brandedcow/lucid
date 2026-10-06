@@ -54,5 +54,6 @@ JavaScript changes after the build do not need a new build: Metro serves them to
   3. `npm run android`.
 
   Afterwards the Android app opens the dev-client launcher, where you pick the Lucid entry from Metro.
+
 - The Android rebuild also picks up the expo 57.0.27 and `expo-asset` bump. The steps are the same, and `npx expo prebuild --platform android --clean` is recommended.
 - `npm audit` reports about 60 findings in dev and build tooling (jest, Metro, the Expo CLI, config plugins). They are not shipped in the app and are deferred until the next SDK upgrade. Never use `npm audit fix --force`.
