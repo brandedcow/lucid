@@ -17,7 +17,9 @@ export function splitEmotions(text: string): string[] {
  */
 export function toggleEmotion(field: string, word: string): string {
   const target = word.trim().toLowerCase();
-  if (!target) return field;
+  // A word containing a separator would be stored as several words and could never be matched
+  // or removed as one, so leave the field alone.
+  if (!target || SEPARATOR.test(word) || splitEmotions(word).length === 0) return field;
   const parts = field
     .split(SEPARATOR)
     .map((p) => p.trim())
@@ -36,7 +38,8 @@ export function suggestEmotions(known: string[], field: string): string[] {
   const present = new Set(splitEmotions(field));
   const segments = field.split(SEPARATOR);
   const prefix = (segments[segments.length - 1] ?? '').trim().toLowerCase();
-  return known
-    .filter((word) => !present.has(word.toLowerCase()) && word.toLowerCase().startsWith(prefix))
+  const words = [...new Set(known.map((w) => w.trim().toLowerCase()).filter(Boolean))];
+  return words
+    .filter((word) => !present.has(word) && word.startsWith(prefix))
     .slice(0, MAX_SUGGESTIONS);
 }

@@ -7,23 +7,43 @@ import { splitEmotions } from '../utils/emotions';
 const audioDir = () => new Directory(Paths.document, 'dreams');
 const indexFile = () => new File(Paths.document, 'dreams.json');
 
-/** The index exactly as stored. A missing file is empty; an unreadable one is kept and reported. */
-async function readRawIndex(): Promise<Dream[]> {
+// The corrupt index is copied at most once per app session, so repeated failing saves do not
+// pile up copies. Any good read clears this.
+let corruptCopied = false;
+
+/** Test-only: forget that a corrupt index was already copied this session. */
+export function resetCorruptCopyGuard() {
+  corruptCopied = false;
+}
+
+/**
+ * The index exactly as stored. A missing file is empty; an unreadable one is kept and reported.
+ * Only the save path asks for a recovery copy (`copyCorrupt`); displaying never writes.
+ */
+async function readRawIndex(copyCorrupt = false): Promise<Dream[]> {
   const file = indexFile();
-  if (!file.exists) return [];
+  if (!file.exists) {
+    corruptCopied = false;
+    return [];
+  }
+  let dreams: unknown;
   try {
-    const dreams = await file.json();
+    dreams = await file.json();
     if (!Array.isArray(dreams)) throw new Error('Index is not a list');
-    return dreams as Dream[];
   } catch {
     // Keep a copy for recovery and refuse to continue: writing now would overwrite the dreams.
-    try {
-      file.copy(new File(Paths.document, `dreams.corrupt-${Date.now()}.json`));
-    } catch {
-      // The original is still untouched; the error below is what matters.
+    if (copyCorrupt && !corruptCopied) {
+      corruptCopied = true;
+      try {
+        await file.copy(new File(Paths.document, `dreams.corrupt-${Date.now()}.json`));
+      } catch {
+        // The original is still untouched; the error below is what matters.
+      }
     }
     throw new Error('The dream index could not be read');
   }
+  corruptCopied = false;
+  return dreams as Dream[];
 }
 
 /** The index for display. An unreadable index shows as empty (the file itself is left alone). */
@@ -90,7 +110,7 @@ export async function listEmotions(): Promise<string[]> {
 export type SaveDreamInput = {
   /** Existing dream to update. Omit to create one. */
   id?: string;
-  /** A finished recording to move into permanent storage (only used if the dream has no audio yet). */
+  /** A finished recording to copy into permanent storage (the original is deleted once saved) (only used if the dream has no audio yet). */
   recordingUri?: string;
   durationMs?: number;
   details: DreamDetails;
@@ -98,7 +118,11 @@ export type SaveDreamInput = {
   status: 'draft' | 'saved';
 };
 
-/** Creates or updates a dream (by id), moving the recording into permanent storage the first time. */
+/**
+ * Creates or updates a dream (by id), copying the recording into permanent storage the first time.
+ * Order matters for safety: copy the audio, back up and write the index, and only then delete the
+ * original, so a failure at any step leaves the recording in place.
+ */
 export async function saveDream(input: SaveDreamInput): Promise<Dream> {
   const { details, status } = input;
   // Validate before touching any file so a rejected save leaves the recording in place.
@@ -106,8 +130,9 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
   if (status === 'saved' && !title) throw new Error('A title is required');
 
   return serialized(async () => {
-    const dreams = await readRawIndex();
+    const dreams = await readRawIndex(true);
     const existing = input.id ? dreams.find((d) => d.id === input.id) : undefined;
+    if (input.id && !existing) throw new Error('Dream not found');
 
     let id = input.id;
     if (!id) {
@@ -117,36 +142,69 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     }
 
     let audioFileName = existing?.audioFileName;
-    let moved: { from: string; to: File } | null = null;
+    let copied: File | null = null;
     if (input.recordingUri && !audioFileName) {
+      const source = new File(input.recordingUri);
+      if (!source.exists) throw new Error('The recording could not be found');
       const dir = audioDir();
       dir.create({ intermediates: true, idempotent: true });
       audioFileName = `${id}.m4a`;
       const destination = new File(dir, audioFileName);
-      new File(input.recordingUri).move(destination);
-      moved = { from: input.recordingUri, to: destination };
+      // The recording stays where it is until the index is written.
+      await source.copy(destination, { overwrite: true });
+      copied = destination;
     }
 
     const emotion = details.emotion?.trim();
     const transcript = details.transcript?.trim();
+    // Start from the stored entry so fields this version does not know about survive an update.
     const dream: Dream = {
+      ...existing,
       id,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       durationMs: input.durationMs ?? existing?.durationMs ?? 0,
       ...(audioFileName ? { audioFileName } : {}),
       title,
-      ...(emotion ? { emotion } : {}),
       tags: details.tags,
-      ...(transcript ? { transcript } : {}),
-      ...(status === 'draft' ? { status: 'draft' as const } : {}),
     };
+    if (emotion) dream.emotion = emotion;
+    else delete dream.emotion;
+    if (transcript) dream.transcript = transcript;
+    else delete dream.transcript;
+    if (status === 'draft') dream.status = 'draft';
+    else delete dream.status;
+
+    // Best effort: keep the previous index. Not atomic with the write below, and never restored
+    // automatically.
+    const index = indexFile();
+    if (index.exists) {
+      try {
+        await index.copy(new File(Paths.document, 'dreams.json.bak'), { overwrite: true });
+      } catch {
+        // A missing backup must not block saving.
+      }
+    }
 
     try {
       writeIndex(existing ? dreams.map((d) => (d === existing ? dream : d)) : [...dreams, dream]);
     } catch (error) {
-      // Put the recording back so the user keeps it.
-      if (moved) new File(moved.to.uri).move(new File(moved.from));
+      // The recording is still in the cache; just remove the unreferenced copy.
+      if (copied) {
+        try {
+          copied.delete();
+        } catch {
+          // Leaving an orphaned copy is harmless.
+        }
+      }
       throw error;
+    }
+
+    if (input.recordingUri && copied) {
+      try {
+        new File(input.recordingUri).delete();
+      } catch {
+        // The dream is saved; a leftover cache file is harmless.
+      }
     }
     return dream;
   });

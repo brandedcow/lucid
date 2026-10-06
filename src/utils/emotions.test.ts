@@ -34,6 +34,13 @@ describe('toggleEmotion', () => {
   it('keeps a multi-word phrase intact', () => {
     expect(toggleEmotion('a bit uneasy; tired', 'tired')).toBe('a bit uneasy');
   });
+
+  it('leaves the field alone for a word with a separator or no usable text', () => {
+    expect(toggleEmotion('', 'a, b')).toBe('');
+    expect(toggleEmotion('a', 'b;c')).toBe('a');
+    expect(toggleEmotion('a', '')).toBe('a');
+    expect(toggleEmotion('a', ' , ')).toBe('a');
+  });
 });
 
 describe('suggestEmotions', () => {
@@ -50,6 +57,10 @@ describe('suggestEmotions', () => {
   it('filters by the segment being typed', () => {
     expect(suggestEmotions(known, 'calm, C')).toEqual(['cold', 'curious']);
     expect(suggestEmotions(known, 'u')).toEqual(['uneasy']);
+  });
+
+  it('normalizes the known words: trim, lowercase, drop empties, dedupe', () => {
+    expect(suggestEmotions(['Calm', ' calm', '', 'x'], '')).toEqual(['calm', 'x']);
   });
 
   it('returns at most 8', () => {
