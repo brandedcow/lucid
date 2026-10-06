@@ -41,7 +41,7 @@ const log = (...args: unknown[]) => console.log('[transcription]', ...args);
 
 const join = (a: string, b: string) => (a && b ? `${a} ${b}` : a || b);
 
-type Phase = 'idle' | 'starting' | 'running' | 'stopping';
+type Phase = 'idle' | 'starting' | 'running' | 'stopping' | 'paused';
 
 function osTooOld(): boolean {
   if (Platform.OS === 'android') return Number(Platform.Version) < MIN_ANDROID_API;
@@ -71,6 +71,7 @@ export function useLiveTranscription() {
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [listening, setListening] = useState(false);
+  const [paused, setPausedState] = useState(false);
 
   /** Bumped by every start/stop/unmount so async work from an older session can bail out. */
   const token = useRef(0);
@@ -87,6 +88,10 @@ export function useLiveTranscription() {
   const nativeActive = useRef(false);
   /** start() aborted a stuck old session, so one stale `end` may still arrive. */
   const staleEndPending = useRef(false);
+  /** pause() was called and no resume()/stop()/start() has followed; recognition must not run. */
+  const pausedRef = useRef(false);
+  /** Permission and the Android locale check passed once; resume() relies on it. */
+  const ready = useRef(false);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endWaiters = useRef<(() => void)[]>([]);
 
@@ -105,6 +110,11 @@ export function useLiveTranscription() {
   const setInterimText = (text: string) => {
     interimRef.current = text;
     setInterim(text);
+  };
+
+  const setPausedFlag = (value: boolean) => {
+    pausedRef.current = value;
+    setPausedState(value);
   };
 
   const currentText = () => join(committedRef.current, interimRef.current);
@@ -230,7 +240,7 @@ export function useLiveTranscription() {
     commitInterim();
 
     if (phase.current === 'stopping') {
-      phase.current = 'idle';
+      phase.current = pausedRef.current ? 'paused' : 'idle';
       notifyEnd();
       return;
     }
@@ -271,6 +281,29 @@ export function useLiveTranscription() {
     }, RESTART_DELAY_MS);
   });
 
+  /**
+   * A previous session is still winding down: let it finish (or abort it) first. Callers compare
+   * the token afterwards to see whether stop() or unmount ran while this waited.
+   */
+  const windDownPrevious = async () => {
+    staleEndPending.current = false;
+    if (phase.current !== 'stopping') return;
+    const ended = await waitForEnd(START_WAIT_FOR_END_MS);
+    if (!ended && phase.current === 'stopping') {
+      log('previous session did not end in time; aborting it');
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch (e) {
+        log('abort failed', e);
+      }
+      await waitForEnd(500);
+      phase.current = 'idle';
+      nativeActive.current = false;
+      // The aborted session may still deliver its `end` after the new one has begun.
+      staleEndPending.current = true;
+    }
+  };
+
   /** Starts live text. Resolves false (and sets `error`) if it cannot run; never throws. */
   const start = useCallback(async (): Promise<boolean> => {
     // The API gate runs before anything native is touched.
@@ -282,37 +315,23 @@ export function useLiveTranscription() {
     }
 
     try {
-      // A previous session is still winding down: let it finish (or abort it) first.
       const tokenBeforeWait = token.current;
-      staleEndPending.current = false;
-      if (phase.current === 'stopping') {
-        const ended = await waitForEnd(START_WAIT_FOR_END_MS);
-        if (!ended && phase.current === 'stopping') {
-          log('previous session did not end in time; aborting it');
-          try {
-            ExpoSpeechRecognitionModule.abort();
-          } catch (e) {
-            log('abort failed', e);
-          }
-          await waitForEnd(500);
-          phase.current = 'idle';
-          nativeActive.current = false;
-          // The aborted session may still deliver its `end` after the new one has begun.
-          staleEndPending.current = true;
-        }
-        // stop() or unmount ran while we waited: this start is no longer wanted.
-        if (token.current !== tokenBeforeWait) return false;
-      }
+      await windDownPrevious();
+      // stop() or unmount ran while we waited: this start is no longer wanted.
+      if (token.current !== tokenBeforeWait) return false;
 
       clearRestartTimer();
       const mine = ++token.current;
       phase.current = 'starting';
       wanted.current = false;
+      ready.current = false;
+      setPausedFlag(false);
       const stale = () => mine !== token.current;
       const fail = () => {
         if (!stale()) {
           phase.current = 'idle';
           wanted.current = false;
+          setPausedFlag(false);
         }
         return false;
       };
@@ -359,6 +378,12 @@ export function useLiveTranscription() {
           // An empty list means we could not verify the model, so we try anyway.
         }
 
+        ready.current = true;
+        if (pausedRef.current) {
+          // pause() came in while the permission dialog or locale check was pending.
+          phase.current = 'paused';
+          return true;
+        }
         wanted.current = true;
         phase.current = 'running';
         beginRecognition(false);
@@ -376,6 +401,73 @@ export function useLiveTranscription() {
   }, []);
 
   /**
+   * Pauses recognition: the native stop flushes the final text, which is kept. Recognition never
+   * runs while paused. A no-op unless live text is running or starting.
+   */
+  const pause = useCallback(() => {
+    const current = phase.current;
+    if (current === 'starting') {
+      setPausedFlag(true);
+      return;
+    }
+    if (current !== 'running') return;
+    log('pause requested');
+    setPausedFlag(true);
+    wanted.current = false;
+    clearRestartTimer();
+    staleEndPending.current = false;
+    if (!nativeActive.current) {
+      // Restart gap: nothing native is running, so no `end` will come.
+      phase.current = 'paused';
+      setListening(false);
+      commitInterim();
+      return;
+    }
+    phase.current = 'stopping';
+    try {
+      ExpoSpeechRecognitionModule.stop();
+    } catch (e) {
+      log('pause stop failed', e);
+      nativeActive.current = false;
+      phase.current = 'paused';
+      setListening(false);
+      commitInterim();
+    }
+    // The end handler's `stopping` branch commits the text and moves on to 'paused'.
+    // The helpers only touch refs and state setters, which are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Starts a new recognition session after pause(); its text appends to the transcript.
+   * Resolves false if there was nothing to resume or it could not start; never throws.
+   */
+  const resume = useCallback(async (): Promise<boolean> => {
+    const draining = phase.current === 'stopping' && pausedRef.current;
+    if ((phase.current !== 'paused' && !draining) || !ready.current) return false;
+    try {
+      const mine = token.current;
+      await windDownPrevious();
+      // stop(), start() or unmount ran while we waited, or another resume() got there first.
+      if (token.current !== mine || !pausedRef.current) return false;
+
+      setPausedFlag(false);
+      wanted.current = true;
+      failedRestarts.current = 0;
+      phase.current = 'running';
+      beginRecognition(false);
+      return true;
+    } catch (e) {
+      log('resume failed', e);
+      wanted.current = false;
+      phase.current = 'idle';
+      setError('Live text stopped.');
+      return false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
    * Stops live text. Resolves with the final transcript once the recognizer reports `end`
    * (or after a short timeout), so the last words are not lost.
    */
@@ -385,6 +477,14 @@ export function useLiveTranscription() {
     wanted.current = false;
     clearRestartTimer();
     staleEndPending.current = false;
+    const wasPaused = phase.current === 'paused';
+    setPausedFlag(false);
+    if (wasPaused) {
+      // Nothing native is running (and Android would stop a dead recognizer): finish right away.
+      phase.current = 'idle';
+      commitInterim();
+      return currentText();
+    }
     if (phase.current === 'running' && !nativeActive.current) {
       // Restart gap: nothing native is running, so no `end` will come. Finish right away.
       phase.current = 'idle';
@@ -412,6 +512,7 @@ export function useLiveTranscription() {
       token.current += 1;
       wanted.current = false;
       phase.current = 'idle';
+      pausedRef.current = false;
       clearRestartTimer();
       notifyEnd();
       try {
@@ -426,6 +527,9 @@ export function useLiveTranscription() {
   return {
     start,
     stop,
+    pause,
+    resume,
+    paused,
     transcript: join(committed, interim),
     error,
     isSupported,

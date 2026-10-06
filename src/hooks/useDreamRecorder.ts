@@ -42,5 +42,13 @@ export function useDreamRecorder() {
       ? 0
       : Math.min(1, Math.max(0, (state.metering - MIN_DB) / -MIN_DB));
 
-  return { start, pause, resume, stop, durationMs: state.durationMillis, level };
+  return {
+    start,
+    pause,
+    resume,
+    stop,
+    durationMs: state.durationMillis,
+    level,
+    isRecording: state.isRecording,
+  };
 }
