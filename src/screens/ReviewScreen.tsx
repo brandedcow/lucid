@@ -13,22 +13,55 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 import { TagInput } from '../components/TagInput';
-import { FinishedRecording } from '../hooks/useDreamRecorder';
 import { discardRecording, listTags, saveDream } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { addTag } from '../utils/tags';
 
-type Props = {
-  recording: FinishedRecording;
-  onSaved: () => void;
-  /** Called after the unsaved recording has been deleted; returns to capture. */
+/**
+ * Prop contract (stable; the Review rewrite in a later chunk keeps these names):
+ * - transcript: the final edited text from the session; saved with the dream.
+ * - audio / durationMs: the recording, if any. durationMs is 0 and audio absent for a written dream.
+ *   audio.persisted is true for a reopened draft's permanent file, which is never discarded here.
+ * - title / emotion / tags and their setters: session state, so edits survive Review -> Edit -> Review.
+ * - onEditTranscript: go back to Read it back to edit the text.
+ * - onDone: the finished dream was saved (status 'saved').
+ * - onFinishLater / date: not used yet (arrive with the rewrite: save as a draft; header date label).
+ * - onBack: the back arrow; the parent decides where it goes.
+ * - onRerecord: temporary; called after an unsaved cache recording was deleted (removed by the rewrite).
+ */
+export type ReviewScreenProps = {
+  transcript: string;
+  audio?: { uri: string; durationMs: number; persisted: boolean };
+  durationMs: number;
+  title: string;
+  onTitleChange: (title: string) => void;
+  emotion: string;
+  onEmotionChange: (emotion: string) => void;
+  tags: string[];
+  onTagsChange: (tags: string[]) => void;
+  onEditTranscript: () => void;
+  onDone: () => void;
+  onFinishLater?: () => void;
+  onBack: () => void;
+  date?: string;
   onRerecord: () => void;
 };
 
-export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
-  const [title, setTitle] = useState('');
-  const [emotion, setEmotion] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+export function ReviewScreen({
+  transcript,
+  audio,
+  durationMs,
+  title,
+  onTitleChange: setTitle,
+  emotion,
+  onEmotionChange: setEmotion,
+  tags,
+  onTagsChange: setTags,
+  onEditTranscript,
+  onDone,
+  onBack,
+  onRerecord,
+}: ReviewScreenProps) {
   const [draft, setDraft] = useState('');
   const [known, setKnown] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -45,12 +78,13 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
     try {
       // Include a tag that was typed but not yet confirmed.
       await saveDream({
-        recordingUri: recording.uri,
-        durationMs: recording.durationMs,
-        details: { title, emotion, tags: addTag(tags, draft) },
+        // A reopened draft's audio is already in permanent storage.
+        ...(audio && !audio.persisted ? { recordingUri: audio.uri } : {}),
+        durationMs,
+        details: { title, emotion, tags: addTag(tags, draft), transcript },
         status: 'saved',
       });
-      onSaved();
+      onDone();
     } catch {
       Alert.alert('Could not save your dream', 'Please try again.');
       setSaving(false);
@@ -64,7 +98,7 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
         text: 'Delete and record again',
         style: 'destructive',
         onPress: () => {
-          discardRecording(recording.uri);
+          if (audio && !audio.persisted) discardRecording(audio.uri);
           onRerecord();
         },
       },
@@ -76,6 +110,19 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <View style={styles.topBar}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={onBack}
+            hitSlop={12}
+          >
+            <Text style={styles.back}>←</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onEditTranscript} hitSlop={12}>
+            <Text style={styles.editLink}>Edit text</Text>
+          </Pressable>
+        </View>
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
@@ -119,7 +166,7 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
         </ScrollView>
 
         <View style={styles.footer}>
-          <RecordingPlayer uri={recording.uri} durationMs={recording.durationMs} />
+          {audio && <RecordingPlayer uri={audio.uri} durationMs={audio.durationMs} />}
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ disabled: !canSave }}
@@ -129,15 +176,17 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
           >
             <Text style={styles.saveLabel}>{saving ? 'Saving…' : 'Save dream'}</Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={saving}
-            onPress={confirmRerecord}
-            hitSlop={8}
-            style={styles.rerecord}
-          >
-            <Text style={styles.rerecordLabel}>Delete and record again</Text>
-          </Pressable>
+          {audio && !audio.persisted && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={saving}
+              onPress={confirmRerecord}
+              hitSlop={8}
+              style={styles.rerecord}
+            >
+              <Text style={styles.rerecordLabel}>Delete and record again</Text>
+            </Pressable>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -147,6 +196,15 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  back: { color: colors.text, fontSize: 24 },
+  editLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
   content: { padding: spacing.lg, gap: spacing.xl },
   field: { gap: spacing.sm },
   label: { color: colors.faint, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' },

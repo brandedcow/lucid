@@ -343,7 +343,7 @@ describe('CaptureScreen finish while paused', () => {
     await act(async () => {});
     expect(mockRec.stop).toHaveBeenCalledTimes(1);
     expect(mockTx.stop).toHaveBeenCalledTimes(1);
-    expect(onRecorded).toHaveBeenCalledWith(recording);
+    expect(onRecorded).toHaveBeenCalledWith(recording, '');
     await advance(400);
     await fireEvent.press(screen.getByLabelText('Resume'));
     expect(mockRec.resume).not.toHaveBeenCalled();
@@ -389,5 +389,51 @@ describe('CaptureScreen No dream', () => {
     await render(<CaptureScreen onRecorded={jest.fn()} />);
     await fireEvent.press(screen.getByText('No dream'));
     expect(mockRec.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('CaptureScreen hand-off text', () => {
+  const finishWith = async (text: string | undefined) => {
+    mockTx.stop.mockResolvedValue(text);
+    const { onRecorded } = await setup();
+    await fireEvent.press(screen.getByText('Save dream'));
+    await act(async () => {});
+    return onRecorded;
+  };
+
+  it('passes the final live transcript from stop() to onRecorded', async () => {
+    const onRecorded = await finishWith('I was flying over the sea');
+    expect(onRecorded).toHaveBeenCalledWith(recording, 'I was flying over the sea');
+  });
+
+  it('passes an empty string when live text is empty', async () => {
+    const onRecorded = await finishWith('');
+    expect(onRecorded).toHaveBeenCalledWith(recording, '');
+  });
+
+  it('passes an empty string when live text is unsupported (stop gives nothing)', async () => {
+    const onRecorded = await finishWith(undefined);
+    expect(onRecorded).toHaveBeenCalledWith(recording, '');
+  });
+});
+
+describe('CaptureScreen Write instead', () => {
+  it('calls onWrite without touching the recorder, permission or live transcription', async () => {
+    const onWrite = jest.fn();
+    await render(<CaptureScreen onRecorded={jest.fn()} onWrite={onWrite} />);
+    await fireEvent.press(screen.getByText('Write instead'));
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(mockRec.start).not.toHaveBeenCalled();
+    expect(mockTx.start).not.toHaveBeenCalled();
+    expect(mockRec.stop).not.toHaveBeenCalled();
+    expect(mockTx.stop).not.toHaveBeenCalled();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when no onWrite is given', async () => {
+    await render(<CaptureScreen onRecorded={jest.fn()} />);
+    await fireEvent.press(screen.getByText('Write instead'));
+    expect(mockRec.start).not.toHaveBeenCalled();
+    expect(mockTx.start).not.toHaveBeenCalled();
   });
 });

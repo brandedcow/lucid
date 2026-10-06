@@ -43,11 +43,14 @@ const RECONCILE_DELAY_MS = 500;
 const MAX_REPAUSES = 3;
 
 type Props = {
-  onRecorded: (recording: FinishedRecording) => void;
+  /** `text` is the final live transcript; '' when live text is unsupported or empty. */
+  onRecorded: (recording: FinishedRecording, text: string) => void;
   onNoDream?: () => void;
+  /** Write instead: start a dream with no recording. Never touches the microphone. */
+  onWrite?: () => void;
 };
 
-export function CaptureScreen({ onRecorded, onNoDream }: Props) {
+export function CaptureScreen({ onRecorded, onNoDream, onWrite }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [stopping, setStopping] = useState(false);
   const recorder = useDreamRecorder();
@@ -162,11 +165,11 @@ export function CaptureScreen({ onRecorded, onNoDream }: Props) {
     finishingRef.current = true;
     setStopping(true);
     try {
-      // Live text stops in parallel so it never delays the recorder; its final text is unused for now.
-      const [recording] = await Promise.all([recorder.stop(), transcription.stop()]);
+      // Live text stops in parallel so it never delays the recorder.
+      const [recording, finalText] = await Promise.all([recorder.stop(), transcription.stop()]);
       if (!recording) throw new Error('No recording was produced');
       logRecordingFile(recording.uri, recording.durationMs, startedAt.current);
-      onRecorded(recording);
+      onRecorded(recording, typeof finalText === 'string' ? finalText : '');
     } catch {
       Alert.alert('Could not finish recording', 'Please try again.');
       finishingRef.current = false;
@@ -177,7 +180,7 @@ export function CaptureScreen({ onRecorded, onNoDream }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       {phase === 'idle' ? (
-        <IdleView onStart={start} onSkip={() => onNoDream?.()} onWrite={() => {}} />
+        <IdleView onStart={start} onSkip={() => onNoDream?.()} onWrite={() => onWrite?.()} />
       ) : (
         <ListeningView
           durationMs={recorder.durationMs}

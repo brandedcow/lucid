@@ -7,7 +7,11 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { formatDuration } from '../utils/format';
 
-type Props = { onRecord: () => void };
+type Props = {
+  onRecord: () => void;
+  /** Reopen an unfinished dream. Not used yet. */
+  onOpenDraft?: (dream: Dream) => void;
+};
 
 export function DreamListScreen({ onRecord }: Props) {
   const [dreams, setDreams] = useState<Dream[] | null>(null);
