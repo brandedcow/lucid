@@ -10,6 +10,7 @@
     "expo": "~57.0.26",
     "expo-audio": "~57.0.5",
     "expo-file-system": "~57.0.7",
+    "expo-speech-recognition": "^57.1.0",
     "expo-status-bar": "~57.0.1",
     "jest": "~29.7.0",
     "jest-expo": "~57.0.5",

@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Waveform } from '../../components/Waveform';
 import { colors, fonts, spacing } from '../../theme';
 import { formatDuration, formatToday } from '../../utils/format';
@@ -8,11 +9,25 @@ type Props = {
   level: number;
   paused: boolean;
   saving: boolean;
+  /** Live text from on-device recognition; empty until something is heard. */
+  transcript?: string;
+  /** Small debug line for the device test; omitted when there is no problem. */
+  transcriptNote?: string | null;
   onTogglePause: () => void;
   onSave: () => void;
 };
 
-export function ListeningView({ durationMs, level, paused, saving, onTogglePause, onSave }: Props) {
+export function ListeningView({
+  durationMs,
+  level,
+  paused,
+  saving,
+  transcript = '',
+  transcriptNote = null,
+  onTogglePause,
+  onSave,
+}: Props) {
+  const scroll = useRef<ScrollView>(null);
   const time = formatDuration(Math.floor(durationMs / 1000));
 
   return (
@@ -28,6 +43,18 @@ export function ListeningView({ durationMs, level, paused, saving, onTogglePause
       <View style={styles.center}>
         <Text style={styles.timer}>{time}</Text>
       </View>
+
+      <ScrollView
+        ref={scroll}
+        style={styles.transcript}
+        contentContainerStyle={styles.transcriptContent}
+        onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
+      >
+        <Text style={transcript ? styles.transcriptText : styles.transcriptEmpty}>
+          {transcript || 'Listening...'}
+        </Text>
+      </ScrollView>
+      {transcriptNote ? <Text style={styles.note}>{transcriptNote}</Text> : null}
 
       <View style={styles.waveWrap}>
         <Waveform level={level} active={!paused} />
@@ -70,11 +97,21 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   dotPaused: { opacity: 0.35 },
   statusText: { color: colors.text, fontSize: 13 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center', paddingTop: spacing.md },
+  transcript: { flex: 1, marginHorizontal: spacing.lg },
+  transcriptContent: { paddingVertical: spacing.md },
+  transcriptText: { color: colors.text, fontFamily: fonts.serif, fontSize: 20, lineHeight: 30 },
+  transcriptEmpty: {
+    color: colors.faint,
+    fontFamily: fonts.serif,
+    fontSize: 20,
+    textAlign: 'center',
+  },
+  note: { color: colors.faint, fontSize: 11, textAlign: 'center', paddingHorizontal: spacing.lg },
   timer: {
     color: colors.text,
     fontFamily: fonts.serif,
-    fontSize: 64,
+    fontSize: 48,
     fontVariant: ['tabular-nums'],
   },
   waveWrap: { alignItems: 'center', paddingVertical: spacing.lg },
