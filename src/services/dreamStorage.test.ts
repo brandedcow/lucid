@@ -3,6 +3,8 @@ import { hasAudio, isDraft } from '../types/dream';
 import {
   discardRecording,
   dreamAudioUri,
+  getIndexStatus,
+  isIndexUnreadableError,
   listDreams,
   listEmotions,
   listTags,
@@ -432,5 +434,191 @@ describe('discardRecording', () => {
 
   it('does nothing if the file is already gone', () => {
     discardRecording('file:///cache/missing.m4a');
+  });
+});
+
+describe('a failed index write', () => {
+  const EMPTY_WRITE = { leave: 'empty' } as const;
+  const A = { title: 'A', tags: [] as string[] };
+
+  it('does not lock out a first save: the empty index is removed and the next save works', async () => {
+    __fs.failNext('write', new Error('disk full'), EMPTY_WRITE);
+    await expect(save(RECORDING, 1000, A)).rejects.toThrow('disk full');
+
+    expect(__fs.has(INDEX)).toBe(false);
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+
+    await save(RECORDING, 1000, A);
+    expect((await listDreams()).map((d) => d.title)).toEqual(['A']);
+  });
+
+  it('rolls an existing index back from the backup, keeps the recording and drops the copy', async () => {
+    await save(RECORDING, 1, A);
+    __fs.put(RECORDING, 'audio-bytes');
+    const before = __fs.read(INDEX);
+    jest.setSystemTime(new Date('2026-10-05T08:00:00Z'));
+    __fs.failNext('write', new Error('disk full'), EMPTY_WRITE);
+    await expect(save(RECORDING, 1, { title: 'B', tags: [] })).rejects.toThrow('disk full');
+
+    expect(__fs.read(INDEX)).toBe(before);
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+    expect(__fs.list().filter(isDreamAudio)).toHaveLength(1);
+    expect((await listDreams()).map((d) => d.title)).toEqual(['A']);
+  });
+
+  it('with the backup copy also failing, the backup base keeps the dreams and is never emptied', async () => {
+    const first = await save(RECORDING, 1, A);
+    __fs.put(RECORDING, 'audio-bytes');
+    jest.setSystemTime(new Date('2026-10-05T08:00:00Z'));
+    await save(RECORDING, 1, { title: 'B', tags: [] });
+    // The backup now holds exactly [first].
+    const bakBefore = __fs.read(BAK);
+    expect(JSON.parse(bakBefore!)).toEqual([first]);
+
+    __fs.put(RECORDING, 'audio-bytes');
+    jest.setSystemTime(new Date('2026-10-06T08:00:00Z'));
+    __fs.failWhen('copy', isIndex);
+    __fs.failNext('write', new Error('disk full'), EMPTY_WRITE);
+    await expect(save(RECORDING, 1, { title: 'C', tags: [] })).rejects.toThrow('disk full');
+
+    // No rollback was possible: the index is empty, but reads fall back to the backup.
+    expect(__fs.read(INDEX)).toBe('');
+    expect(__fs.read(BAK)).toBe(bakBefore);
+    expect((await listDreams()).map((d) => d.id)).toEqual([first.id]);
+
+    __fs.clearFailures();
+    __fs.put(RECORDING, 'audio-bytes');
+    jest.setSystemTime(new Date('2026-10-07T08:00:00Z'));
+    await save(RECORDING, 1, { title: 'D', tags: [] });
+    expect((await listDreams()).map((d) => d.title).sort()).toEqual(['A', 'D']);
+    // The empty index was never copied over the backup.
+    expect(JSON.parse(__fs.read(BAK)!)).toEqual([first]);
+  });
+
+  it('reads a zero-length index with no backup as empty and can be saved over', async () => {
+    __fs.put(INDEX, '');
+    expect(await listDreams()).toEqual([]);
+    expect(await getIndexStatus()).toBe('ok');
+
+    await save(RECORDING, 1, A);
+    expect((await listDreams()).map((d) => d.title)).toEqual(['A']);
+    expect(__fs.has(BAK)).toBe(false);
+  });
+});
+
+describe('an unreadable non-empty index', () => {
+  it('is never restored from the backup: save throws a typed error and the file is untouched', async () => {
+    __fs.put(INDEX, '{not json');
+    __fs.put(
+      BAK,
+      JSON.stringify([{ id: '1', createdAt: 'x', durationMs: 0, title: 'T', tags: [] }]),
+    );
+
+    let caught: unknown;
+    try {
+      await save(RECORDING, 1, { title: 'A', tags: [] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(isIndexUnreadableError(caught)).toBe(true);
+    expect((caught as Error).message).toBe('The dream index could not be read');
+    expect(isIndexUnreadableError(new Error('other'))).toBe(false);
+    expect(isIndexUnreadableError(null)).toBe(false);
+    expect(__fs.read(INDEX)).toBe('{not json');
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+    expect(await getIndexStatus()).toBe('unreadable');
+    expect(await listDreams()).toEqual([]);
+  });
+
+  it('reports ok for a readable index without writing anything', async () => {
+    __fs.put(INDEX, '[]');
+    expect(await getIndexStatus()).toBe('ok');
+    expect(__fs.copies()).toEqual([]);
+  });
+});
+
+describe('a failed audio copy', () => {
+  it('removes a partial destination, keeps the recording and rethrows the copy error', async () => {
+    __fs.failNext('copy', new Error('copy broke'), { leave: 'partial' });
+    await expect(save(RECORDING, 1, { title: 'A', tags: [] })).rejects.toThrow('copy broke');
+
+    expect(__fs.list().filter(isDreamAudio)).toEqual([]);
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+    expect(__fs.has(INDEX)).toBe(false);
+  });
+
+  it('still throws the copy error when cleanup also fails', async () => {
+    __fs.failNext('copy', new Error('copy broke'), { leave: 'partial' });
+    __fs.failWhen('delete', isDreamAudio, new Error('cannot delete'));
+    await expect(save(RECORDING, 1, { title: 'A', tags: [] })).rejects.toThrow('copy broke');
+
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+  });
+});
+
+describe('updating emotion and transcript', () => {
+  const create = () =>
+    saveDream({
+      details: { title: 'T', emotion: 'calm', tags: [], transcript: 'words' },
+      status: 'saved',
+    });
+
+  it('keeps the stored values when omitted', async () => {
+    const dream = await create();
+    await saveDream({ id: dream.id, details: { title: 'New', tags: [] }, status: 'saved' });
+
+    expect(JSON.parse(__fs.read(INDEX)!)[0]).toMatchObject({
+      title: 'New',
+      emotion: 'calm',
+      transcript: 'words',
+    });
+  });
+
+  it("clears them when given ''", async () => {
+    const dream = await create();
+    await saveDream({
+      id: dream.id,
+      details: { title: 'T', emotion: '', tags: [], transcript: '' },
+      status: 'saved',
+    });
+
+    const stored = JSON.parse(__fs.read(INDEX)!)[0];
+    expect(stored).not.toHaveProperty('emotion');
+    expect(stored).not.toHaveProperty('transcript');
+  });
+});
+
+describe('the fake file system itself', () => {
+  const { File, Directory, Paths } = fakeFs;
+
+  it('throws when deleting a missing path', () => {
+    expect(() => new File(Paths.document, 'nope.txt').delete()).toThrow('path does not exist');
+  });
+
+  it('refuses to write or copy into a directory that was not created', async () => {
+    const target = new File(Paths.document, 'dreams', 'a.m4a');
+    expect(() => target.write('x')).toThrow();
+    await expect(new File(RECORDING).copy(target)).rejects.toThrow();
+
+    new Directory(Paths.document, 'dreams').create();
+    await new File(RECORDING).copy(target);
+    expect(__fs.read(target.uri)).toBe('audio-bytes');
+  });
+
+  it('refuses to create a directory twice unless idempotent', () => {
+    const dir = new Directory(Paths.document, 'dreams');
+    dir.create();
+    expect(() => dir.create()).toThrow();
+    dir.create({ idempotent: true });
+  });
+
+  it('creates a missing file on write, and create() fails on an existing one', () => {
+    const file = new File(Paths.document, 'x.json');
+    expect(file.size).toBeNull();
+    file.write('abc');
+    expect(file.size).toBe(3);
+    expect(() => file.create()).toThrow();
+    file.create({ overwrite: true });
+    expect(file.size).toBe(0);
   });
 });

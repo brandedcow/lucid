@@ -16,15 +16,39 @@ export function resetCorruptCopyGuard() {
   corruptCopied = false;
 }
 
+/** `error.code` of the failure thrown when dreams.json exists but cannot be read. */
+export const INDEX_UNREADABLE = 'INDEX_UNREADABLE';
+
+/** True for the error saveDream throws when the stored index is unreadable. */
+export function isIndexUnreadableError(error: unknown): boolean {
+  return (error as { code?: unknown } | null | undefined)?.code === INDEX_UNREADABLE;
+}
+
+const backupFile = () => new File(Paths.document, 'dreams.json.bak');
+
+/** The backup's dreams, but only when it holds at least one; anything else is no base at all. */
+async function readBackup(): Promise<Dream[]> {
+  try {
+    const backup = backupFile();
+    if (!backup.exists) return [];
+    const dreams: unknown = await backup.json();
+    return Array.isArray(dreams) && dreams.length > 0 ? (dreams as Dream[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * The index exactly as stored. A missing file is empty; an unreadable one is kept and reported.
+ * The index exactly as stored. A missing or zero-length file (what a failed first write can leave)
+ * is empty, except that a non-empty backup is then the base so its dreams are neither hidden nor
+ * dropped; nothing is written until a normal save. An unreadable one is kept and reported.
  * Only the save path asks for a recovery copy (`copyCorrupt`); displaying never writes.
  */
 async function readRawIndex(copyCorrupt = false): Promise<Dream[]> {
   const file = indexFile();
-  if (!file.exists) {
+  if (!file.exists || file.size === 0) {
     corruptCopied = false;
-    return [];
+    return readBackup();
   }
   let dreams: unknown;
   try {
@@ -40,10 +64,22 @@ async function readRawIndex(copyCorrupt = false): Promise<Dream[]> {
         // The original is still untouched; the error below is what matters.
       }
     }
-    throw new Error('The dream index could not be read');
+    throw Object.assign(new Error('The dream index could not be read'), {
+      code: INDEX_UNREADABLE,
+    });
   }
   corruptCopied = false;
   return dreams as Dream[];
+}
+
+/** Whether the stored index can be read. Never writes or copies anything. */
+export async function getIndexStatus(): Promise<'ok' | 'unreadable'> {
+  try {
+    await readRawIndex();
+    return 'ok';
+  } catch {
+    return 'unreadable';
+  }
 }
 
 /** The index for display. An unreadable index shows as empty (the file itself is left alone). */
@@ -59,8 +95,7 @@ async function readIndex(): Promise<Dream[]> {
 
 function writeIndex(dreams: Dream[]) {
   const file = indexFile();
-  // Write in place: truncating first would lose the index if the write then failed.
-  if (!file.exists) file.create();
+  // Write creates a missing file itself; a separate create() would only add an empty-file window.
   file.write(JSON.stringify(dreams));
 }
 
@@ -151,12 +186,24 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       audioFileName = `${id}.m4a`;
       const destination = new File(dir, audioFileName);
       // The recording stays where it is until the index is written.
-      await source.copy(destination, { overwrite: true });
+      try {
+        await source.copy(destination, { overwrite: true });
+      } catch (error) {
+        // A failed copy can leave a partial file; nothing indexes it. Never touch the source.
+        try {
+          if (destination.exists) destination.delete();
+        } catch {
+          // Leaving it is harmless; the copy error is what matters.
+        }
+        throw error;
+      }
       copied = destination;
     }
 
-    const emotion = details.emotion?.trim();
-    const transcript = details.transcript?.trim();
+    // undefined keeps the stored value on update; '' clears it. On create, omitted means none.
+    const emotion = details.emotion === undefined ? existing?.emotion : details.emotion.trim();
+    const transcript =
+      details.transcript === undefined ? existing?.transcript : details.transcript.trim();
     // Start from the stored entry so fields this version does not know about survive an update.
     const dream: Dream = {
       ...existing,
@@ -174,12 +221,15 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     if (status === 'draft') dream.status = 'draft';
     else delete dream.status;
 
-    // Best effort: keep the previous index. Not atomic with the write below, and never restored
-    // automatically.
+    // Best effort: keep the previous index. Not atomic with the write below. A zero-length index is
+    // never copied over the backup. The backup is restored only if this save's own write fails.
     const index = indexFile();
-    if (index.exists) {
+    const hadIndex = index.exists;
+    let backedUp = false;
+    if (hadIndex && index.size !== 0) {
       try {
-        await index.copy(new File(Paths.document, 'dreams.json.bak'), { overwrite: true });
+        await index.copy(backupFile(), { overwrite: true });
+        backedUp = true;
       } catch {
         // A missing backup must not block saving.
       }
@@ -188,12 +238,26 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     try {
       writeIndex(existing ? dreams.map((d) => (d === existing ? dream : d)) : [...dreams, dream]);
     } catch (error) {
-      // The recording is still in the cache; just remove the unreferenced copy.
+      // The recording is still in the cache. Undo this save's side effects, each step on its own.
       if (copied) {
         try {
-          copied.delete();
+          if (copied.exists) copied.delete();
         } catch {
           // Leaving an orphaned copy is harmless.
+        }
+      }
+      if (hadIndex && backedUp) {
+        try {
+          // Restores exactly the index just backed up, undoing a truncated or partial write.
+          await backupFile().copy(index, { overwrite: true });
+        } catch {
+          // The empty or partial index is handled on the next read (backup base or unreadable).
+        }
+      } else if (!hadIndex) {
+        try {
+          if (index.exists) index.delete();
+        } catch {
+          // A leftover empty index is read as missing.
         }
       }
       throw error;

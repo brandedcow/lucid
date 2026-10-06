@@ -20,8 +20,10 @@ export type Dream = {
 
 export type DreamDetails = {
   title: string;
+  /** On update, undefined keeps the stored value and '' (or blank) clears it. On create, omitted means none. */
   emotion?: string;
   tags: string[];
+  /** Same rule as emotion: undefined keeps the stored value on update, '' clears it. */
   transcript?: string;
 };
 
