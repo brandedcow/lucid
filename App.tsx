@@ -21,6 +21,7 @@ export default function App() {
             setRecording(r);
             setScreen('review');
           }}
+          onNoDream={() => setScreen('list')}
         />
       )}
       {screen === 'review' && recording && (

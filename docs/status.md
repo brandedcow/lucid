@@ -53,7 +53,7 @@ The happy path for dreams, built and covered by tests, but **not yet verified on
 
 **Not built**
 
-- **"No dream" and "Write instead" buttons do nothing.** Wiring "No dream" to leave the capture screen was tried and deliberately reverted. If you implement it, remember the product rule: it counts as done for the day.
+- **"No dream" only navigates to the dream list** (a test convenience, via `onNoDream` from `App.tsx` through `CaptureScreen`). The "done for today" memory is still not built: the product rule says it should count as done for the day. **"Write instead" does nothing.**
 - No way to delete or edit a saved dream, and no filtering or browsing by tag.
 - No saved transcription. A spike on `spike/live-transcription` shows live on-device text on the capture screen only (see `docs/spike-live-transcription.md`); unverified on a device; it needs a development build (in Expo Go the whole bundle fails to load, not just live text). `expo-dev-client` is installed for this; see `docs/ios-dev-build.md` (Android needs one rebuild). Supports iOS 17+ and Android 13+ only; pause/resume is built on the capture screen but not yet device-verified. This supersedes the earlier "pause hidden/obsolete" notes. Accepted gaps: a native `stop()` that throws during pause is not handled, and a resume after a fatal error whose end has not arrived can leave live text off (recording unaffected). Pending device checks (seam word loss, Android MediaRecorder with a new recognizer, iOS audio session and OS auto-resume, Save while paused, m4a validity, fading-text readability) are listed in `docs/spike-live-transcription.md`.
 - No "on waking" logic or "done for today" memory: the app always opens to capture.

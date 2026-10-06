@@ -42,9 +42,12 @@ const TOGGLE_COOLDOWN_MS = 300;
 const RECONCILE_DELAY_MS = 500;
 const MAX_REPAUSES = 3;
 
-type Props = { onRecorded: (recording: FinishedRecording) => void };
+type Props = {
+  onRecorded: (recording: FinishedRecording) => void;
+  onNoDream?: () => void;
+};
 
-export function CaptureScreen({ onRecorded }: Props) {
+export function CaptureScreen({ onRecorded, onNoDream }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [stopping, setStopping] = useState(false);
   const recorder = useDreamRecorder();
@@ -174,7 +177,7 @@ export function CaptureScreen({ onRecorded }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       {phase === 'idle' ? (
-        <IdleView onStart={start} onSkip={() => {}} onWrite={() => {}} />
+        <IdleView onStart={start} onSkip={() => onNoDream?.()} onWrite={() => {}} />
       ) : (
         <ListeningView
           durationMs={recorder.durationMs}

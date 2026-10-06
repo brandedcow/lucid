@@ -375,3 +375,19 @@ describe('CaptureScreen start', () => {
     await act(async () => grant(true));
   });
 });
+
+describe('CaptureScreen No dream', () => {
+  it('calls onNoDream when No dream is tapped, without starting a recording', async () => {
+    const onNoDream = jest.fn();
+    await render(<CaptureScreen onRecorded={jest.fn()} onNoDream={onNoDream} />);
+    await fireEvent.press(screen.getByText('No dream'));
+    expect(onNoDream).toHaveBeenCalledTimes(1);
+    expect(mockRec.start).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when no onNoDream is given', async () => {
+    await render(<CaptureScreen onRecorded={jest.fn()} />);
+    await fireEvent.press(screen.getByText('No dream'));
+    expect(mockRec.start).not.toHaveBeenCalled();
+  });
+});
