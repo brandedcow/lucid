@@ -2,24 +2,39 @@ import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDreamPlayback } from '../hooks/useDreamPlayback';
-import { listDreams } from '../services/dreamStorage';
+import { getIndexStatus, listDreams } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
-import { Dream } from '../types/dream';
-import { formatDuration } from '../utils/format';
+import { Dream, hasAudio, isDraft } from '../types/dream';
+import { capitalizeFirst } from '../utils/capitalizeFirst';
+import { countWords, formatDuration } from '../utils/format';
 
 type Props = {
   onRecord: () => void;
-  /** Reopen an unfinished dream. Not used yet. */
+  /** Reopen an unfinished dream. */
   onOpenDraft?: (dream: Dream) => void;
 };
 
-export function DreamListScreen({ onRecord }: Props) {
+const UNREADABLE_MESSAGE = 'Your saved dreams could not be read. Your recordings are safe.';
+const MAX_TITLE_CHARS = 60;
+
+export function DreamListScreen({ onRecord, onOpenDraft }: Props) {
   const [dreams, setDreams] = useState<Dream[] | null>(null);
+  const [unreadable, setUnreadable] = useState(false);
   const playback = useDreamPlayback();
 
   useEffect(() => {
-    listDreams().then(setDreams);
+    let active = true;
+    Promise.all([listDreams(), getIndexStatus()]).then(([list, status]) => {
+      if (!active) return;
+      setUnreadable(status === 'unreadable');
+      setDreams(list);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
+
+  const emptyText = unreadable ? UNREADABLE_MESSAGE : 'No dreams saved yet.';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -29,43 +44,73 @@ export function DreamListScreen({ onRecord }: Props) {
         data={dreams ?? []}
         keyExtractor={(d) => d.id}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={dreams ? <Text style={styles.empty}>No dreams saved yet.</Text> : null}
+        ListEmptyComponent={dreams ? <Text style={styles.empty}>{emptyText}</Text> : null}
         extraData={playback.playingId}
         renderItem={({ item }) => {
-          const playing = playback.playingId === item.id;
-          return (
-            <View style={styles.row}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={playing ? 'Pause dream' : 'Play dream'}
-                onPress={() => playback.toggle(item)}
-                style={[styles.play, playing && styles.playActive]}
-              >
-                <Text style={[styles.playGlyph, playing && styles.playGlyphActive]}>
-                  {playing ? 'ǁ' : '▶'}
-                </Text>
-              </Pressable>
+          const draft = isDraft(item);
+          const audio = hasAudio(item);
+          const playing = audio && playback.playingId === item.id;
+          const date = formatEntryDate(item.createdAt);
+          const primary = item.title || (draft && firstTranscriptLine(item.transcript)) || date;
+          const metaParts = [
+            draft ? 'Not finished' : null,
+            primary !== date ? date : null,
+            item.emotion ? capitalizeFirst(item.emotion) : null,
+            ...item.tags,
+          ].filter(Boolean);
+          const words = !audio && item.transcript ? countWords(item.transcript) : 0;
+
+          const content = (
+            <>
+              {audio ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={playing ? 'Pause dream' : 'Play dream'}
+                  onPress={() => playback.toggle(item)}
+                  style={[styles.play, playing && styles.playActive]}
+                >
+                  <Text style={[styles.playGlyph, playing && styles.playGlyphActive]}>
+                    {playing ? 'ǁ' : '▶'}
+                  </Text>
+                </Pressable>
+              ) : (
+                <View style={[styles.play, styles.writtenSlot]} importantForAccessibility="no">
+                  <Text style={styles.writtenGlyph}>⌨</Text>
+                </View>
+              )}
               <View style={styles.info}>
                 <Text style={styles.date} numberOfLines={1}>
-                  {item.title || formatEntryDate(item.createdAt)}
+                  {primary}
                 </Text>
-                {(item.title || item.emotion || item.tags.length > 0) && (
+                {metaParts.length > 0 && (
                   <Text style={styles.meta} numberOfLines={1}>
-                    {[
-                      item.title ? formatEntryDate(item.createdAt) : null,
-                      item.emotion,
-                      ...item.tags,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+                    {metaParts.join(' · ')}
                   </Text>
                 )}
               </View>
-              <Text style={styles.duration}>
-                {formatDuration(Math.round(item.durationMs / 1000))}
-              </Text>
-            </View>
+              {audio ? (
+                <Text style={styles.duration}>
+                  {formatDuration(Math.round(item.durationMs / 1000))}
+                </Text>
+              ) : words > 0 ? (
+                <Text style={styles.duration}>{words === 1 ? '1 word' : `${words} words`}</Text>
+              ) : null}
+            </>
           );
+
+          if (draft) {
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Not finished: ${primary}`}
+                onPress={() => onOpenDraft?.(item)}
+                style={styles.row}
+              >
+                {content}
+              </Pressable>
+            );
+          }
+          return <View style={styles.row}>{content}</View>;
         }}
       />
 
@@ -76,6 +121,15 @@ export function DreamListScreen({ onRecord }: Props) {
       </View>
     </SafeAreaView>
   );
+}
+
+function firstTranscriptLine(transcript?: string): string {
+  const line =
+    (transcript ?? '')
+      .split('\n')
+      .find((l) => l.trim())
+      ?.trim() ?? '';
+  return line.length > MAX_TITLE_CHARS ? `${line.slice(0, MAX_TITLE_CHARS).trimEnd()}…` : line;
 }
 
 function formatEntryDate(iso: string): string {
@@ -117,6 +171,8 @@ const styles = StyleSheet.create({
   playActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   playGlyph: { color: colors.text, fontSize: 14, fontWeight: '700' },
   playGlyphActive: { color: colors.accentDark },
+  writtenSlot: { opacity: 0.5 },
+  writtenGlyph: { color: colors.muted, fontSize: 16 },
   info: { flex: 1, gap: 2 },
   date: { color: colors.text, fontSize: 16 },
   meta: { color: colors.muted, fontSize: 13 },
