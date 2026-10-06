@@ -12,6 +12,8 @@ const props = {
   durationMs: 42000,
   level: 0,
   saving: false,
+  paused: false,
+  onTogglePause: jest.fn(),
   onSave: jest.fn(),
 };
 
@@ -110,15 +112,8 @@ describe('ListeningView', () => {
     expect(screen.queryByLabelText('Pause')).toBeNull();
   });
 
-  it('disables the pause button when there is no onTogglePause', async () => {
+  it('enables the pause button when not saving', async () => {
     await render(<ListeningView {...props} />);
-    expect(screen.getByLabelText('Pause').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
-  });
-
-  it('enables the pause button when onTogglePause is given', async () => {
-    await render(<ListeningView {...props} onTogglePause={jest.fn()} />);
     expect(screen.getByLabelText('Pause').props.accessibilityState).toMatchObject({
       disabled: false,
     });

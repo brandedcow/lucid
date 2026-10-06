@@ -8,7 +8,7 @@ _Last updated: 2026-10-05, branch `feat/dream-capture-scaffold`._
 
 The happy path for dreams, built and covered by tests, but **not yet verified on a physical device** (see Gaps):
 
-1. **Capture** (`CaptureScreen`): idle view ("What happened in my dream?", tips, tap-to-talk button), then a listening view with timer, live waveform driven by real mic level, and Save dream (the pause button is hidden on the spike branch).
+1. **Capture** (`CaptureScreen`): idle view ("What happened in my dream?", tips, tap-to-talk button), then a listening view with timer, live waveform driven by real mic level, and a fading live transcript, a pause/resume button, and Save dream (pause/resume and the fading UI are built on the spike branch, not yet device-verified).
 2. **Review** (`ReviewScreen`): shown after recording, before anything is saved. Title field (required, auto-focused), emotion (free text, optional), tags (optional, with suggestions from previously used tags), playback of the recording above the Save button, and "Delete and record again" (deletes the unsaved file, returns to capture).
 3. **Save**: the recording moves into permanent local storage and the app shows the **dream list**.
 4. **Dream list** (`DreamListScreen`): newest first, shows title, date, emotion and tags, with play/pause per row, and a "Record a dream" button back to capture.
@@ -55,7 +55,7 @@ The happy path for dreams, built and covered by tests, but **not yet verified on
 
 - **"No dream" and "Write instead" buttons do nothing.** Wiring "No dream" to leave the capture screen was tried and deliberately reverted. If you implement it, remember the product rule: it counts as done for the day.
 - No way to delete or edit a saved dream, and no filtering or browsing by tag.
-- No saved transcription. A spike on `spike/live-transcription` shows live on-device text on the capture screen only (see `docs/spike-live-transcription.md`); unverified on a device; it needs a development build (in Expo Go the whole bundle fails to load, not just live text). `expo-dev-client` is installed for this; see `docs/ios-dev-build.md` (Android needs one rebuild). Supports iOS 17+ and Android 13+ only; the pause button is hidden on the capture screen.
+- No saved transcription. A spike on `spike/live-transcription` shows live on-device text on the capture screen only (see `docs/spike-live-transcription.md`); unverified on a device; it needs a development build (in Expo Go the whole bundle fails to load, not just live text). `expo-dev-client` is installed for this; see `docs/ios-dev-build.md` (Android needs one rebuild). Supports iOS 17+ and Android 13+ only; pause/resume is built on the capture screen but not yet device-verified. This supersedes the earlier "pause hidden/obsolete" notes. Accepted gaps: a native `stop()` that throws during pause is not handled, and a resume after a fatal error whose end has not arrived can leave live text off (recording unaffected). Pending device checks (seam word loss, Android MediaRecorder with a new recognizer, iOS audio session and OS auto-resume, Save while paused, m4a validity, fading-text readability) are listed in `docs/spike-live-transcription.md`.
 - No "on waking" logic or "done for today" memory: the app always opens to capture.
 - No journal (entries or screen). The structure is undecided; ask before designing it.
 - Playback has no scrubbing.

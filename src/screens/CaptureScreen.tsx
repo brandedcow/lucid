@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { File } from 'expo-file-system';
 import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -38,6 +38,10 @@ function logRecordingFile(uri: string, durationMs: number, startedAt: number) {
   }
 }
 
+const TOGGLE_COOLDOWN_MS = 300;
+const RECONCILE_DELAY_MS = 500;
+const MAX_REPAUSES = 3;
+
 type Props = { onRecorded: (recording: FinishedRecording) => void };
 
 export function CaptureScreen({ onRecorded }: Props) {
@@ -47,7 +51,82 @@ export function CaptureScreen({ onRecorded }: Props) {
   const transcription = useLiveTranscription();
   const startedAt = useRef(0);
 
+  // The screen's `paused` is the UI truth and follows the recorder. Handlers read the ref mirror.
+  const [paused, setPausedState] = useState(false);
+  const pausedRef = useRef(false);
+  const finishingRef = useRef(false);
+  const startingRef = useRef(false);
+  const lastToggleAt = useRef(0);
+  const repauseCount = useRef(0);
+  const isRecordingRef = useRef(recorder.isRecording);
+  useEffect(() => {
+    isRecordingRef.current = recorder.isRecording;
+  }, [recorder.isRecording]);
+
+  const setPaused = (value: boolean) => {
+    pausedRef.current = value;
+    setPausedState(value);
+  };
+
+  // Recorder first, then recognition, neither awaited between them. The recorder is authoritative:
+  // a resume() that returns false leaves the recording running without live text.
+  const resumeNow = () => {
+    try {
+      recorder.resume();
+    } catch (e) {
+      logRecording('recorder resume failed', e);
+      return;
+    }
+    setPaused(false);
+    void transcription.resume().then((ok) => {
+      if (!ok) logRecording('live text did not resume');
+    });
+  };
+
+  const togglePause = () => {
+    if (finishingRef.current || stopping) return;
+    const now = Date.now();
+    if (now - lastToggleAt.current < TOGGLE_COOLDOWN_MS) return;
+    lastToggleAt.current = now;
+    repauseCount.current = 0;
+    if (pausedRef.current) {
+      resumeNow();
+      return;
+    }
+    try {
+      recorder.pause();
+    } catch (e) {
+      logRecording('recorder pause failed', e);
+      return;
+    }
+    transcription.pause();
+    setPaused(true);
+  };
+
+  // If the OS restarts the recorder while the UI says paused, pause it again (a few times at most,
+  // then follow the recorder). Only the recorder is paused here; live text stays as it is.
+  useEffect(() => {
+    if (!paused || !recorder.isRecording || stopping) return;
+    const t = setTimeout(() => {
+      if (!pausedRef.current || !isRecordingRef.current || finishingRef.current) return;
+      if (repauseCount.current >= MAX_REPAUSES) {
+        resumeNow();
+        return;
+      }
+      repauseCount.current += 1;
+      try {
+        recorder.pause();
+      } catch (e) {
+        logRecording('recorder re-pause failed', e);
+      }
+    }, RECONCILE_DELAY_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused, recorder.isRecording, stopping]);
+
   const start = async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
     try {
       // Spike: live text is best effort and never blocks or breaks the recording.
       if (START_ORDER === 'speechFirst') await transcription.start();
@@ -61,16 +140,20 @@ export function CaptureScreen({ onRecorded }: Props) {
         return;
       }
       startedAt.current = Date.now();
+      setPaused(false);
       setPhase('listening');
       if (START_ORDER === 'recorderFirst') void transcription.start();
     } catch {
       if (START_ORDER === 'speechFirst') void transcription.stop();
       Alert.alert('Could not start recording', 'Please try again.');
+    } finally {
+      startingRef.current = false;
     }
   };
 
   // Stops recording and hands the file to the review step; nothing is saved yet.
   const finish = async () => {
+    finishingRef.current = true;
     setStopping(true);
     try {
       // Live text stops in parallel so it never delays the recorder; its final text is unused for now.
@@ -80,6 +163,7 @@ export function CaptureScreen({ onRecorded }: Props) {
       onRecorded(recording);
     } catch {
       Alert.alert('Could not finish recording', 'Please try again.');
+      finishingRef.current = false;
       setStopping(false);
     }
   };
@@ -93,6 +177,8 @@ export function CaptureScreen({ onRecorded }: Props) {
           durationMs={recorder.durationMs}
           level={recorder.level}
           saving={stopping}
+          paused={paused}
+          onTogglePause={togglePause}
           transcript={transcription.transcript}
           transcriptNote={transcription.error}
           onSave={finish}

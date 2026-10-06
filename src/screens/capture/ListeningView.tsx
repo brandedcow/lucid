@@ -10,8 +10,8 @@ type Props = {
   level: number;
   saving: boolean;
   /** Recording is paused: hollow dot, flat waveform, still caret, play icon. */
-  paused?: boolean;
-  onTogglePause?: () => void;
+  paused: boolean;
+  onTogglePause: () => void;
   /** Live text from on-device recognition; empty until something is heard. */
   transcript?: string;
   /** Small debug line for the device test; omitted when there is no problem. */
@@ -33,7 +33,7 @@ export function ListeningView({
   durationMs,
   level,
   saving,
-  paused = false,
+  paused,
   onTogglePause,
   transcript = '',
   transcriptNote = null,
@@ -41,7 +41,7 @@ export function ListeningView({
 }: Props) {
   const time = formatDuration(Math.floor(durationMs / 1000));
   const tail = useMemo(() => fadeTail(transcript), [transcript]);
-  const pauseDisabled = saving || !onTogglePause;
+  const pauseDisabled = saving;
 
   return (
     <>

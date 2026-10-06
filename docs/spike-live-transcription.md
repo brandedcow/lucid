@@ -1,6 +1,6 @@
 # Spike: live transcription during recording
 
-Branch `spike/live-transcription`. Supported: iPhone iOS 17+ and Android 13+ (API 33+); on older versions live text is off with a quiet note and recording continues. On-device recognition only; pause/resume is dropped. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. Nothing is saved; the transcript only appears on the capture screen. Not verified on any device yet.
+Branch `spike/live-transcription`. Supported: iPhone iOS 17+ and Android 13+ (API 33+); on older versions live text is off with a quiet note and recording continues. On-device recognition only. Pause/resume is built (see "Pause and resume design"); not yet device-verified. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. Nothing is saved; the transcript only appears on the capture screen. Not verified on any device yet.
 
 Code: `src/hooks/useLiveTranscription.ts`, wired in `src/screens/CaptureScreen.tsx`, shown by `src/screens/capture/ListeningView.tsx`. Watch the Metro / device logs for lines starting with `[transcription]`.
 
@@ -35,7 +35,7 @@ Record a few dreams on each platform and write down results.
 5. **Silence.** Stay quiet for 30 seconds, then speak. Does text resume? (The spike restarts recognition after silence. A restart counts as failed only when the previous session lasted under 2 seconds and produced no result; after 5 failed restarts in a row it gives up and the debug line says live text stopped. Any result resets the count.) On Android, note any beeps at restarts.
 6. **iOS audio session / interruptions.** Look for `error interrupted` or `audio-capture` lines. Test: incoming call or alarm during recording, lock screen, switching app and back, plugging in or removing headphones or Bluetooth. Does the m4a survive? Does the recording volume drop or sound muffled (the library defaults the session to `playAndRecord` with `measurement` mode, which can change input processing)? Does playback afterwards still work and use the speaker?
 7. **Android mic lock.** Does starting live text make the recorder fail, or the reverse (the m4a is silent or empty, `audio-capture` or `busy` errors)? Check which one started first. Try with another app using the mic, and with the phone's default voice assistant.
-8. ~~**Pause / resume.**~~ Obsolete: the pause button is hidden in the spike and pause/resume will be removed. Skip.
+8. **Pause / resume.** Superseded: the earlier "pause hidden/obsolete" note no longer applies. See the pause and resume device checks below.
 9. **Is on-device really used? (airplane-mode test, on each platform.)** Turn on airplane mode before starting. If live text still works, it is on-device; this is the proof. If it only works online, it is using the cloud and the on-device request was ignored (the library only honors the request when the device supports it). On Android also check the log line `installed on-device locales:`; an empty list means the app could not verify the model and tried anyway.
 10. **Permissions.** First run should prompt for microphone and speech recognition (iOS). Denying speech recognition should leave recording working with no alarming message other than the small grey debug line.
 11. **Battery / heat** over a 5 minute session: rough impressions of battery drop and how warm the phone gets.
@@ -44,6 +44,30 @@ Record a few dreams on each platform and write down results.
 14. **Android restarts.** Over 3 to 5 minutes, count `end` / `restarting` log lines and note any recognizer beeps.
 15. **iOS interruptions.** Lock the screen mid-recording; take a call or let an alarm ring; plug in earphones. Note the effect on live text and on the m4a.
 16. **Permission edge cases.** Deny speech permission on first run (recording must still work). Grant it on first run mid-recording and note any gap in the m4a. Tap Save while the first-run permission dialog is showing.
+
+## Pause and resume design
+
+The pause button is back on the capture screen. `CaptureScreen` owns a `paused` state (with a ref mirror) that is the UI truth and follows the recorder; the hook's own `paused` is not used by the screen.
+
+- **Order.** Pause and resume always act on the recorder first, then on recognition, without awaiting between them. The recorder is authoritative: if `recorder.pause()` or `recorder.resume()` throws, nothing else changes. If `transcription.resume()` returns false, the screen stays resumed, the recording continues, and live text just stops growing (the debug line shows `transcription.error`; no alert).
+- **Toggle guards.** A tap is ignored within 300 ms of the last one, and once Save has been pressed. Save works while paused or while a resume is in flight (both stops run in parallel as before).
+- **Hook.** `resume()` is single-flight and last intent wins: a resume while one is in flight shares its result, and a pause during the wait is honored when the old session finishes winding down. `stop()` skips the second native stop when the hook is already stopping. Reason (iOS): in the library source a second stop() takes the reset branch and cancels the final-result flush, so the last words of a paused session would be lost.
+- **Reconcile.** If the OS restarts the recorder while the UI says paused, a 500 ms debounced check calls `recorder.pause()` again (never `transcription.pause()`). After 3 re-pauses without effect the screen follows the recorder and resumes (recorder, then recognition). The count resets on every user toggle. The opposite case (recorder stopped by the OS while the UI says recording) is not handled; record what the device shows.
+- **Accepted gaps.** A native `stop()` that throws during pause is not realistically reachable and is not handled (a later resume could then start a second session). A resume after a fatal error whose `end` has not arrived yet can fail and leave live text off until the next resume; the recording is unaffected.
+
+### Pause and resume: device checks (not done yet)
+
+None of these have been run on a device. Do them on iOS and Android.
+
+- **Seam word loss.** Speak continuously across a pause and a resume. Are words lost or doubled at the seam?
+- **Android.** A paused MediaRecorder plus a new SpeechRecognizer on resume: any beep, busy or audio-capture error, or the recorder going silent?
+- **iOS audio session** after resume: still recording and recognizing? Does the OS auto-resume a recorder the user paused? If so, does the reconcile fire, and how often (look for repeated recorder re-pause)?
+- **Native `end` never arriving** after pause: does a later resume still start live text?
+- **Save while paused**, and Save while a pause is still draining on iOS: does the final refinement of the last words arrive?
+- **Pause during the first-run permission dialog.**
+- **Lock, call or background while paused**, then return and resume.
+- **Saved m4a** from a paused-then-saved session (and a paused-resumed-saved one): valid, plays, and the length matches the time actually recorded (not including paused time).
+- **Fading transcript.** Three brightness tiers across about 3 lines; the floor (dimmest) line is still readable; a clipped top line is acceptable; check on both platforms. Caption wording: "Audio and transcript are both kept" reads as intended.
 
 ## Experiment switches (JS only)
 
@@ -60,5 +84,5 @@ Both the `expo-audio` and `expo-speech-recognition` plugins write `NSMicrophoneU
 
 - Transcript is not stored, not sent to the review screen, and is lost on save.
 - English (en-US) only.
-- The pause button is hidden; `pause`/`resume` remain in `useDreamRecorder` until they are removed.
+- Pause/resume is built and unit-tested with mocks only; it has not been run on any device.
 - The debug line under the live text is for the device test and would be removed later.
