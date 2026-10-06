@@ -4,19 +4,57 @@ import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-spe
 
 const LANG = 'en-US';
 const RESTART_DELAY_MS = 300;
-/** Give up after this many restarts in a row that produced no result. */
-const MAX_EMPTY_RESTARTS = 5;
+/** A session shorter than this that produced no result counts as a failed restart. */
+const MIN_HEALTHY_SESSION_MS = 2000;
+/** Give up when more than this many restarts in a row failed. Any result resets the count. */
+const MAX_FAILED_RESTARTS = 5;
+/** How long start() waits for the previous session's `end` before aborting it. */
+const START_WAIT_FOR_END_MS = 1000;
+/** How long stop() waits for the final result and `end` before resolving anyway. */
+const STOP_WAIT_FOR_END_MS = 1500;
 /** Errors where retrying cannot help. */
 const FATAL_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported']);
 /** Errors that just mean nothing was heard; recognition is restarted quietly. */
 const QUIET_ERRORS = new Set(['no-speech', 'speech-timeout', 'aborted']);
 
+const MIN_ANDROID_API = 33;
+const MIN_IOS_MAJOR = 17;
+
+/**
+ * iOS audio session experiment, flippable with a JS reload (no native rebuild).
+ * 'default': let the speech library set its own session (`playAndRecord` + `measurement`).
+ * 'matchExpoAudio': ask for the session expo-audio uses (`playAndRecord`, speaker, Bluetooth).
+ */
+export const IOS_SESSION_MODE: 'default' | 'matchExpoAudio' = 'default';
+
 const MODEL_MISSING =
   'On-device speech model is not installed. Live text is off (audio is still recording).';
+// Placeholder wording: this is user-owned copy and needs the owner's approval before release.
+const UNSUPPORTED_OS = "Live text isn't available on this phone.";
 
 const log = (...args: unknown[]) => console.log('[transcription]', ...args);
 
 const join = (a: string, b: string) => (a && b ? `${a} ${b}` : a || b);
+
+type Phase = 'idle' | 'starting' | 'running' | 'stopping';
+
+function osTooOld(): boolean {
+  if (Platform.OS === 'android') return Number(Platform.Version) < MIN_ANDROID_API;
+  if (Platform.OS === 'ios') return Number.parseInt(String(Platform.Version), 10) < MIN_IOS_MAJOR;
+  return false;
+}
+
+function logIosSession(label: string) {
+  if (Platform.OS !== 'ios') return;
+  try {
+    log(
+      `iOS audio session ${label}:`,
+      ExpoSpeechRecognitionModule.getAudioSessionCategoryAndOptionsIOS(),
+    );
+  } catch (e) {
+    log('could not read iOS audio session', e);
+  }
+}
 
 /**
  * Live, on-device speech-to-text for the capture screen. Spike: runs alongside the expo-audio
@@ -29,49 +67,114 @@ export function useLiveTranscription() {
   const [isSupported, setIsSupported] = useState(true);
   const [listening, setListening] = useState(false);
 
+  /** Bumped by every start/stop/unmount so async work from an older session can bail out. */
+  const token = useRef(0);
+  const phase = useRef<Phase>('idle');
   const wanted = useRef(false);
+  const committedRef = useRef('');
   const interimRef = useRef('');
-  const emptyRestarts = useRef(0);
+  const failedRestarts = useRef(0);
+  const sessionStartedAt = useRef(0);
+  const sessionHadResult = useRef(false);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endWaiters = useRef<(() => void)[]>([]);
+
+  const clearRestartTimer = () => {
+    if (restartTimer.current) {
+      clearTimeout(restartTimer.current);
+      restartTimer.current = null;
+    }
+  };
+
+  const setCommittedText = (text: string) => {
+    committedRef.current = text;
+    setCommitted(text);
+  };
+
+  const setInterimText = (text: string) => {
+    interimRef.current = text;
+    setInterim(text);
+  };
+
+  const currentText = () => join(committedRef.current, interimRef.current);
 
   const commitInterim = () => {
     const pending = interimRef.current;
-    interimRef.current = '';
-    setInterim('');
-    if (pending) setCommitted((prev) => join(prev, pending));
+    setInterimText('');
+    if (pending) setCommittedText(join(committedRef.current, pending));
   };
 
+  const notifyEnd = () => {
+    const waiters = endWaiters.current;
+    endWaiters.current = [];
+    waiters.forEach((resolve) => resolve());
+  };
+
+  /** Resolves true when `end` arrives, false on timeout. */
+  const waitForEnd = (ms: number) =>
+    new Promise<boolean>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        endWaiters.current = endWaiters.current.filter((w) => w !== done);
+        resolve(false);
+      }, ms);
+      endWaiters.current.push(done);
+    });
+
   const beginRecognition = () => {
+    logIosSession('before start');
     ExpoSpeechRecognitionModule.start({
       lang: LANG,
       interimResults: true,
       continuous: true,
       requiresOnDeviceRecognition: true,
+      ...(Platform.OS === 'ios' && IOS_SESSION_MODE === 'matchExpoAudio'
+        ? {
+            iosCategory: {
+              category: 'playAndRecord' as const,
+              categoryOptions: ['defaultToSpeaker' as const, 'allowBluetooth' as const],
+              mode: 'default' as const,
+            },
+          }
+        : {}),
     });
+    logIosSession('after start');
+    sessionStartedAt.current = Date.now();
+    sessionHadResult.current = false;
   };
 
   useSpeechRecognitionEvent('start', () => {
     log('start');
-    setListening(true);
+    logIosSession('on start event');
+    if (phase.current === 'running') setListening(true);
   });
 
-  useSpeechRecognitionEvent('audiostart', () => log('audio capture started'));
-  useSpeechRecognitionEvent('audioend', () => log('audio capture ended'));
+  useSpeechRecognitionEvent('audiostart', (event) =>
+    log('audiostart', event?.timestamp, event?.uri ?? ''),
+  );
+  useSpeechRecognitionEvent('audioend', (event) =>
+    log('audioend', event?.timestamp, event?.uri ?? ''),
+  );
 
   useSpeechRecognitionEvent('result', (event) => {
+    if (phase.current !== 'running' && phase.current !== 'stopping') return;
     const text = event.results?.[0]?.transcript?.trim() ?? '';
-    emptyRestarts.current = 0;
+    sessionHadResult.current = true;
+    failedRestarts.current = 0;
+    setError(null);
     if (event.isFinal) {
-      interimRef.current = '';
-      setInterim('');
-      if (text) setCommitted((prev) => join(prev, text));
+      setInterimText('');
+      if (text) setCommittedText(join(committedRef.current, text));
     } else {
-      interimRef.current = text;
-      setInterim(text);
+      setInterimText(text);
     }
   });
 
   useSpeechRecognitionEvent('error', (event) => {
+    if (phase.current !== 'running') return;
     log('error', event.error, event.message, event.code);
     if (event.error === 'audio-capture' || event.error === 'interrupted') {
       log('audio session/mic problem:', event.error, event.message);
@@ -90,27 +193,51 @@ export function useLiveTranscription() {
   });
 
   useSpeechRecognitionEvent('end', () => {
-    log('end', wanted.current ? '(will restart)' : '');
+    if (phase.current !== 'running' && phase.current !== 'stopping') {
+      log('ignoring end from an old session');
+      return;
+    }
+    log('end', phase.current === 'running' && wanted.current ? '(will restart)' : '');
     setListening(false);
     // Whatever was still interim belongs to the text; keep it before a new session starts.
     commitInterim();
-    if (!wanted.current) return;
-    emptyRestarts.current += 1;
-    if (emptyRestarts.current > MAX_EMPTY_RESTARTS) {
-      log('giving up after repeated empty restarts');
+
+    if (phase.current === 'stopping') {
+      phase.current = 'idle';
+      notifyEnd();
+      return;
+    }
+    if (!wanted.current) {
+      phase.current = 'idle';
+      return;
+    }
+
+    const lasted = Date.now() - sessionStartedAt.current;
+    if (lasted < MIN_HEALTHY_SESSION_MS && !sessionHadResult.current) {
+      failedRestarts.current += 1;
+      log('session failed: no result in', lasted, 'ms; failures in a row:', failedRestarts.current);
+    } else {
+      failedRestarts.current = 0;
+    }
+    if (failedRestarts.current > MAX_FAILED_RESTARTS) {
+      log('giving up after repeated failed restarts');
       wanted.current = false;
+      phase.current = 'idle';
       setError((prev) => prev ?? 'Live text stopped (nothing was recognized).');
       return;
     }
+
+    const mine = token.current;
     restartTimer.current = setTimeout(() => {
       restartTimer.current = null;
-      if (!wanted.current) return;
+      if (mine !== token.current || !wanted.current || phase.current !== 'running') return;
       log('restarting');
       try {
         beginRecognition();
       } catch (e) {
         log('restart failed', e);
         wanted.current = false;
+        phase.current = 'idle';
         setError('Live text stopped.');
       }
     }, RESTART_DELAY_MS);
@@ -118,17 +245,55 @@ export function useLiveTranscription() {
 
   /** Starts live text. Resolves false (and sets `error`) if it cannot run; never throws. */
   const start = useCallback(async (): Promise<boolean> => {
+    // The API gate runs before anything native is touched.
+    if (osTooOld()) {
+      log('OS too old for live text', Platform.OS, Platform.Version);
+      setIsSupported(false);
+      setError(UNSUPPORTED_OS);
+      return false;
+    }
+
     try {
-      setCommitted('');
-      setInterim('');
-      interimRef.current = '';
+      // A previous session is still winding down: let it finish (or abort it) first.
+      const tokenBeforeWait = token.current;
+      if (phase.current === 'stopping') {
+        const ended = await waitForEnd(START_WAIT_FOR_END_MS);
+        if (!ended && phase.current === 'stopping') {
+          log('previous session did not end in time; aborting it');
+          try {
+            ExpoSpeechRecognitionModule.abort();
+          } catch (e) {
+            log('abort failed', e);
+          }
+          await waitForEnd(500);
+          phase.current = 'idle';
+        }
+        // stop() or unmount ran while we waited: this start is no longer wanted.
+        if (token.current !== tokenBeforeWait) return false;
+      }
+
+      clearRestartTimer();
+      const mine = ++token.current;
+      phase.current = 'starting';
+      wanted.current = false;
+      const stale = () => mine !== token.current;
+      const fail = () => {
+        if (!stale()) {
+          phase.current = 'idle';
+          wanted.current = false;
+        }
+        return false;
+      };
+
+      setCommittedText('');
+      setInterimText('');
       setError(null);
-      emptyRestarts.current = 0;
+      failedRestarts.current = 0;
 
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
         log('recognition not available on this device');
         setIsSupported(false);
-        return false;
+        return fail();
       }
       if (!ExpoSpeechRecognitionModule.supportsOnDeviceRecognition()) {
         log('on-device recognition not supported');
@@ -138,56 +303,82 @@ export function useLiveTranscription() {
             ? MODEL_MISSING
             : 'On-device speech recognition is not available on this device.',
         );
-        return false;
+        return fail();
       }
       setIsSupported(true);
 
-      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!permission.granted) {
-        log('permission not granted');
-        setError('Speech recognition permission was not granted.');
-        return false;
-      }
-
-      if (Platform.OS === 'android') {
-        const { installedLocales } = await ExpoSpeechRecognitionModule.getSupportedLocales({});
-        log('installed on-device locales:', installedLocales);
-        if (installedLocales.length > 0 && !installedLocales.includes(LANG)) {
-          setError(MODEL_MISSING);
-          return false;
+      try {
+        const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (stale()) return false;
+        if (!permission.granted) {
+          log('permission not granted');
+          setError('Speech recognition permission was not granted.');
+          return fail();
         }
-        // An empty list means we could not verify the model, so we try anyway.
-      }
 
-      wanted.current = true;
-      beginRecognition();
-      return true;
+        if (Platform.OS === 'android') {
+          const { installedLocales } = await ExpoSpeechRecognitionModule.getSupportedLocales({});
+          if (stale()) return false;
+          log('installed on-device locales:', installedLocales);
+          if (installedLocales.length > 0 && !installedLocales.includes(LANG)) {
+            setError(MODEL_MISSING);
+            return fail();
+          }
+          // An empty list means we could not verify the model, so we try anyway.
+        }
+
+        wanted.current = true;
+        phase.current = 'running';
+        beginRecognition();
+        return true;
+      } catch (e) {
+        log('start failed', e);
+        if (!stale()) setError('Live text could not start.');
+        return fail();
+      }
     } catch (e) {
       log('start failed', e);
-      wanted.current = false;
       setError('Live text could not start.');
       return false;
     }
   }, []);
 
-  const stop = useCallback(() => {
+  /**
+   * Stops live text. Resolves with the final transcript once the recognizer reports `end`
+   * (or after a short timeout), so the last words are not lost.
+   */
+  const stop = useCallback(async (): Promise<string> => {
     log('stop requested');
+    token.current += 1;
     wanted.current = false;
-    if (restartTimer.current) {
-      clearTimeout(restartTimer.current);
-      restartTimer.current = null;
-    }
+    clearRestartTimer();
+    if (phase.current === 'starting') phase.current = 'idle';
+    if (phase.current === 'running') phase.current = 'stopping';
+    const waiting = phase.current === 'stopping';
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch (e) {
       log('stop failed', e);
     }
+    if (waiting) await waitForEnd(STOP_WAIT_FOR_END_MS);
+    commitInterim();
+    return currentText();
+    // The helpers only touch refs and state setters, which are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(
     () => () => {
+      token.current += 1;
       wanted.current = false;
-      if (restartTimer.current) clearTimeout(restartTimer.current);
+      phase.current = 'idle';
+      clearRestartTimer();
+      notifyEnd();
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {
+        // Nothing to do on unmount.
+      }
     },
     [],
   );
