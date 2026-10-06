@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton, BackHandler } from 'react-native';
 import App from './App';
-import { discardRecording } from './src/services/dreamStorage';
+import { discardRecording, saveDream } from './src/services/dreamStorage';
 
 jest.mock('expo-file-system', () => jest.requireActual('./src/test/fakeFileSystem'));
 // The real provider renders nothing until it measures the screen, which never happens in tests.
@@ -17,6 +17,8 @@ jest.mock('expo-audio', () => ({
 jest.mock('./src/services/dreamStorage', () => ({
   discardRecording: jest.fn(),
   dreamAudioUri: jest.fn(),
+  saveDream: jest.fn(),
+  isIndexUnreadableError: () => false,
 }));
 
 // The heavy screens are replaced by small stubs that expose their callbacks as buttons.
@@ -50,6 +52,8 @@ jest.mock('./src/screens/ReviewScreen', () => {
         <Text>{`transcript:${p.transcript}`}</Text>
         <Text>{`title:${p.title}`}</Text>
         <Text>{`audio:${p.audio ? p.audio.uri : 'none'}`}</Text>
+        <Text>{`date:${p.date}`}</Text>
+        <Text>{`saving:${p.saving}`}</Text>
         <Pressable onPress={() => p.onTitleChange('My title')}>
           <Text>stub-set-title</Text>
         </Pressable>
@@ -62,13 +66,36 @@ jest.mock('./src/screens/ReviewScreen', () => {
         <Pressable onPress={p.onDone}>
           <Text>stub-done</Text>
         </Pressable>
+        <Pressable onPress={p.onFinishLater}>
+          <Text>stub-finish-later</Text>
+        </Pressable>
       </View>
     ),
   };
 });
 jest.mock('./src/screens/DreamListScreen', () => {
   const { Text } = require('react-native');
-  return { DreamListScreen: () => <Text>list-screen</Text> };
+  const { Pressable } = require('react-native');
+  const draft = {
+    id: '42',
+    createdAt: '2026-10-05T08:00:00.000Z',
+    durationMs: 9000,
+    audioFileName: '42.m4a',
+    title: 'Flooded hall',
+    tags: [],
+    transcript: 'it filled up',
+    status: 'draft',
+  };
+  return {
+    DreamListScreen: ({ onOpenDraft }: any) => (
+      <>
+        <Text>list-screen</Text>
+        <Pressable onPress={() => onOpenDraft(draft)}>
+          <Text>stub-open-draft</Text>
+        </Pressable>
+      </>
+    ),
+  };
 });
 
 let addListener: jest.SpyInstance;
@@ -89,6 +116,7 @@ const lastAlertButtons = () =>
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as any);
   addListener = jest.spyOn(BackHandler, 'addEventListener');
 });
 afterEach(() => jest.restoreAllMocks());
@@ -140,11 +168,130 @@ describe('App flow', () => {
     expect(discardRecording).not.toHaveBeenCalled();
   });
 
-  it('Done clears the session and shows the list', async () => {
+  it('Done saves the session as a finished dream, then clears it and shows the list', async () => {
     await render(<App />);
     await press('stub-save-recording');
     await press('Continue');
+    await press('stub-set-title');
     await press('stub-done');
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingUri: 'file:///cache/r.m4a',
+        status: 'saved',
+        details: expect.objectContaining({ title: 'My title', transcript: 'live' }),
+      }),
+    );
+    expect(screen.getByText('list-screen')).toBeTruthy();
+  });
+
+  it('Finish later saves a draft without a title, then shows the list', async () => {
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-finish-later');
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
+    expect(screen.getByText('list-screen')).toBeTruthy();
+  });
+
+  it('stays on Review with the session kept when saving fails', async () => {
+    jest.mocked(saveDream).mockRejectedValue(new Error('disk full'));
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not save your dream', 'Please try again.');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('title:My title')).toBeTruthy();
+    expect(screen.getByText('saving:false')).toBeTruthy();
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('shows today on Review for a new dream', async () => {
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    expect(screen.getByText(`date:${dateLabel(new Date())}`)).toBeTruthy();
+  });
+});
+
+const dateLabel = (d: Date) =>
+  d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+/** Saves a written dream as a draft so the list stub is on screen. */
+async function reachList() {
+  await render(<App />);
+  await press('stub-write');
+  await fireEvent.changeText(screen.getByLabelText('Dream text'), 'x');
+  await press('Continue');
+  await press('stub-finish-later');
+  jest.mocked(saveDream).mockClear();
+}
+
+describe('App draft reopening', () => {
+  it('opens a draft on Review with its fields and its created date', async () => {
+    await reachList();
+    await press('stub-open-draft');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('transcript:it filled up')).toBeTruthy();
+    expect(screen.getByText('title:Flooded hall')).toBeTruthy();
+    expect(
+      screen.getByText(`date:${dateLabel(new Date('2026-10-05T08:00:00.000Z'))}`),
+    ).toBeTruthy();
+  });
+
+  it('back from a reopened draft saves its edits as a draft and returns to the list', async () => {
+    await reachList();
+    await press('stub-open-draft');
+    await press('stub-set-title');
+    await press('stub-review-back');
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '42',
+        status: 'draft',
+        details: expect.objectContaining({ title: 'My title' }),
+      }),
+    );
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(screen.getByText('list-screen')).toBeTruthy();
+  });
+
+  it('hardware back from a reopened draft does the same', async () => {
+    await reachList();
+    await press('stub-open-draft');
+    expect(await hardwareBack()).toBe(true);
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ id: '42', status: 'draft' }));
+    expect(screen.getByText('list-screen')).toBeTruthy();
+  });
+
+  it('stays on the draft when saving it on the way back fails', async () => {
+    await reachList();
+    await press('stub-open-draft');
+    jest.mocked(saveDream).mockRejectedValue(new Error('disk full'));
+    await press('stub-review-back');
+    expect(Alert.alert).toHaveBeenCalled();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+  });
+});
+
+describe('App Review back while saving', () => {
+  it('blocks the arrow and hardware back until the save finishes', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    jest.mocked(saveDream).mockReturnValue(new Promise((r) => (resolve = r)) as any);
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(screen.getByText('saving:true')).toBeTruthy();
+
+    await press('stub-review-back');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.queryByText('Read it back')).toBeNull();
+
+    await act(async () => resolve({ id: '1', createdAt: 'c' }));
     expect(screen.getByText('list-screen')).toBeTruthy();
   });
 });
@@ -228,6 +375,7 @@ describe('App Android hardware back', () => {
     expect(await hardwareBack()).toBe(false);
     await press('stub-save-recording');
     await press('Continue');
+    await press('stub-set-title');
     await press('stub-done');
     expect(await hardwareBack()).toBe(false);
   });

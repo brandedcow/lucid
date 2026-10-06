@@ -56,20 +56,29 @@ export default function App() {
     }
   };
 
-  // TODO(Review chunk): save the reopened draft's current edits as a draft before leaving.
-  const onBackFromDraftReview = () => {
+  const leaveToList = () => {
     dream.clear();
+    setFromReview(false);
     setScreen('list');
+  };
+
+  // Saves, then leaves only if the save worked; on failure the Alert is shown and the session stays.
+  const saveAndLeave = async (status: 'draft' | 'saved') => {
+    if (await dream.save(status)) leaveToList();
   };
 
   const backFromReview = () => {
     if (!session) return;
-    if (reviewBack(session) === 'draftToList') onBackFromDraftReview();
-    else {
+    const target = reviewBack(session, dream.isSaving());
+    if (target === 'draftToList') void saveAndLeave('draft');
+    else if (target === 'readItBack') {
       setFromReview(false);
       setScreen('readItBack');
     }
   };
+
+  // A reopened draft shows when it was first stored; a new dream shows today.
+  const dreamDate = formatToday(session?.createdAt ? new Date(session.createdAt) : new Date());
 
   // Android hardware back mirrors the on-screen back arrows. Capture and the list keep the default.
   useEffect(() => {
@@ -118,7 +127,7 @@ export default function App() {
             setScreen('review');
           }}
           onBack={backFromReadItBack}
-          date={formatToday()}
+          date={dreamDate}
         />
       )}
       {screen === 'review' && session && (
@@ -132,19 +141,29 @@ export default function App() {
           onEmotionChange={dream.setEmotion}
           tags={session.tags}
           onTagsChange={dream.setTags}
+          tagDraft={session.tagDraft}
+          onTagDraftChange={dream.setTagDraft}
+          saving={dream.saving}
+          date={dreamDate}
           onEditTranscript={() => {
             setFromReview(true);
             setScreen('readItBack');
           }}
-          onDone={() => {
-            dream.clear();
-            setScreen('list');
-          }}
+          onDone={() => void saveAndLeave('saved')}
+          onFinishLater={() => void saveAndLeave('draft')}
           onBack={backFromReview}
-          onRerecord={leaveToCapture}
         />
       )}
-      {screen === 'list' && <DreamListScreen onRecord={() => setScreen('capture')} />}
+      {screen === 'list' && (
+        <DreamListScreen
+          onRecord={() => setScreen('capture')}
+          onOpenDraft={(draft) => {
+            dream.openDraft(draft);
+            setFromReview(false);
+            setScreen('review');
+          }}
+        />
+      )}
       <StatusBar style="light" />
     </SafeAreaProvider>
   );

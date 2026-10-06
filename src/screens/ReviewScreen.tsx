@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,23 +10,25 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { RecordingPlayer } from '../components/RecordingPlayer';
+import { EmotionChips } from '../components/EmotionChips';
+import { MicIcon } from '../components/MicIcon';
 import { TagInput } from '../components/TagInput';
-import { discardRecording, listTags, saveDream } from '../services/dreamStorage';
+import { listEmotions, listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
-import { addTag } from '../utils/tags';
+import { countWords, formatDuration } from '../utils/format';
 
 /**
- * Prop contract (stable; the Review rewrite in a later chunk keeps these names):
- * - transcript: the final edited text from the session; saved with the dream.
+ * Prop contract:
+ * - transcript: the final edited text from the session; shown as a 3-line preview.
  * - audio / durationMs: the recording, if any. durationMs is 0 and audio absent for a written dream.
- *   audio.persisted is true for a reopened draft's permanent file, which is never discarded here.
- * - title / emotion / tags and their setters: session state, so edits survive Review -> Edit -> Review.
- * - onEditTranscript: go back to Read it back to edit the text.
- * - onDone: the finished dream was saved (status 'saved').
- * - onFinishLater / date: not used yet (arrive with the rewrite: save as a draft; header date label).
+ * - title / emotion / tags / tagDraft and their setters: session state, so edits (including tag text
+ *   typed but not yet confirmed) survive Review -> Edit -> Review.
+ * - onEditTranscript: go back to Read it back to edit the text (the whole preview card is the button).
+ * - onDone / onFinishLater: the parent saves the session (as 'saved' / as a draft) and leaves.
+ *   Done is disabled until there is a title; Finish later is always available.
+ * - saving: a save is in flight; Done, Finish later and the back arrow do nothing.
  * - onBack: the back arrow; the parent decides where it goes.
- * - onRerecord: temporary; called after an unsaved cache recording was deleted (removed by the rewrite).
+ * - date: label shown in the header ("Dream · <date>").
  */
 export type ReviewScreenProps = {
   transcript: string;
@@ -39,12 +40,14 @@ export type ReviewScreenProps = {
   onEmotionChange: (emotion: string) => void;
   tags: string[];
   onTagsChange: (tags: string[]) => void;
+  tagDraft: string;
+  onTagDraftChange: (text: string) => void;
   onEditTranscript: () => void;
   onDone: () => void;
-  onFinishLater?: () => void;
+  onFinishLater: () => void;
+  saving?: boolean;
   onBack: () => void;
   date?: string;
-  onRerecord: () => void;
 };
 
 export function ReviewScreen({
@@ -52,57 +55,34 @@ export function ReviewScreen({
   audio,
   durationMs,
   title,
-  onTitleChange: setTitle,
+  onTitleChange,
   emotion,
-  onEmotionChange: setEmotion,
+  onEmotionChange,
   tags,
-  onTagsChange: setTags,
+  onTagsChange,
+  tagDraft,
+  onTagDraftChange,
   onEditTranscript,
   onDone,
+  onFinishLater,
+  saving = false,
   onBack,
-  onRerecord,
+  date,
 }: ReviewScreenProps) {
-  const [draft, setDraft] = useState('');
-  const [known, setKnown] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [knownTags, setKnownTags] = useState<string[]>([]);
+  const [knownEmotions, setKnownEmotions] = useState<string[]>([]);
 
   useEffect(() => {
-    listTags().then(setKnown);
+    listTags().then(setKnownTags);
+    listEmotions().then(setKnownEmotions);
   }, []);
 
-  const canSave = title.trim().length > 0 && !saving;
-
-  const save = async () => {
-    if (!canSave) return;
-    setSaving(true);
-    try {
-      // Include a tag that was typed but not yet confirmed.
-      await saveDream({
-        // A reopened draft's audio is already in permanent storage.
-        ...(audio && !audio.persisted ? { recordingUri: audio.uri } : {}),
-        durationMs,
-        details: { title, emotion, tags: addTag(tags, draft), transcript },
-        status: 'saved',
-      });
-      onDone();
-    } catch {
-      Alert.alert('Could not save your dream', 'Please try again.');
-      setSaving(false);
-    }
-  };
-
-  const confirmRerecord = () =>
-    Alert.alert('Delete this recording?', 'It will be deleted and cannot be recovered.', [
-      { text: 'Keep', style: 'cancel' },
-      {
-        text: 'Delete and record again',
-        style: 'destructive',
-        onPress: () => {
-          if (audio && !audio.persisted) discardRecording(audio.uri);
-          onRerecord();
-        },
-      },
-    ]);
+  const canDone = title.trim().length > 0 && !saving;
+  const words = countWords(transcript);
+  const wordLabel = `${words} ${words === 1 ? 'word' : 'words'}`;
+  const meta = audio
+    ? `${formatDuration(Math.round(durationMs / 1000))} · ${wordLabel}`
+    : wordLabel;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -114,80 +94,111 @@ export function ReviewScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={onBack}
+            accessibilityState={{ disabled: saving }}
+            onPress={() => {
+              if (!saving) onBack();
+            }}
             hitSlop={12}
+            style={styles.backButton}
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={onEditTranscript} hitSlop={12}>
-            <Text style={styles.editLink}>Edit text</Text>
-          </Pressable>
+          <Text style={styles.date}>{date ? `Dream · ${date}` : 'Dream'}</Text>
+          <View style={styles.backButton} />
         </View>
+
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Title this dream"
-            placeholderTextColor={colors.faint}
-            accessibilityLabel="Title"
-            autoFocus
-            maxLength={80}
-            returnKeyType="done"
-            style={styles.titleInput}
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Title</Text>
+            <TextInput
+              value={title}
+              onChangeText={onTitleChange}
+              placeholder="Name this dream"
+              placeholderTextColor={colors.faint}
+              accessibilityLabel="Title"
+              autoFocus={title.length === 0}
+              maxLength={80}
+              returnKeyType="done"
+              style={styles.titleInput}
+            />
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit text"
+            onPress={onEditTranscript}
+            style={styles.card}
+          >
+            <Text numberOfLines={3} style={styles.preview}>
+              {transcript.trim() ? transcript : 'No text yet'}
+            </Text>
+            <View style={styles.metaRow}>
+              <View style={styles.metaLeft}>
+                {audio && <MicIcon color={colors.muted} size={14} />}
+                <Text style={styles.meta}>{meta}</Text>
+              </View>
+              <Text style={styles.edit}>Edit ›</Text>
+            </View>
+          </Pressable>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Emotion</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>How did it feel?</Text>
+              <Text style={styles.optional}>Optional</Text>
+            </View>
             <TextInput
               value={emotion}
-              onChangeText={setEmotion}
-              placeholder="How did it feel? (optional)"
+              onChangeText={onEmotionChange}
+              placeholder="Your own word..."
               placeholderTextColor={colors.faint}
+              accessibilityLabel="How did it feel?"
               maxLength={120}
               returnKeyType="done"
               style={styles.input}
             />
+            <EmotionChips known={knownEmotions} value={emotion} onChange={onEmotionChange} />
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Tags</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Tags</Text>
+              <Text style={styles.optional}>Optional</Text>
+            </View>
             <TagInput
               tags={tags}
-              onTagsChange={setTags}
-              draft={draft}
-              onDraftChange={setDraft}
-              suggestions={known}
+              onTagsChange={onTagsChange}
+              draft={tagDraft}
+              onDraftChange={onTagDraftChange}
+              suggestions={knownTags}
             />
           </View>
-        </ScrollView>
 
-        <View style={styles.footer}>
-          {audio && <RecordingPlayer uri={audio.uri} durationMs={audio.durationMs} />}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canSave }}
-            disabled={!canSave}
-            onPress={save}
-            style={[styles.save, !canSave && styles.saveDisabled]}
-          >
-            <Text style={styles.saveLabel}>{saving ? 'Saving…' : 'Save dream'}</Text>
-          </Pressable>
-          {audio && !audio.persisted && (
+          <View style={styles.footer}>
             <Pressable
               accessibilityRole="button"
-              disabled={saving}
-              onPress={confirmRerecord}
-              hitSlop={8}
-              style={styles.rerecord}
+              accessibilityState={{ disabled: !canDone }}
+              disabled={!canDone}
+              onPress={onDone}
+              style={[styles.done, !canDone && styles.doneDisabled]}
             >
-              <Text style={styles.rerecordLabel}>Delete and record again</Text>
+              <Text style={styles.doneLabel}>{saving ? 'Saving…' : 'Done'}</Text>
             </Pressable>
-          )}
-        </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: saving }}
+              disabled={saving}
+              onPress={onFinishLater}
+              hitSlop={8}
+              style={styles.later}
+            >
+              <Text style={styles.laterLabel}>Finish later</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -203,17 +214,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+  backButton: { width: 32 },
   back: { color: colors.text, fontSize: 24 },
-  editLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { padding: spacing.lg, gap: spacing.xl },
+  date: { color: colors.muted, fontSize: 13 },
+  content: { padding: spacing.lg, gap: spacing.lg },
   field: { gap: spacing.sm },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   label: { color: colors.faint, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase' },
+  optional: { color: colors.faint, fontSize: 12 },
   titleInput: {
     color: colors.text,
     fontFamily: fonts.serif,
-    fontSize: 36,
+    fontSize: 32,
     paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  preview: { color: colors.text, fontFamily: fonts.serif, fontSize: 16, lineHeight: 24 },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  metaLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  meta: { color: colors.muted, fontSize: 13 },
+  edit: { color: colors.muted, fontSize: 13 },
   input: {
     color: colors.text,
     fontSize: 16,
@@ -221,16 +250,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  footer: { padding: spacing.lg, gap: spacing.md },
-  save: {
+  footer: { gap: spacing.md, paddingTop: spacing.md },
+  done: {
     height: 56,
     borderRadius: 28,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveDisabled: { opacity: 0.4 },
-  saveLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
-  rerecord: { alignItems: 'center', paddingVertical: spacing.sm },
-  rerecordLabel: { color: colors.muted, fontSize: 14 },
+  doneDisabled: { opacity: 0.4 },
+  doneLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
+  later: { alignItems: 'center', paddingVertical: spacing.sm },
+  laterLabel: { color: colors.muted, fontSize: 14 },
 });

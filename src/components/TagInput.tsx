@@ -56,7 +56,7 @@ export function TagInput({ tags, onTagsChange, draft, onDraftChange, suggestions
           }
         }}
         onSubmitEditing={commit}
-        placeholder="Add a tag"
+        placeholder="Add a tag..."
         placeholderTextColor={colors.faint}
         autoCapitalize="none"
         autoCorrect={false}
@@ -76,7 +76,7 @@ export function TagInput({ tags, onTagsChange, draft, onDraftChange, suggestions
               }}
               style={styles.chip}
             >
-              <Text style={styles.chipLabel}>{tag}</Text>
+              <Text style={styles.chipLabel}>+ {tag}</Text>
             </Pressable>
           ))}
         </View>

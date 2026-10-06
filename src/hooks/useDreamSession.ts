@@ -1,6 +1,9 @@
-import { useMemo, useReducer } from 'react';
-import { dreamAudioUri } from '../services/dreamStorage';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Alert } from 'react-native';
+import { dreamAudioUri, isIndexUnreadableError, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
+import { addTag } from '../utils/tags';
+import { hasSomethingToKeep } from '../utils/sessionNavigation';
 
 /** Everything about the dream being captured or edited, kept above the screens. */
 export type Session = {
@@ -17,6 +20,8 @@ export type Session = {
   title: string;
   emotion: string;
   tags: string[];
+  /** Tag text typed on Review but not yet turned into a tag; kept so it survives Review -> Edit. */
+  tagDraft: string;
   passedThroughReadItBack: boolean;
 };
 
@@ -30,6 +35,8 @@ export type SessionAction =
   | { type: 'setTitle'; value: string }
   | { type: 'setEmotion'; value: string }
   | { type: 'setTags'; value: string[] }
+  | { type: 'setTagDraft'; value: string }
+  | { type: 'markSaved'; id: string; createdAt: string; audioUri: string | null }
   | { type: 'markPassedThroughReadItBack' }
   | { type: 'clear' };
 
@@ -48,6 +55,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
         title: '',
         emotion: '',
         tags: [],
+        tagDraft: '',
         passedThroughReadItBack: false,
       };
     case 'startWriting':
@@ -57,6 +65,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
         title: '',
         emotion: '',
         tags: [],
+        tagDraft: '',
         passedThroughReadItBack: false,
       };
     case 'openDraft':
@@ -76,6 +85,19 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
       return { ...state, emotion: action.value };
     case 'setTags':
       return { ...state, tags: action.value };
+    case 'setTagDraft':
+      return { ...state, tagDraft: action.value };
+    case 'markSaved':
+      // The dream now exists: a second save updates it, and a new recording lives in permanent
+      // storage (the cache file was deleted by the save).
+      return {
+        ...state,
+        id: action.id,
+        createdAt: action.createdAt,
+        ...(state.audio && !state.audio.persisted && action.audioUri
+          ? { audio: { ...state.audio, uri: action.audioUri, persisted: true } }
+          : {}),
+      };
     case 'markPassedThroughReadItBack':
       return { ...state, passedThroughReadItBack: true };
     default:
@@ -95,13 +117,29 @@ export function sessionFromDraft(dream: Dream): Session {
     title: dream.title,
     emotion: dream.emotion ?? '',
     tags: dream.tags,
+    tagDraft: '',
     // A draft already went through Read it back once.
     passedThroughReadItBack: true,
   };
 }
 
+export type SaveStatus = 'draft' | 'saved';
+
+const SAVE_FAILED = ['Could not save your dream', 'Please try again.'] as const;
+const INDEX_UNREADABLE_MESSAGE = [
+  'Could not save your dream',
+  'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
+] as const;
+
 export function useDreamSession() {
   const [session, dispatch] = useReducer(sessionReducer, null);
+  const [saving, setSaving] = useState(false);
+  // The ref is the real guard: two taps in the same frame both see the same stale `saving` state.
+  const savingRef = useRef(false);
+  const sessionRef = useRef<Session | null>(null);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   const actions = useMemo(
     () => ({
@@ -114,13 +152,65 @@ export function useDreamSession() {
       setTitle: (value: string) => dispatch({ type: 'setTitle', value }),
       setEmotion: (value: string) => dispatch({ type: 'setEmotion', value }),
       setTags: (value: string[]) => dispatch({ type: 'setTags', value }),
+      setTagDraft: (value: string) => dispatch({ type: 'setTagDraft', value }),
       markPassedThroughReadItBack: () => dispatch({ type: 'markPassedThroughReadItBack' }),
       clear: () => dispatch({ type: 'clear' }),
     }),
     [],
   );
 
-  return { session, ...actions };
+  /** True while a save is in flight (read from the ref, so it is never stale). */
+  const isSaving = useCallback(() => savingRef.current, []);
+
+  /**
+   * Saves the current session as a finished dream or a draft. Resolves true when it is safe to
+   * leave (saved, or nothing worth keeping), false when it did not save (already saving, no title,
+   * or an error, which shows an Alert and keeps the session and recording).
+   */
+  const save = useCallback(async (status: SaveStatus): Promise<boolean> => {
+    const current = sessionRef.current;
+    if (!current || savingRef.current) return false;
+    if (status === 'saved' && current.title.trim().length === 0) return false;
+    // Do not create an empty draft. A reopened draft already exists, so it is saved as it is.
+    if (status === 'draft' && !current.id && !hasSomethingToKeep(current)) return true;
+
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const { audio } = current;
+      const dream = await saveDream({
+        ...(current.id ? { id: current.id } : {}),
+        // A reopened draft's audio is already in permanent storage.
+        ...(audio && !audio.persisted ? { recordingUri: audio.uri } : {}),
+        durationMs: audio?.durationMs ?? 0,
+        // Always strings: undefined would keep the stored value instead of clearing it.
+        details: {
+          title: current.title,
+          emotion: current.emotion,
+          // Include a tag that was typed but not yet confirmed.
+          tags: addTag(current.tags, current.tagDraft),
+          transcript: current.transcript,
+        },
+        status,
+      });
+      dispatch({
+        type: 'markSaved',
+        id: dream.id,
+        createdAt: dream.createdAt,
+        audioUri: dreamAudioUri(dream),
+      });
+      return true;
+    } catch (e) {
+      const [heading, message] = isIndexUnreadableError(e) ? INDEX_UNREADABLE_MESSAGE : SAVE_FAILED;
+      Alert.alert(heading, message);
+      return false;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }, []);
+
+  return { session, saving, isSaving, save, ...actions };
 }
 
 export type DreamSessionApi = ReturnType<typeof useDreamSession>;

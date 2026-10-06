@@ -1,8 +1,19 @@
-import { Session } from '../hooks/useDreamSession';
+import type { Session } from '../hooks/useDreamSession';
 
 /** True when leaving would lose a recording or text the user has not saved anywhere. */
 export function hasAtStake(session: Session): boolean {
   return !!session.audio || session.transcript.trim().length > 0;
+}
+
+/** True when saving a draft would keep something: audio, text, a title, an emotion or any tag. */
+export function hasSomethingToKeep(session: Session): boolean {
+  return (
+    hasAtStake(session) ||
+    session.title.trim().length > 0 ||
+    session.emotion.trim().length > 0 ||
+    session.tags.length > 0 ||
+    session.tagDraft.trim().length > 0
+  );
 }
 
 export type ReadItBackBack = 'review' | 'confirmDiscard' | 'capture' | 'list';
@@ -17,7 +28,14 @@ export function readItBackBack(session: Session, fromReview: boolean): ReadItBac
   return hasAtStake(session) ? 'confirmDiscard' : 'capture';
 }
 
-/** Where the Review back-arrow (and Android back) goes. */
-export function reviewBack(session: Session): 'readItBack' | 'draftToList' {
+/**
+ * Where the Review back-arrow (and Android back) goes. While a save is in flight it goes nowhere,
+ * so leaving cannot race the save.
+ */
+export function reviewBack(
+  session: Session,
+  saving = false,
+): 'blocked' | 'readItBack' | 'draftToList' {
+  if (saving) return 'blocked';
   return session.origin === 'draft' ? 'draftToList' : 'readItBack';
 }

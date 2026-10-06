@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { ComponentProps, useState } from 'react';
-import { Alert, AlertButton } from 'react-native';
-import { discardRecording, saveDream } from '../services/dreamStorage';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { ComponentProps, useEffect } from 'react';
+import { Alert } from 'react-native';
+import { useDreamSession } from '../hooks/useDreamSession';
+import { INDEX_UNREADABLE, saveDream } from '../services/dreamStorage';
 import { ReviewScreen } from './ReviewScreen';
 
 jest.mock('expo-audio', () => ({
@@ -11,84 +12,217 @@ jest.mock('expo-audio', () => ({
 }));
 
 jest.mock('../services/dreamStorage', () => ({
+  INDEX_UNREADABLE: 'INDEX_UNREADABLE',
   listTags: jest.fn().mockResolvedValue(['water']),
-  saveDream: jest.fn().mockResolvedValue({}),
-  discardRecording: jest.fn(),
+  listEmotions: jest.fn().mockResolvedValue(['calm', 'uneasy']),
+  saveDream: jest.fn(),
+  dreamAudioUri: jest.fn((d: { audioFileName?: string }) =>
+    d.audioFileName ? `file:///docs/dreams/${d.audioFileName}` : null,
+  ),
+  isIndexUnreadableError: (e: { code?: string } | null) => e?.code === 'INDEX_UNREADABLE',
 }));
 
-const recording = { uri: 'file:///cache/recording.m4a', durationMs: 42_000, persisted: false };
+const save = saveDream as jest.Mock;
+const recording = { uri: 'file:///cache/recording.m4a', durationMs: 42_000 };
 
-type Overrides = Partial<ComponentProps<typeof ReviewScreen>>;
+type Extra = Partial<ComponentProps<typeof ReviewScreen>> & {
+  transcript?: string;
+  /** Start as a reopened draft with this id. */
+  draftId?: string;
+  noAudio?: boolean;
+};
 
-/** Holds title/emotion/tags the way the session does, so the controlled fields work. */
-function Harness(props: Overrides) {
-  const [title, setTitle] = useState('');
-  const [emotion, setEmotion] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+const callbacks = {
+  onLeft: jest.fn(),
+  onBack: jest.fn(),
+  onEdit: jest.fn(),
+};
+
+/**
+ * Wires the screen to the real session hook the way App does: Done and Finish later save, and
+ * leave only if the save worked.
+ */
+function Harness({ transcript = 'I was in a hallway', draftId, noAudio }: Extra) {
+  const dream = useDreamSession();
+  const { session } = dream;
+  useEffect(() => {
+    if (draftId) {
+      dream.openDraft({
+        id: draftId,
+        createdAt: '2026-10-05T08:00:00.000Z',
+        durationMs: noAudio ? 0 : 42_000,
+        ...(noAudio ? {} : { audioFileName: `${draftId}.m4a` }),
+        title: '',
+        tags: [],
+        transcript,
+        status: 'draft',
+      });
+    } else if (noAudio) {
+      dream.startWriting();
+      dream.setTranscript(transcript);
+    } else {
+      dream.startFromRecording(recording, transcript);
+    }
+    // Starts the session once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!session) return null;
+  const leave = async (status: 'saved' | 'draft') => {
+    if (await dream.save(status)) callbacks.onLeft(status);
+  };
   return (
     <ReviewScreen
-      transcript="I was in a hallway"
-      audio={recording}
-      durationMs={recording.durationMs}
-      title={title}
-      onTitleChange={setTitle}
-      emotion={emotion}
-      onEmotionChange={setEmotion}
-      tags={tags}
-      onTagsChange={setTags}
-      onEditTranscript={jest.fn()}
-      onDone={jest.fn()}
-      onBack={jest.fn()}
-      onRerecord={jest.fn()}
-      {...props}
+      transcript={session.transcript}
+      audio={session.audio}
+      durationMs={session.audio?.durationMs ?? 0}
+      title={session.title}
+      onTitleChange={dream.setTitle}
+      emotion={session.emotion}
+      onEmotionChange={dream.setEmotion}
+      tags={session.tags}
+      onTagsChange={dream.setTags}
+      tagDraft={session.tagDraft}
+      onTagDraftChange={dream.setTagDraft}
+      onEditTranscript={callbacks.onEdit}
+      onDone={() => void leave('saved')}
+      onFinishLater={() => void leave('draft')}
+      saving={dream.saving}
+      onBack={callbacks.onBack}
+      date="Sunday, October 4"
     />
   );
 }
 
-async function renderReview(overrides: Overrides = {}) {
-  const onDone = jest.fn();
-  const onRerecord = jest.fn();
-  await render(<Harness onDone={onDone} onRerecord={onRerecord} {...overrides} />);
-  // Wait for the known-tag suggestions to load so later state updates are settled.
-  await screen.findByText('water');
-  return { onSaved: onDone, onRerecord };
+async function renderReview(props: Extra = {}) {
+  await render(<Harness {...props} />);
+  // Wait for the known words to load so later state updates are settled.
+  await screen.findByText('+ water');
 }
 
-beforeEach(() => jest.clearAllMocks());
+const press = (label: string) => fireEvent.press(screen.getByText(label));
+const typeTitle = (text: string) => fireEvent.changeText(screen.getByLabelText('Title'), text);
 
-describe('ReviewScreen', () => {
-  it('focuses the title field on entry', async () => {
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  save.mockResolvedValue({ id: '77', createdAt: 'c', audioFileName: '77.m4a' });
+});
+afterEach(() => jest.restoreAllMocks());
+
+describe('ReviewScreen layout', () => {
+  it('shows the header date, labels, card, emotion chips, tag chips and both buttons', async () => {
+    await renderReview();
+    expect(screen.getByText('Dream · Sunday, October 4')).toBeTruthy();
+    expect(screen.getByText('Title')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Name this dream')).toBeTruthy();
+    expect(screen.getByText('How did it feel?')).toBeTruthy();
+    expect(screen.getAllByText('Optional')).toHaveLength(2);
+    expect(screen.getByText('Tags')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+    expect(screen.getByText('+ water')).toBeTruthy();
+    expect(screen.getByText('Calm')).toBeTruthy();
+    expect(screen.getByText('Edit ›')).toBeTruthy();
+    expect(screen.getByText('Done')).toBeTruthy();
+    expect(screen.getByText('Finish later')).toBeTruthy();
+    expect(screen.queryByText('Delete and record again')).toBeNull();
+  });
+
+  it('focuses the title only while it is empty', async () => {
     await renderReview();
     expect(screen.getByLabelText('Title').props.autoFocus).toBe(true);
+    await typeTitle('Hallway');
+    expect(screen.getByLabelText('Title').props.autoFocus).toBe(false);
   });
 
-  it('will not save without a title', async () => {
-    const { onSaved } = await renderReview();
-
-    await fireEvent.press(screen.getByText('Save dream'));
-    expect(saveDream).not.toHaveBeenCalled();
-
-    await fireEvent.changeText(screen.getByLabelText('Title'), '   ');
-    await fireEvent.press(screen.getByText('Save dream'));
-    expect(saveDream).not.toHaveBeenCalled();
-    expect(onSaved).not.toHaveBeenCalled();
+  it('previews the first 3 lines with duration and word count, and a mic icon for audio', async () => {
+    await renderReview({ transcript: 'one two three' });
+    expect(screen.getByText('one two three').props.numberOfLines).toBe(3);
+    expect(screen.getByText('0:42 · 3 words')).toBeTruthy();
+    // MicIcon is drawn with Views, so its presence is checked through the meta row sibling count.
+    const metaLeft = screen.getByText('0:42 · 3 words').parent!;
+    expect(metaLeft.children.length).toBe(2);
   });
 
-  it('saves the title, emotion and a tag that was typed but not confirmed', async () => {
-    const { onSaved } = await renderReview();
+  it('uses the singular for one word and shows no mic icon or duration without audio', async () => {
+    await renderReview({ transcript: 'hello', noAudio: true });
+    const meta = screen.getByText('1 word');
+    expect(meta.parent!.children.length).toBe(1);
+  });
 
-    await fireEvent.changeText(screen.getByLabelText('Title'), 'Flooded hallway');
-    await fireEvent.changeText(
-      screen.getByPlaceholderText('How did it feel? (optional)'),
-      'uneasy',
-    );
-    await fireEvent.changeText(screen.getByPlaceholderText('Add a tag'), 'Falling');
-    await fireEvent.press(screen.getByText('Save dream'));
+  it('shows "No text yet" for an empty transcript', async () => {
+    await renderReview({ transcript: '  ', noAudio: true });
+    expect(screen.getByText('No text yet')).toBeTruthy();
+    expect(screen.getByText('0 words')).toBeTruthy();
+  });
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saveDream).toHaveBeenCalledWith({
+  it('opens Edit when the whole card is tapped', async () => {
+    await renderReview();
+    await fireEvent.press(screen.getByLabelText('Edit text'));
+    expect(callbacks.onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onBack from the back arrow', async () => {
+    await renderReview();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ReviewScreen emotion and tags', () => {
+  it('appends a tapped chip in lowercase, and removes it on a second tap', async () => {
+    await renderReview();
+    await press('Calm');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('calm');
+    await press('Uneasy');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('calm, uneasy');
+    await press('Calm');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('uneasy');
+  });
+
+  it('accepts free text and offers no preset feelings', async () => {
+    await renderReview();
+    expect(screen.queryByText('Afraid')).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'a bit wistful');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('a bit wistful');
+  });
+
+  it('adds a suggested tag with one tap and lets it be removed', async () => {
+    await renderReview();
+    await press('+ water');
+    expect(screen.getByLabelText('Remove tag water')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Remove tag water'));
+    expect(screen.queryByLabelText('Remove tag water')).toBeNull();
+  });
+});
+
+describe('ReviewScreen saving', () => {
+  it('disables Done until there is a title', async () => {
+    await renderReview();
+    await press('Done');
+    expect(save).not.toHaveBeenCalled();
+    await typeTitle('   ');
+    await press('Done');
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByText('Done').parent?.props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await typeTitle('Hallway');
+    expect(screen.getByText('Done').parent?.props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('Done saves everything, including a pending tag, as a finished dream', async () => {
+    await renderReview();
+    await typeTitle('Flooded hallway');
+    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'uneasy');
+    await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'Falling');
+    await press('Done');
+
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('saved'));
+    expect(save).toHaveBeenCalledWith({
       recordingUri: recording.uri,
-      durationMs: recording.durationMs,
+      durationMs: 42_000,
       details: {
         title: 'Flooded hallway',
         emotion: 'uneasy',
@@ -99,77 +233,111 @@ describe('ReviewScreen', () => {
     });
   });
 
-  it('saves a written dream with no audio, duration 0 and no recording', async () => {
-    const { onSaved } = await renderReview({ audio: undefined, durationMs: 0 });
-    expect(screen.queryByLabelText('Play recording')).toBeNull();
-    expect(screen.queryByText('Delete and record again')).toBeNull();
-
-    await fireEvent.changeText(screen.getByLabelText('Title'), 'Hallway');
-    await fireEvent.press(screen.getByText('Save dream'));
-
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saveDream).toHaveBeenCalledWith({
+  it('saves a written dream with duration 0 and no recordingUri or id', async () => {
+    await renderReview({ noAudio: true });
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
+    expect(save).toHaveBeenCalledWith({
       durationMs: 0,
       details: { title: 'Hallway', emotion: '', tags: [], transcript: 'I was in a hallway' },
       status: 'saved',
     });
-    expect((saveDream as jest.Mock).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(save.mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(save.mock.calls[0][0]).not.toHaveProperty('id');
   });
 
-  it('does not offer to delete, or re-send, a draft audio that is already stored', async () => {
-    const stored = { ...recording, uri: 'file:///docs/dreams/1.m4a', persisted: true };
-    await renderReview({ audio: stored });
-    expect(screen.queryByText('Delete and record again')).toBeNull();
-
-    await fireEvent.changeText(screen.getByLabelText('Title'), 'Hallway');
-    await fireEvent.press(screen.getByText('Save dream'));
-    await waitFor(() => expect(saveDream).toHaveBeenCalled());
-    expect((saveDream as jest.Mock).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+  it('a reopened draft saves with its id and never re-sends the stored audio', async () => {
+    await renderReview({ draftId: '12' });
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
+    const arg = save.mock.calls[0][0];
+    expect(arg.id).toBe('12');
+    expect(arg).not.toHaveProperty('recordingUri');
+    expect(arg.status).toBe('saved');
   });
 
-  it('calls onBack and onEditTranscript from the top bar', async () => {
-    const onBack = jest.fn();
-    const onEditTranscript = jest.fn();
-    await renderReview({ onBack, onEditTranscript });
-    await fireEvent.press(screen.getByLabelText('Back'));
-    await fireEvent.press(screen.getByText('Edit text'));
-    expect(onBack).toHaveBeenCalledTimes(1);
-    expect(onEditTranscript).toHaveBeenCalledTimes(1);
-  });
-
-  it('adds a suggested tag with one tap and lets it be removed', async () => {
+  it('Finish later saves a draft without a title', async () => {
     await renderReview();
-
-    await fireEvent.press(screen.getByText('water'));
-    expect(screen.getByLabelText('Remove tag water')).toBeTruthy();
-
-    await fireEvent.press(screen.getByLabelText('Remove tag water'));
-    expect(screen.queryByLabelText('Remove tag water')).toBeNull();
+    await press('Finish later');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('draft'));
+    expect(save).toHaveBeenCalledWith({
+      recordingUri: recording.uri,
+      durationMs: 42_000,
+      details: { title: '', emotion: '', tags: [], transcript: 'I was in a hallway' },
+      status: 'draft',
+    });
   });
 
-  it('deletes the recording and returns to capture after confirmation', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    const { onRerecord } = await renderReview();
-
-    await fireEvent.press(screen.getByText('Delete and record again'));
-    expect(discardRecording).not.toHaveBeenCalled();
-
-    const buttons = alert.mock.calls[0][2] as AlertButton[];
-    buttons.find((b) => b.style === 'destructive')?.onPress?.();
-
-    expect(discardRecording).toHaveBeenCalledWith(recording.uri);
-    expect(onRerecord).toHaveBeenCalled();
+  it('Finish later saves nothing when there is nothing to keep, and still leaves', async () => {
+    await renderReview({ transcript: '', noAudio: true });
+    await press('Finish later');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('draft'));
+    expect(save).not.toHaveBeenCalled();
   });
 
-  it('keeps the recording if the delete is cancelled', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    const { onRerecord } = await renderReview();
+  it('calls saveDream once when Done is tapped twice', async () => {
+    await renderReview();
+    await typeTitle('Hallway');
+    let resolve: (v: unknown) => void = () => {};
+    save.mockReturnValue(new Promise((r) => (resolve = r)));
+    await press('Done');
+    await press('Saving…');
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ id: '77', createdAt: 'c' }));
+    expect(callbacks.onLeft).toHaveBeenCalledTimes(1);
+  });
 
-    await fireEvent.press(screen.getByText('Delete and record again'));
+  it('blocks Back, Done and Finish later while saving', async () => {
+    await renderReview();
+    await typeTitle('Hallway');
+    let resolve: (v: unknown) => void = () => {};
+    save.mockReturnValue(new Promise((r) => (resolve = r)));
+    await press('Done');
+    expect(screen.getByText('Saving…')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    await press('Finish later');
+    expect(callbacks.onBack).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ id: '77', createdAt: 'c' }));
+  });
 
-    const buttons = alert.mock.calls[0][2] as AlertButton[];
-    expect(buttons.find((b) => b.style === 'cancel')?.onPress).toBeUndefined();
-    expect(discardRecording).not.toHaveBeenCalled();
-    expect(onRerecord).not.toHaveBeenCalled();
+  it('keeps the screen and everything typed when saving fails, with the generic message', async () => {
+    await renderReview();
+    await typeTitle('Hallway');
+    save.mockRejectedValue(new Error('disk full'));
+    await press('Done');
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith('Could not save your dream', 'Please try again.'),
+    );
+    expect(callbacks.onLeft).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Title').props.value).toBe('Hallway');
+    expect(screen.getByText('Done')).toBeTruthy();
+  });
+
+  it('shows a specific message when the saved dreams cannot be read', async () => {
+    await renderReview();
+    await typeTitle('Hallway');
+    save.mockRejectedValue(Object.assign(new Error('x'), { code: INDEX_UNREADABLE }));
+    await press('Done');
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Could not save your dream',
+        'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
+      ),
+    );
+    expect(callbacks.onLeft).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewScreen pending tag text', () => {
+  it('lives in the session, so it is still there after the screen is shown again', async () => {
+    const view = await render(<Harness />);
+    await screen.findByText('+ water');
+    await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'fall');
+    // Review -> Edit -> Review remounts the screen but keeps the session above it.
+    await view.rerender(<Harness />);
+    expect(screen.getByPlaceholderText('Add a tag...').props.value).toBe('fall');
   });
 });

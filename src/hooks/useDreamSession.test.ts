@@ -18,6 +18,7 @@ describe('sessionReducer', () => {
       title: '',
       emotion: '',
       tags: [],
+      tagDraft: '',
       passedThroughReadItBack: false,
     });
   });
@@ -39,6 +40,7 @@ describe('sessionReducer', () => {
       title: '',
       emotion: '',
       tags: [],
+      tagDraft: '',
       passedThroughReadItBack: false,
     });
     expect(s?.audio).toBeUndefined();
@@ -63,6 +65,38 @@ describe('sessionReducer', () => {
       origin: 'capture',
       audio: { uri: recording.uri },
     });
+  });
+
+  it('setTagDraft keeps pending tag text in the session', () => {
+    const s = sessionReducer(fresh(), { type: 'setTagDraft', value: 'fall' });
+    expect(s?.tagDraft).toBe('fall');
+    expect(sessionReducer(null, { type: 'setTagDraft', value: 'x' })).toBeNull();
+  });
+
+  it('markSaved records the new id and moves a cache recording to its permanent file', () => {
+    const s = sessionReducer(fresh(), {
+      type: 'markSaved',
+      id: '9',
+      createdAt: 'c',
+      audioUri: 'file:///docs/dreams/9.m4a',
+    });
+    expect(s).toMatchObject({
+      id: '9',
+      createdAt: 'c',
+      audio: { uri: 'file:///docs/dreams/9.m4a', durationMs: 5000, persisted: true },
+    });
+  });
+
+  it('markSaved leaves a written dream without audio', () => {
+    const written = sessionReducer(null, { type: 'startWriting' });
+    const s = sessionReducer(written, {
+      type: 'markSaved',
+      id: '9',
+      createdAt: 'c',
+      audioUri: null,
+    });
+    expect(s?.id).toBe('9');
+    expect(s?.audio).toBeUndefined();
   });
 
   it('markPassedThroughReadItBack sets the flag', () => {
@@ -104,6 +138,7 @@ describe('sessionFromDraft', () => {
       title: 'Flooded hall',
       emotion: 'uneasy',
       tags: ['water'],
+      tagDraft: '',
       passedThroughReadItBack: true,
     });
     expect(s.audio?.persisted).toBe(true);
