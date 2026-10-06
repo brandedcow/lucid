@@ -55,7 +55,7 @@ The happy path for dreams, built and covered by tests, but **not yet verified on
 
 - **"No dream" and "Write instead" buttons do nothing.** Wiring "No dream" to leave the capture screen was tried and deliberately reverted. If you implement it, remember the product rule: it counts as done for the day.
 - No way to delete or edit a saved dream, and no filtering or browsing by tag.
-- No saved transcription. A spike on `spike/live-transcription` shows live on-device text on the capture screen only (see `docs/spike-live-transcription.md`); unverified on a device; it needs a development build (in Expo Go the whole bundle fails to load, not just live text). Supports iOS 17+ and Android 13+ only; the pause button is hidden on the capture screen.
+- No saved transcription. A spike on `spike/live-transcription` shows live on-device text on the capture screen only (see `docs/spike-live-transcription.md`); unverified on a device; it needs a development build (in Expo Go the whole bundle fails to load, not just live text). `expo-dev-client` is installed for this; see `docs/ios-dev-build.md` (Android needs one rebuild). Supports iOS 17+ and Android 13+ only; the pause button is hidden on the capture screen.
 - No "on waking" logic or "done for today" memory: the app always opens to capture.
 - No journal (entries or screen). The structure is undecided; ask before designing it.
 - Playback has no scrubbing.
