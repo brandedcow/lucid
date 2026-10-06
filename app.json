@@ -36,7 +36,8 @@
           "microphonePermission": "Lucid uses the microphone to record your dreams and show the words as you speak.",
           "speechRecognitionPermission": "Lucid turns your voice into text on this device while you tell your dream."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }
