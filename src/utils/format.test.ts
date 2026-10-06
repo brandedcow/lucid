@@ -1,4 +1,10 @@
-import { countWords, formatDuration, formatToday } from './format';
+import {
+  countWords,
+  formatDuration,
+  formatEntryDateTime,
+  formatShortDate,
+  formatToday,
+} from './format';
 
 describe('formatDuration', () => {
   it.each([
@@ -26,5 +32,28 @@ describe('countWords', () => {
     ['line one\nline two\n\nthree', 5],
   ])('counts %j as %i', (text, expected) => {
     expect(countWords(text)).toBe(expected);
+  });
+});
+
+describe('formatEntryDateTime', () => {
+  it('formats weekday, date and time', () => {
+    expect(formatEntryDateTime(new Date(2026, 9, 4, 6, 42))).toBe('Sunday, October 4 · 6:42 AM');
+    expect(formatEntryDateTime(new Date(2026, 9, 4, 18, 5))).toBe('Sunday, October 4 · 6:05 PM');
+  });
+  it('gives an empty string for an invalid date', () => {
+    expect(formatEntryDateTime(new Date('nope'))).toBe('');
+  });
+});
+
+describe('formatShortDate', () => {
+  const now = new Date(2026, 9, 6);
+  it('omits the current year', () => {
+    expect(formatShortDate(new Date(2026, 8, 23), now)).toBe('Sep 23');
+  });
+  it('adds a different year', () => {
+    expect(formatShortDate(new Date(2025, 8, 23), now)).toBe('Sep 23, 2025');
+  });
+  it('gives an empty string for an invalid date', () => {
+    expect(formatShortDate(new Date('nope'), now)).toBe('');
   });
 });

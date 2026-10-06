@@ -10,6 +10,12 @@ export const colors = {
   accent: '#E8A464',
   accentDark: '#1A1209',
   transcriptMid: '#E8B070',
+  /** Chip backgrounds and the accent text used on emotion chips (Dream log and Dream entry). */
+  emotionChipBg: '#2B2118',
+  emotionChipText: '#F0B27A',
+  tagChipBg: '#232A3A',
+  /** Red text for the Draft label. 5.96:1 against `surface`, 6.51:1 against `background`. */
+  draft: '#F26D6D',
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
