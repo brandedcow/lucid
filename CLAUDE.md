@@ -29,11 +29,15 @@ npm run format      # apply Prettier
 - Run `npm run check` before calling any task done, and report failures instead of hiding them.
 - Tests are Jest files next to the code (`*.test.ts` / `*.test.tsx`). Add or update tests with behavior changes. Native modules are mocked in tests; `src/test/fakeFileSystem.ts` is a faithful in-memory `expo-file-system` (async copy/move, no overwrite, failure injection); storage changes need careful tests with it.
 - Add dependencies with `npx expo install <package>`, and prefer Expo modules over third-party libraries.
-- Use the vocabulary in `docs/product.md` (Journal entry, Dream, Title, Emotion, Tag, No dream) in UI copy, code and data models.
+- Use the vocabulary in `docs/product.md` (Journal entry, Dream, Title, Emotion, Tag, No dream, Draft, Transcript) in UI copy, code and data models.
 - Use `SafeAreaView` from `react-native-safe-area-context`, not `react-native`.
 - UI copy is plain language. No psychological or Jungian terms, no interpretation of entries, no streaks, scores or gamification.
 - Do not build anything under "Not in scope yet" in `docs/product.md` (AI features, tasks, threads, roundups, explore view, desktop) unless asked.
-- Device access and persistence live behind hooks and services (`useDreamRecorder`, `useLiveTranscription`, `services/dreamStorage.ts`), not in screens. Dreams are stored locally; transcription is on-device only (no audio or text leaves the phone). Storage: `dreams.json` index (plus a best-effort `dreams.json.bak`), audio in `Paths.document/dreams/`; a `Dream` has optional `transcript`, `status: 'draft'` and `audioFileName` (none for written dreams). Only file names are persisted (never full paths). Saving copies the audio, writes the index, then deletes the cache file.
-- Never delete anything under `dreams/`. Always resolve audio through `dream.audioFileName` / `dreamAudioUri`, never by building `<id>.m4a`. When updating a dream always pass full `details` (emotion and transcript strings): `undefined` keeps the stored value, `''` clears it.
+- Device access and persistence live behind hooks and services (`useDreamRecorder`, `useLiveTranscription`, `services/dreamStorage.ts`), not in screens. Dreams are stored locally; transcription is on-device only (no audio or text leaves the phone). Storage layout and save order are in the storage section of `docs/status.md`. Safety rules:
+  - The app never deletes a stored dream's audio or any pre-existing file; only `saveDream`'s own rollback removes the copy that same save just made.
+  - Resolve audio through `dream.audioFileName` / `dreamAudioUri`, never by building `<id>.m4a`.
+  - When updating a dream always pass full `details` (emotion and transcript strings): `undefined` keeps the stored value, `''` clears it.
+  - A zero-length `dreams.json` counts as missing, so a future delete feature must write `[]`, never an empty file.
+- Back (arrow and Android hardware back) is blocked while a save is in flight, and Review's fields and buttons are locked then.
 - Keep changes small and on a feature branch. Never commit to `master`, and never push to a remote unless the user explicitly asks.
 - Never create or edit `ios/` or `android/` by hand; configure native behavior in `app.json`.

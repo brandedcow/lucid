@@ -24,16 +24,16 @@ The idea behind it: the journal reflects the conscious mind, dreams reflect the 
 
 Use these terms consistently in UI copy, code and data models.
 
-| Term          | Meaning                                                                                               |
-| ------------- | ----------------------------------------------------------------------------------------------------- |
-| Journal entry | A free-form daily writing entry.                                                                      |
-| Dream         | A dream capture, usually made right after waking.                                                     |
-| Title         | A short name the user gives a dream so it can be found later. Required for dreams.                    |
-| Emotion       | Free text about how a dream felt. Optional, never a fixed list or rating.                             |
-| Tag           | A label the user applies to journal entries and dreams.                                               |
-| No dream      | The one-tap option on dream capture for a morning with nothing to record. Counts as done for the day. |
-| Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved.                |
-| Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.           |
+| Term          | Meaning                                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Journal entry | A free-form daily writing entry.                                                                                                                                     |
+| Dream         | A dream capture, usually made right after waking.                                                                                                                    |
+| Title         | A short name the user gives a dream so it can be found later. Required to finish a dream (a Draft needs no title).                                                   |
+| Emotion       | Free text about how a dream felt. Optional, never a fixed list or rating.                                                                                            |
+| Tag           | A label the user applies to journal entries and dreams.                                                                                                              |
+| No dream      | The one-tap option on dream capture for a morning with nothing to record. Intended to count as done for the day (not built yet: today it only opens the dream list). |
+| Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                    |
+| Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.                                                                          |
 
 Tags cover anything the user wants to track over time, such as a recurring dream image ("water"), strong emotional reactions, or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up. There is no separate "tracker" concept; tags fill that role.
 
@@ -50,7 +50,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 #### After recording: Read it back, then Review
 
-- When recording ends, the user sees **Read it back**: the transcript in an editable text box, with the original recording kept and playable beside it. The user can fix anything that came out wrong.
+- When recording ends, the user sees **Read it back**: the transcript in an editable text box, with the original recording kept and playable below the text box (hidden while the keyboard is up). The user can fix anything that came out wrong.
 - **Continue** goes to **Review**: a title (required to finish), how it felt (optional free text) and tags (optional). The transcript shows there as a short preview with an Edit link back to Read it back.
 - Nothing is permanently saved until the user taps **Done** or **Finish later**.
 - **Done** finishes the dream and needs a title. **Finish later** saves a draft and needs nothing. A draft appears in the dream list as "Not finished", and tapping it reopens Review.

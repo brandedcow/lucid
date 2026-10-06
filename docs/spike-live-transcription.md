@@ -80,7 +80,7 @@ Both are plain constants. Edit the value, save, and reload the JS (shake menu > 
 
 ## Permission text
 
-Both the `expo-audio` and `expo-speech-recognition` plugins write `NSMicrophoneUsageDescription`, with different wording. Reading the plugin sources: the speech plugin assigns its string directly into `ios.infoPlist` when the config is evaluated, while the expo-audio plugin applies its string later, inside an Info.plist mod (`createPermissionsPlugin`, which prefers its own value). So the likely winner is the expo-audio string, not the one listed last in `app.json`. Not verified; check the generated `Info.plist` after a prebuild or the text in the iOS permission dialog. The wording is user-owned copy and was not changed.
+There are three sources for the iOS strings: `app.json` `ios.infoPlist` sets `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` directly, and both the `expo-audio` plugin ("Lucid uses the microphone to record your dreams.") and `expo-speech-recognition` plugin write `NSMicrophoneUsageDescription`, with different wording. Which one wins in the built Info.plist is unverified. Reading the plugin sources: the speech plugin assigns its string directly into `ios.infoPlist` when the config is evaluated, while the expo-audio plugin applies its string later, inside an Info.plist mod (`createPermissionsPlugin`, which prefers its own value). So the likely winner is the expo-audio string, not the one listed last in `app.json`. Not verified; check the generated `Info.plist` after a prebuild or the text in the iOS permission dialog. The wording is user-owned copy and was not changed.
 
 ## Known limits of this spike
 
