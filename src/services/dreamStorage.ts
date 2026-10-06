@@ -93,6 +93,16 @@ async function readIndex(): Promise<Dream[]> {
   }
 }
 
+/** Whether the index file exists, is not zero-length and parses to a list. Never throws. */
+async function indexIsIntact(file: File): Promise<boolean> {
+  try {
+    if (!file.exists || file.size === 0) return false;
+    return Array.isArray(await file.json());
+  } catch {
+    return false;
+  }
+}
+
 function writeIndex(dreams: Dream[]) {
   const file = indexFile();
   // Write creates a missing file itself; a separate create() would only add an empty-file window.
@@ -183,13 +193,18 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       if (!source.exists) throw new Error('The recording could not be found');
       const dir = audioDir();
       dir.create({ intermediates: true, idempotent: true });
-      audioFileName = `${id}.m4a`;
-      const destination = new File(dir, audioFileName);
-      // The recording stays where it is until the index is written.
+      // Never reuse a name that is already taken (an orphan from an earlier failed save, say).
+      let name = `${id}.m4a`;
+      for (let k = 1; new File(dir, name).exists; k += 1) name = `${id}-${k}.m4a`;
+      audioFileName = name;
+      const destination = new File(dir, name);
+      // The recording stays where it is until the index is written. No overwrite option: a stale
+      // file can never be clobbered.
       try {
-        await source.copy(destination, { overwrite: true });
+        await source.copy(destination);
       } catch (error) {
-        // A failed copy can leave a partial file; nothing indexes it. Never touch the source.
+        // A failed copy can leave a partial file; it is ours (the name was free) and nothing
+        // indexes it. Never touch the source.
         try {
           if (destination.exists) destination.delete();
         } catch {
@@ -221,24 +236,28 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     if (status === 'draft') dream.status = 'draft';
     else delete dream.status;
 
-    // Best effort: keep the previous index. Not atomic with the write below. A zero-length index is
-    // never copied over the backup. The backup is restored only if this save's own write fails.
+    // Best effort: keep the previous index. Not atomic with the write below (the overwrite copy
+    // removes the old backup first). A zero-length index is never copied over the backup.
     const index = indexFile();
     const hadIndex = index.exists;
+    const hadContent = hadIndex && index.size !== 0;
     let backedUp = false;
-    if (hadIndex && index.size !== 0) {
+    if (hadContent) {
       try {
         await index.copy(backupFile(), { overwrite: true });
         backedUp = true;
       } catch {
-        // A missing backup must not block saving.
+        // Policy A: a missing backup does not block saving; a failed write is repaired from
+        // memory below. Policy B (refuse to save without a backup) is this one inactive line:
+        // throw new Error('The dream index could not be backed up');
       }
     }
 
     try {
       writeIndex(existing ? dreams.map((d) => (d === existing ? dream : d)) : [...dreams, dream]);
     } catch (error) {
-      // The recording is still in the cache. Undo this save's side effects, each step on its own.
+      // The recording is still in the cache. Undo this save's side effects, each step on its own,
+      // then always rethrow the original error.
       if (copied) {
         try {
           if (copied.exists) copied.delete();
@@ -246,16 +265,28 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
           // Leaving an orphaned copy is harmless.
         }
       }
-      if (hadIndex && backedUp) {
-        try {
-          // Restores exactly the index just backed up, undoing a truncated or partial write.
-          await backupFile().copy(index, { overwrite: true });
-        } catch {
-          // The empty or partial index is handled on the next read (backup base or unreadable).
+      if (hadContent) {
+        // Repair from the in-memory pre-save list first, then from the backup. An index that is
+        // still intact is never touched.
+        if (!(await indexIsIntact(index))) {
+          try {
+            writeIndex(dreams);
+          } catch {
+            // Fall through to the backup.
+          }
+          if (backedUp && !(await indexIsIntact(index))) {
+            try {
+              await backupFile().copy(index, { overwrite: true });
+            } catch {
+              // Unrepaired: an empty index reads as missing, a partial one as unreadable.
+            }
+          }
         }
-      } else if (!hadIndex) {
+      } else if (index.exists) {
+        // A missing or zero-length index: remove what the failed write left, so reads fall back
+        // to the backup base or an empty list.
         try {
-          if (index.exists) index.delete();
+          index.delete();
         } catch {
           // A leftover empty index is read as missing.
         }

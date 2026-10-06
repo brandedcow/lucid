@@ -4,13 +4,21 @@
 // It mirrors the real library where storage code depends on it: write() creates a missing file,
 // create() fails on an existing file unless overwrite is set (and then resets it), delete() of a
 // missing path throws, and writing, copying or creating into a missing parent directory throws.
+//
+// Failed write/copy calls can leave damage behind (see `leave` below). The real overwrite copy
+// removes the destination first and then copies, so a failing overwrite copy can leave the
+// destination missing: `leave: 'missing'` models that (an existing destination is deleted).
 
 const files = new Map<string, string>();
 const dirs = new Set<string>();
 
 type Op = 'move' | 'copy' | 'write' | 'create' | 'delete' | 'json';
-/** What a failed write or copy leaves behind. Without it the file is left unchanged. */
-type Leave = { leave?: 'empty' | 'partial' };
+/**
+ * What a failed write or copy leaves behind. Without it the file is left unchanged.
+ * 'empty' (write only) truncates the file; 'partial' leaves half the content; 'missing' (copy only)
+ * deletes an existing destination (remove-then-copy).
+ */
+type Leave = { leave?: 'empty' | 'partial' | 'missing' };
 type Failure = { error: Error; leave?: Leave['leave'] };
 const failOnce = new Map<Op, Failure>();
 const failPredicates: { op: Op; predicate: (uri: string) => boolean; failure: Failure }[] = [];
@@ -120,6 +128,7 @@ export class File {
     copyLog.push({ from: this.uri, to: destination.uri });
     const failure = injected('copy', this.uri);
     if (failure) {
+      if (failure.leave === 'missing') files.delete(destination.uri);
       if (
         failure.leave === 'partial' &&
         files.has(this.uri) &&
@@ -167,8 +176,8 @@ export const __fs = {
   copies: () => [...copyLog],
   /**
    * Fail the next call of this operation once (move/copy/json reject; the others throw). For write
-   * and copy, `leave` says what the failed call leaves behind: an 'empty' (write only) or
-   * 'partial' file. Without it the file is unchanged.
+   * and copy, `leave` says what the failed call leaves behind: an 'empty' (write only), a
+   * 'partial' file, or (copy only) a 'missing' destination. Without it the file is unchanged.
    */
   failNext: (op: Op, error: Error = new Error(`${op} failed`), opts: Leave = {}) => {
     failOnce.set(op, { error, leave: opts.leave });
