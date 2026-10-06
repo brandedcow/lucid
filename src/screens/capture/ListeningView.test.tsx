@@ -1,6 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { Waveform } from '../../components/Waveform';
+import { fadeTail } from '../../utils/fadeTail';
 import { formatToday } from '../../utils/format';
 import { ListeningView } from './ListeningView';
+
+jest.mock('../../components/Waveform', () => ({ Waveform: jest.fn(() => null) }));
+const mockWaveform = Waveform as unknown as jest.Mock;
 
 const props = {
   durationMs: 42000,
@@ -43,18 +49,37 @@ describe('ListeningView', () => {
     expect(screen.getByText('|', hidden)).toBeTruthy();
   });
 
-  it('has no caret while paused', async () => {
+  it('keeps a static caret while paused', async () => {
     await render(<ListeningView {...props} paused transcript="I was on a boat" />);
-    expect(screen.queryByText('|', hidden)).toBeNull();
+    expect(screen.getByText('|', hidden)).toBeTruthy();
+  });
+
+  it('joins words with single spaces and no trailing space before the caret', async () => {
+    await render(<ListeningView {...props} transcript={'  one   two\nthree '} />);
+    expect(screen.getByText('one two three|', hidden)).toBeTruthy();
+  });
+
+  it('colours each word with a solid colour from fadeTail and never uses opacity', async () => {
+    const text = Array.from({ length: 25 }, (_, i) => `w${i}`).join(' ');
+    await render(<ListeningView {...props} transcript={text} />);
+    const spans = screen.getAllByText(/^w\d+ ?$/, hidden);
+    const expected = fadeTail(text);
+    expect(spans).toHaveLength(25);
+    const styles = spans.map((s) => StyleSheet.flatten(s.props.style));
+    styles.forEach((st, i) => {
+      expect(st.color).toBe(expected[i].color);
+      expect(st.opacity).toBeUndefined();
+    });
+    expect(new Set(styles.map((st) => st.color)).size).toBeGreaterThanOrEqual(3);
   });
 
   it('renders only the tail of a long transcript', async () => {
     const text = Array.from({ length: 70 }, (_, i) => `w${i}`).join(' ');
     await render(<ListeningView {...props} transcript={text} />);
     expect(screen.queryByText('w0', hidden)).toBeNull();
-    expect(screen.queryByText('w19', hidden)).toBeNull();
+    expect(screen.queryByText('w9', hidden)).toBeNull();
     expect(screen.getByText('w69', hidden)).toBeTruthy();
-    expect(screen.getByText('w20', hidden)).toBeTruthy();
+    expect(screen.getByText('w10', hidden)).toBeTruthy();
   });
 
   it('hides the visual tail from screen readers while listening', async () => {
@@ -83,6 +108,28 @@ describe('ListeningView', () => {
     await fireEvent.press(screen.getByLabelText('Resume'));
     expect(onTogglePause).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Pause')).toBeNull();
+  });
+
+  it('disables the pause button when there is no onTogglePause', async () => {
+    await render(<ListeningView {...props} />);
+    expect(screen.getByLabelText('Pause').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('enables the pause button when onTogglePause is given', async () => {
+    await render(<ListeningView {...props} onTogglePause={jest.fn()} />);
+    expect(screen.getByLabelText('Pause').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('keeps the waveform active while listening and flat while paused', async () => {
+    const lastProps = () => mockWaveform.mock.calls[mockWaveform.mock.calls.length - 1][0];
+    const view = await render(<ListeningView {...props} level={0.7} />);
+    expect(lastProps()).toEqual({ level: 0.7, active: true });
+    await view.rerender(<ListeningView {...props} level={0.7} paused />);
+    expect(lastProps()).toEqual({ level: 0, active: false });
   });
 
   it('disables pause and save while saving', async () => {

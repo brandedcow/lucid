@@ -64,12 +64,12 @@ export function ListeningView({
             accessibilityElementsHidden={!paused}
             importantForAccessibility={paused ? 'yes' : 'no-hide-descendants'}
           >
-            {tail.map(({ word, opacity }, i) => (
-              <Text key={i} style={{ opacity }}>
+            {tail.map(({ word, color }, i) => (
+              <Text key={i} style={{ color }}>
                 {i < tail.length - 1 ? `${word} ` : word}
               </Text>
             ))}
-            {paused ? null : <Text style={styles.caret}>|</Text>}
+            <Text style={styles.caret}>|</Text>
           </Text>
         )}
       </View>
