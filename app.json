@@ -8,7 +8,12 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.chrisvkang.lucid"
+      "bundleIdentifier": "com.chrisvkang.lucid",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Lucid turns your voice into text on this device while you tell your dream.",
+        "NSMicrophoneUsageDescription": "Lucid uses the microphone to record your dreams and show the words as you speak.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.chrisvkang.lucid",
@@ -18,7 +23,13 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
