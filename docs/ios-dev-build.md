@@ -8,7 +8,7 @@ Lucid uses native modules (`expo-audio`, `expo-speech-recognition`), so Expo Go 
 - A paid Apple Developer Program account. Installing an internal (ad hoc) build on a real iPhone needs one. A free Apple ID is not enough.
 - An iPhone on iOS 17 or later (needed by `expo-speech-recognition`).
 - Developer Mode on the iPhone: Settings > Privacy & Security > Developer Mode, turn it on and restart. If the switch is missing, install the app (step 5) and look again. Expo docs: https://docs.expo.dev/guides/ios-developer-mode/
-- A clean, committed branch (see "What gets built"). The `expo-dev-client` dependency must be committed before the first iOS build, otherwise the build is not a development build.
+- A clean, committed branch (see "What gets built"). The `expo-dev-client`, `expo-asset` and `expo@~57.0.27` dependencies must be committed before the first iOS build.
 
 ## Steps
 
@@ -54,3 +54,5 @@ JavaScript changes after the build do not need a new build: Metro serves them to
   3. `npm run android`.
 
   Afterwards the Android app opens the dev-client launcher, where you pick the Lucid entry from Metro.
+- The Android rebuild also picks up the expo 57.0.27 and `expo-asset` bump. The steps are the same, and `npx expo prebuild --platform android --clean` is recommended.
+- `npm audit` reports about 60 findings in dev and build tooling (jest, Metro, the Expo CLI, config plugins). They are not shipped in the app and are deferred until the next SDK upgrade. Never use `npm audit fix --force`.
