@@ -6,8 +6,13 @@ const LANG = 'en-US';
 const RESTART_DELAY_MS = 300;
 /** A session shorter than this that produced no result counts as a failed restart. */
 const MIN_HEALTHY_SESSION_MS = 2000;
-/** Give up when more than this many restarts in a row failed. Any result resets the count. */
+/**
+ * Give up after this many restarts in a row failed. Only restart sessions count: the first
+ * session's failure just triggers restart number 1. Any result (or a healthy session) resets it.
+ */
 const MAX_FAILED_RESTARTS = 5;
+/** A late `end` from an aborted session is only swallowed this soon after the new session began. */
+const STALE_END_WINDOW_MS = 2000;
 /** How long start() waits for the previous session's `end` before aborting it. */
 const START_WAIT_FOR_END_MS = 1000;
 /** How long stop() waits for the final result and `end` before resolving anyway. */
@@ -76,6 +81,12 @@ export function useLiveTranscription() {
   const failedRestarts = useRef(0);
   const sessionStartedAt = useRef(0);
   const sessionHadResult = useRef(false);
+  /** True while the current session is a restart (not the one start() began). */
+  const sessionIsRestart = useRef(false);
+  /** True from native start until its `end`; false in the gap before a scheduled restart. */
+  const nativeActive = useRef(false);
+  /** start() aborted a stuck old session, so one stale `end` may still arrive. */
+  const staleEndPending = useRef(false);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endWaiters = useRef<(() => void)[]>([]);
 
@@ -124,7 +135,7 @@ export function useLiveTranscription() {
       endWaiters.current.push(done);
     });
 
-  const beginRecognition = () => {
+  const beginRecognition = (isRestart: boolean) => {
     logIosSession('before start');
     ExpoSpeechRecognitionModule.start({
       lang: LANG,
@@ -142,8 +153,10 @@ export function useLiveTranscription() {
         : {}),
     });
     logIosSession('after start');
+    nativeActive.current = true;
     sessionStartedAt.current = Date.now();
     sessionHadResult.current = false;
+    sessionIsRestart.current = isRestart;
   };
 
   useSpeechRecognitionEvent('start', () => {
@@ -163,6 +176,7 @@ export function useLiveTranscription() {
     if (phase.current !== 'running' && phase.current !== 'stopping') return;
     const text = event.results?.[0]?.transcript?.trim() ?? '';
     sessionHadResult.current = true;
+    staleEndPending.current = false;
     failedRestarts.current = 0;
     setError(null);
     if (event.isFinal) {
@@ -176,6 +190,7 @@ export function useLiveTranscription() {
   useSpeechRecognitionEvent('error', (event) => {
     if (phase.current !== 'running') return;
     log('error', event.error, event.message, event.code);
+    staleEndPending.current = false;
     if (event.error === 'audio-capture' || event.error === 'interrupted') {
       log('audio session/mic problem:', event.error, event.message);
     }
@@ -197,6 +212,18 @@ export function useLiveTranscription() {
       log('ignoring end from an old session');
       return;
     }
+    if (
+      phase.current === 'running' &&
+      staleEndPending.current &&
+      !sessionHadResult.current &&
+      Date.now() - sessionStartedAt.current < STALE_END_WINDOW_MS
+    ) {
+      log('swallowing the late end of an aborted session');
+      staleEndPending.current = false;
+      return;
+    }
+    staleEndPending.current = false;
+    nativeActive.current = false;
     log('end', phase.current === 'running' && wanted.current ? '(will restart)' : '');
     setListening(false);
     // Whatever was still interim belongs to the text; keep it before a new session starts.
@@ -214,12 +241,13 @@ export function useLiveTranscription() {
 
     const lasted = Date.now() - sessionStartedAt.current;
     if (lasted < MIN_HEALTHY_SESSION_MS && !sessionHadResult.current) {
-      failedRestarts.current += 1;
+      // The first session's failure is not a failed restart; it only triggers restart 1.
+      if (sessionIsRestart.current) failedRestarts.current += 1;
       log('session failed: no result in', lasted, 'ms; failures in a row:', failedRestarts.current);
     } else {
       failedRestarts.current = 0;
     }
-    if (failedRestarts.current > MAX_FAILED_RESTARTS) {
+    if (failedRestarts.current >= MAX_FAILED_RESTARTS) {
       log('giving up after repeated failed restarts');
       wanted.current = false;
       phase.current = 'idle';
@@ -233,7 +261,7 @@ export function useLiveTranscription() {
       if (mine !== token.current || !wanted.current || phase.current !== 'running') return;
       log('restarting');
       try {
-        beginRecognition();
+        beginRecognition(true);
       } catch (e) {
         log('restart failed', e);
         wanted.current = false;
@@ -256,6 +284,7 @@ export function useLiveTranscription() {
     try {
       // A previous session is still winding down: let it finish (or abort it) first.
       const tokenBeforeWait = token.current;
+      staleEndPending.current = false;
       if (phase.current === 'stopping') {
         const ended = await waitForEnd(START_WAIT_FOR_END_MS);
         if (!ended && phase.current === 'stopping') {
@@ -267,6 +296,9 @@ export function useLiveTranscription() {
           }
           await waitForEnd(500);
           phase.current = 'idle';
+          nativeActive.current = false;
+          // The aborted session may still deliver its `end` after the new one has begun.
+          staleEndPending.current = true;
         }
         // stop() or unmount ran while we waited: this start is no longer wanted.
         if (token.current !== tokenBeforeWait) return false;
@@ -329,7 +361,7 @@ export function useLiveTranscription() {
 
         wanted.current = true;
         phase.current = 'running';
-        beginRecognition();
+        beginRecognition(false);
         return true;
       } catch (e) {
         log('start failed', e);
@@ -352,6 +384,14 @@ export function useLiveTranscription() {
     token.current += 1;
     wanted.current = false;
     clearRestartTimer();
+    staleEndPending.current = false;
+    if (phase.current === 'running' && !nativeActive.current) {
+      // Restart gap: nothing native is running, so no `end` will come. Finish right away.
+      phase.current = 'idle';
+      setListening(false);
+      commitInterim();
+      return currentText();
+    }
     if (phase.current === 'starting') phase.current = 'idle';
     if (phase.current === 'running') phase.current = 'stopping';
     const waiting = phase.current === 'stopping';

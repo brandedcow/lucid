@@ -142,12 +142,30 @@ describe('useLiveTranscription', () => {
       await advance(500);
     };
 
-    it('gives up after more than 5 consecutive failed restarts', async () => {
+    // Rule: only restarts count. A failed first session just triggers restart 1 and is not
+    // counted; after 5 consecutive failed restarts we give up. So an always-failing recognizer
+    // gets 6 native starts in total (1 initial + 5 restarts), whether or not the first
+    // session was healthy. Any result (or a healthy session) resets the count.
+    it('gives up after 5 consecutive failed restarts (6 native starts)', async () => {
       const hook = await started();
+      // The first session's failure is restart 1's trigger; ends 2..5 fail restarts 1..4.
       for (let i = 0; i < 5; i++) await endAfter(100);
       expect(speech.start).toHaveBeenCalledTimes(6);
       expect(hook.result.current.error).toBeNull();
+      // Restart 5 fails: give up without a 7th start.
       await endAfter(100);
+      expect(speech.start).toHaveBeenCalledTimes(6);
+      expect(hook.result.current.error).toMatch(/stopped/);
+    });
+
+    it('also allows exactly 5 failed restarts after a healthy first session', async () => {
+      const hook = await started();
+      await endAfter(2500, true); // healthy first session, then restart 1
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      for (let i = 0; i < 4; i++) await endAfter(100); // restarts 1..4 fail, restart 5 starts
+      expect(speech.start).toHaveBeenCalledTimes(6);
+      expect(hook.result.current.error).toBeNull();
+      await endAfter(100); // restart 5 fails
       expect(speech.start).toHaveBeenCalledTimes(6);
       expect(hook.result.current.error).toMatch(/stopped/);
     });
@@ -161,9 +179,10 @@ describe('useLiveTranscription', () => {
     it('a result resets the failure count', async () => {
       const hook = await started();
       for (let i = 0; i < 4; i++) await endAfter(100);
-      await endAfter(100, true);
-      for (let i = 0; i < 5; i++) await endAfter(100);
-      expect(speech.start).toHaveBeenCalledTimes(11);
+      await endAfter(100, true); // a restart that produced a result resets the count
+      expect(speech.start).toHaveBeenCalledTimes(6);
+      for (let i = 0; i < 4; i++) await endAfter(100);
+      expect(speech.start).toHaveBeenCalledTimes(10);
       expect(hook.result.current.error).toBeNull();
     });
 
@@ -315,6 +334,65 @@ describe('useLiveTranscription', () => {
       expect(speech.abort).toHaveBeenCalled();
       await advance(600);
       expect(speech.start).toHaveBeenCalledTimes(2);
+    });
+
+    it('stop() in the restart gap resolves immediately and nothing restarts', async () => {
+      const hook = await started();
+      await result('before the gap', false);
+      await emit('end'); // restart is scheduled 300 ms out
+      speech.stop.mockClear();
+      let text: string | undefined;
+      await act(async () => {
+        void hook.result.current.stop().then((t) => (text = t));
+      });
+      // No timers advanced: it must not have waited for an end that never comes.
+      expect(text).toBe('before the gap');
+      expect(speech.stop).not.toHaveBeenCalled();
+      await advance(2000);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+      // Phase is idle again: a new start() begins at once, without the abort wait.
+      let startResult: boolean | undefined;
+      await act(async () => {
+        void hook.result.current.start().then((r) => (startResult = r));
+      });
+      expect(startResult).toBe(true);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      expect(speech.abort).not.toHaveBeenCalled();
+    });
+
+    it('swallows the late end of an aborted session once', async () => {
+      const hook = await started();
+      await act(async () => {
+        void hook.result.current.stop();
+        void hook.result.current.start();
+      });
+      await advance(1100);
+      await advance(600);
+      expect(speech.abort).toHaveBeenCalled();
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      await emit('end'); // the stale end of the aborted session
+      await advance(1000);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      // The new session is still live: its result is kept and a real end restarts it.
+      await result('hello', true);
+      await emit('end');
+      await advance(500);
+      expect(speech.start).toHaveBeenCalledTimes(3);
+      expect(hook.result.current.transcript).toBe('hello');
+    });
+
+    it('does not swallow an end once the new session has produced a result', async () => {
+      const hook = await started();
+      await act(async () => {
+        void hook.result.current.stop();
+        void hook.result.current.start();
+      });
+      await advance(1100);
+      await advance(600);
+      await result('hello', false);
+      await emit('end');
+      await advance(500);
+      expect(speech.start).toHaveBeenCalledTimes(3);
     });
 
     it('stop() resolves with the final text after end', async () => {
