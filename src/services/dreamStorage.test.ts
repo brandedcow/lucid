@@ -452,7 +452,7 @@ describe('a failed index write', () => {
     expect((await listDreams()).map((d) => d.title)).toEqual(['A']);
   });
 
-  it('rolls an existing index back from the backup, keeps the recording and drops the copy', async () => {
+  it('rewrites an existing index from memory to its pre-save content, keeps the recording and drops the copy', async () => {
     await save(RECORDING, 1, A);
     __fs.put(RECORDING, 'audio-bytes');
     const before = __fs.read(INDEX);
@@ -494,7 +494,8 @@ describe('a failed index write', () => {
   });
 
   // Documented residual, not desired behavior: if the write, the rewrite and the backup are all
-  // unavailable, the index stays empty and the latest dream's save is lost (the recording stays).
+  // unavailable, the index stays empty: every earlier dream disappears from the list, not only the
+  // latest save (the audio files and the recording stay on disk, but nothing indexes them).
   it('residual: write and rewrite both failing with no backup leaves the index empty', async () => {
     await save(RECORDING, 1, A);
     __fs.put(RECORDING, 'audio-bytes');
@@ -506,6 +507,62 @@ describe('a failed index write', () => {
     expect(__fs.read(INDEX)).toBe('');
     expect(__fs.read(RECORDING)).toBe('audio-bytes');
     expect(__fs.list().filter(isDreamAudio)).toHaveLength(1);
+  });
+
+  it('copies the backup back when the in-memory rewrite also fails, leaving the pre-save index', async () => {
+    const first = await save(RECORDING, 1, A);
+    __fs.put(RECORDING, 'audio-bytes');
+    const before = __fs.read(INDEX);
+    jest.setSystemTime(new Date('2026-10-05T08:00:00Z'));
+    // Every index write fails and empties it, so only the .bak copy-back can repair it.
+    __fs.failWhen('write', isIndex, new Error('disk full'), EMPTY_WRITE);
+    await expect(save(RECORDING, 1, { title: 'B', tags: [] })).rejects.toThrow('disk full');
+
+    expect(__fs.copies()).toContainEqual({ from: BAK, to: INDEX });
+    expect(__fs.read(INDEX)).toBe(before);
+    expect(JSON.parse(__fs.read(INDEX)!)).toEqual([first]);
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+    expect(__fs.list().filter(isDreamAudio)).toHaveLength(1);
+  });
+
+  it('a failed backup copy that leaves a partial .bak still saves, and the partial backup is never used to repair', async () => {
+    const first = await save(RECORDING, 1, A);
+    const before = __fs.read(INDEX)!;
+    __fs.put(RECORDING, 'audio-bytes');
+    jest.setSystemTime(new Date('2026-10-05T08:00:00Z'));
+    __fs.failWhen('copy', isIndex, new Error('copy failed'), { leave: 'partial' });
+    const second = await save(RECORDING, 1, { title: 'B', tags: [] });
+
+    expect(__fs.read(BAK)).toBe(before.slice(0, Math.floor(before.length / 2)));
+    expect(() => JSON.parse(__fs.read(BAK)!)).toThrow();
+    expect(await listDreams()).toEqual([second, first]);
+
+    // Same again, but the index write fails too: repaired from memory, not from the partial .bak.
+    __fs.put(RECORDING, 'audio-bytes');
+    jest.setSystemTime(new Date('2026-10-06T08:00:00Z'));
+    const indexBefore = __fs.read(INDEX);
+    __fs.failNext('write', new Error('disk full'), EMPTY_WRITE);
+    await expect(save(RECORDING, 1, { title: 'C', tags: [] })).rejects.toThrow('disk full');
+    expect(__fs.read(INDEX)).toBe(indexBefore);
+    expect(__fs.copies().filter((c) => c.from === BAK)).toEqual([]);
+  });
+
+  // Documented consequence, not desired behavior: when there was no content to back up, the failed
+  // write leaves a partial index and removing it also fails, the index stays non-empty but
+  // unparseable. Reads then report 'unreadable' and every later save is refused with
+  // INDEX_UNREADABLE (a lockout) until the file is fixed or removed by hand. The original write
+  // error is still the one thrown, and no cleanup step throws anything else.
+  it('residual: a leftover partial index that cannot be deleted locks later saves out', async () => {
+    __fs.put(INDEX, '');
+    __fs.failNext('write', new Error('disk full'), { leave: 'partial' });
+    __fs.failWhen('delete', isIndex, new Error('delete failed'));
+    await expect(save(RECORDING, 1, A)).rejects.toThrow('disk full');
+
+    expect(__fs.has(INDEX)).toBe(true);
+    expect(__fs.read(RECORDING)).toBe('audio-bytes');
+    expect(__fs.list().filter(isDreamAudio)).toHaveLength(0);
+    expect(await getIndexStatus()).toBe('unreadable');
+    await expect(save(RECORDING, 1, A)).rejects.toMatchObject({ code: 'INDEX_UNREADABLE' });
   });
 
   it('a zero-length index with no backup is deleted after a partial failed write, and saving works', async () => {
