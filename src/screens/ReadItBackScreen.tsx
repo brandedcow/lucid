@@ -35,7 +35,9 @@ export type ReadItBackScreenProps = {
 
 /** True while the on-screen keyboard is showing. */
 function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
+  // Start from the real state: this screen can mount while the keyboard is already up (Review ->
+  // Edit with the title focused).
+  const [visible, setVisible] = useState(() => Keyboard.isVisible());
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -68,6 +70,8 @@ export function ReadItBackScreen({
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* 'padding' on both platforms assumes Android is edge-to-edge (the window does not resize
+          for the keyboard). Review only pads on iOS; that difference is unverified on a device. */}
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.header}>
           <Pressable

@@ -5,7 +5,7 @@ import { useDreamPlayback } from '../hooks/useDreamPlayback';
 import { getIndexStatus, listDreams } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { Dream, hasAudio, isDraft } from '../types/dream';
-import { capitalizeFirst } from '../utils/capitalizeFirst';
+import { displayEmotions } from '../utils/emotions';
 import { countWords, formatDuration } from '../utils/format';
 
 type Props = {
@@ -55,29 +55,30 @@ export function DreamListScreen({ onRecord, onOpenDraft }: Props) {
           const metaParts = [
             draft ? 'Not finished' : null,
             primary !== date ? date : null,
-            item.emotion ? capitalizeFirst(item.emotion) : null,
+            item.emotion ? displayEmotions(item.emotion) : null,
             ...item.tags,
           ].filter(Boolean);
           const words = !audio && item.transcript ? countWords(item.transcript) : 0;
 
-          const content = (
+          const playButton = (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={playing ? 'Pause dream' : 'Play dream'}
+              onPress={() => playback.toggle(item)}
+              style={[styles.play, playing && styles.playActive]}
+            >
+              <Text style={[styles.playGlyph, playing && styles.playGlyphActive]}>
+                {playing ? 'ǁ' : '▶'}
+              </Text>
+            </Pressable>
+          );
+          const writtenGlyph = (
+            <View style={[styles.play, styles.writtenSlot]} importantForAccessibility="no">
+              <Text style={styles.writtenGlyph}>⌨</Text>
+            </View>
+          );
+          const text = (
             <>
-              {audio ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={playing ? 'Pause dream' : 'Play dream'}
-                  onPress={() => playback.toggle(item)}
-                  style={[styles.play, playing && styles.playActive]}
-                >
-                  <Text style={[styles.playGlyph, playing && styles.playGlyphActive]}>
-                    {playing ? 'ǁ' : '▶'}
-                  </Text>
-                </Pressable>
-              ) : (
-                <View style={[styles.play, styles.writtenSlot]} importantForAccessibility="no">
-                  <Text style={styles.writtenGlyph}>⌨</Text>
-                </View>
-              )}
               <View style={styles.info}>
                 <Text style={styles.date} numberOfLines={1}>
                   {primary}
@@ -99,18 +100,29 @@ export function DreamListScreen({ onRecord, onOpenDraft }: Props) {
           );
 
           if (draft) {
+            // The play button is a sibling of the labeled Pressable, never inside it, so screen
+            // readers can still reach it. The written-dream glyph is inside, as part of the tap area.
             return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Not finished: ${primary}`}
-                onPress={() => onOpenDraft?.(item)}
-                style={styles.row}
-              >
-                {content}
-              </Pressable>
+              <View style={[styles.row, styles.draftRow]}>
+                {audio && playButton}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Not finished: ${primary}`}
+                  onPress={() => onOpenDraft?.(item)}
+                  style={styles.draftOpen}
+                >
+                  {!audio && writtenGlyph}
+                  {text}
+                </Pressable>
+              </View>
             );
           }
-          return <View style={styles.row}>{content}</View>;
+          return (
+            <View style={styles.row}>
+              {audio ? playButton : writtenGlyph}
+              {text}
+            </View>
+          );
         }}
       />
 
@@ -129,7 +141,11 @@ function firstTranscriptLine(transcript?: string): string {
       .split('\n')
       .find((l) => l.trim())
       ?.trim() ?? '';
-  return line.length > MAX_TITLE_CHARS ? `${line.slice(0, MAX_TITLE_CHARS).trimEnd()}…` : line;
+  // Cut by code point, so an emoji at the boundary is never split into a lone surrogate.
+  const chars = Array.from(line);
+  return chars.length > MAX_TITLE_CHARS
+    ? `${chars.slice(0, MAX_TITLE_CHARS).join('').trimEnd()}…`
+    : line;
 }
 
 function formatEntryDate(iso: string): string {
@@ -158,6 +174,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
+  },
+  draftRow: { paddingVertical: 0 },
+  draftOpen: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
   },
   play: {
     width: 40,

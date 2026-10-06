@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { ComponentProps } from 'react';
-import { Keyboard } from 'react-native';
+import { Keyboard, Platform } from 'react-native';
 import { ReadItBackScreen } from './ReadItBackScreen';
 
 jest.mock('expo-audio', () => ({
@@ -111,6 +111,63 @@ describe('ReadItBackScreen', () => {
     expect(screen.queryByLabelText('Play recording')).toBeNull();
     await act(async () => handlers.keyboardWillHide());
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    add.mockRestore();
+  });
+
+  it('hides the recording card when mounted while the keyboard is already showing', async () => {
+    const visible = jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
+    await setup({ audio });
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    visible.mockRestore();
+  });
+
+  it('uses the did-show and did-hide events on Android', async () => {
+    const original = Platform.OS;
+    Platform.OS = 'android';
+    const handlers: Record<string, () => void> = {};
+    const add = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: () => void,
+    ) => {
+      handlers[event] = handler;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+    try {
+      await setup({ audio });
+      expect(Object.keys(handlers).sort()).toEqual(['keyboardDidHide', 'keyboardDidShow']);
+      await act(async () => handlers.keyboardDidShow());
+      expect(screen.queryByLabelText('Play recording')).toBeNull();
+      await act(async () => handlers.keyboardDidHide());
+      expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    } finally {
+      add.mockRestore();
+      Platform.OS = original;
+    }
+  });
+
+  it('removes its keyboard listeners when it unmounts', async () => {
+    // KeyboardAvoidingView listens too, so only this screen's show/hide events are checked.
+    const removers: Record<string, jest.Mock> = {};
+    const add = jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string) => {
+      removers[event] = jest.fn();
+      return { remove: removers[event] };
+    }) as unknown as typeof Keyboard.addListener);
+    const view = await render(
+      <ReadItBackScreen
+        text=""
+        onChangeText={jest.fn()}
+        autoFocus={false}
+        onContinue={jest.fn()}
+        onBack={jest.fn()}
+        date="Tuesday, October 6"
+      />,
+    );
+    expect(removers.keyboardWillShow).toBeDefined();
+    expect(removers.keyboardWillHide).toBeDefined();
+    expect(removers.keyboardWillShow).not.toHaveBeenCalled();
+    await view.unmount();
+    expect(removers.keyboardWillShow).toHaveBeenCalledTimes(1);
+    expect(removers.keyboardWillHide).toHaveBeenCalledTimes(1);
     add.mockRestore();
   });
 
