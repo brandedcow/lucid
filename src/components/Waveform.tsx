@@ -1,36 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors } from '../theme';
 
 const BARS = 17;
 const MAX_HEIGHT = 28;
-const IDLE_LEVEL = 0.15;
+const IDLE_LEVEL = 0.1;
 
-type Props = { active: boolean };
+type Props = {
+  /** Current input level, 0..1. */
+  level: number;
+  active: boolean;
+};
 
-// TODO: drive from real microphone metering instead of random levels.
-export function Waveform({ active }: Props) {
-  const [levels, setLevels] = useState<number[]>(() => Array(BARS).fill(IDLE_LEVEL));
+export function Waveform({ level, active }: Props) {
+  const [history, setHistory] = useState<number[]>(() => Array(BARS).fill(IDLE_LEVEL));
+  const latest = useRef(level);
+
+  useEffect(() => {
+    latest.current = level;
+  }, [level]);
 
   useEffect(() => {
     if (!active) return;
     const id = setInterval(() => {
-      setLevels((prev) => [...prev.slice(1), 0.2 + Math.random() * 0.8]);
-    }, 120);
+      setHistory((prev) => [...prev.slice(1), Math.max(IDLE_LEVEL, latest.current)]);
+    }, 100);
     return () => clearInterval(id);
   }, [active]);
 
-  // Paused: show flat bars without touching state; the live levels resume on unpause.
-  const shown = active ? levels : levels.map(() => IDLE_LEVEL);
+  // Paused: show flat bars without touching state; live levels resume on unpause.
+  const shown = active ? history : history.map(() => IDLE_LEVEL);
 
   return (
     <View style={styles.row}>
-      {shown.map((level, i) => (
+      {shown.map((value, i) => (
         <View
           key={i}
           style={[
             styles.bar,
-            { height: Math.max(3, level * MAX_HEIGHT), opacity: 0.3 + (i / BARS) * 0.7 },
+            { height: Math.max(3, value * MAX_HEIGHT), opacity: 0.3 + (i / BARS) * 0.7 },
           ]}
         />
       ))}

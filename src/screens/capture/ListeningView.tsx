@@ -4,61 +4,55 @@ import { colors, fonts, spacing } from '../../theme';
 import { formatDuration, formatToday } from '../../utils/format';
 
 type Props = {
-  seconds: number;
+  durationMs: number;
+  level: number;
   paused: boolean;
-  lines: string[];
+  saving: boolean;
   onTogglePause: () => void;
   onSave: () => void;
 };
 
-const LINE_COLORS = [colors.text, colors.transcriptMid, colors.faint];
-
-export function ListeningView({ seconds, paused, lines, onTogglePause, onSave }: Props) {
-  const visible = lines.slice(-3);
+export function ListeningView({ durationMs, level, paused, saving, onTogglePause, onSave }: Props) {
+  const time = formatDuration(Math.floor(durationMs / 1000));
 
   return (
     <>
       <View style={styles.header}>
         <View style={styles.status}>
           <View style={[styles.dot, paused && styles.dotPaused]} />
-          <Text style={styles.statusText}>
-            {paused ? 'Paused' : 'Listening'} · {formatDuration(seconds)}
-          </Text>
+          <Text style={styles.statusText}>{paused ? 'Paused' : 'Listening'}</Text>
         </View>
         <Text style={styles.small}>{formatToday()}</Text>
       </View>
 
-      <View style={styles.transcript}>
-        {visible.map((line, i) => {
-          const fromEnd = visible.length - 1 - i;
-          const isLast = fromEnd === 0;
-          return (
-            <Text key={line} style={[styles.line, { color: LINE_COLORS[Math.min(fromEnd, 2)] }]}>
-              {line}
-              {isLast && !paused ? <Text style={styles.cursor}>|</Text> : null}
-            </Text>
-          );
-        })}
+      <View style={styles.center}>
+        <Text style={styles.timer}>{time}</Text>
       </View>
 
       <View style={styles.waveWrap}>
-        <Waveform active={!paused} />
+        <Waveform level={level} active={!paused} />
       </View>
 
       <View style={styles.controls}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={paused ? 'Resume' : 'Pause'}
+          disabled={saving}
           onPress={onTogglePause}
           style={styles.pause}
         >
           <Text style={styles.pauseGlyph}>{paused ? '▶' : 'ǁ'}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onSave} style={styles.save}>
-          <Text style={styles.saveLabel}>Save dream</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={saving}
+          onPress={onSave}
+          style={[styles.save, saving && styles.saving]}
+        >
+          <Text style={styles.saveLabel}>{saving ? 'Saving…' : 'Save dream'}</Text>
         </Pressable>
       </View>
-      <Text style={styles.caption}>Audio and transcript are both kept</Text>
+      <Text style={styles.caption}>Your recording is saved on this device</Text>
     </>
   );
 }
@@ -76,14 +70,13 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   dotPaused: { opacity: 0.35 },
   statusText: { color: colors.text, fontSize: 13 },
-  transcript: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  timer: {
+    color: colors.text,
+    fontFamily: fonts.serif,
+    fontSize: 64,
+    fontVariant: ['tabular-nums'],
   },
-  line: { fontFamily: fonts.serif, fontSize: 20, lineHeight: 28 },
-  cursor: { color: '#FF5A4F' },
   waveWrap: { alignItems: 'center', paddingVertical: spacing.lg },
   controls: {
     flexDirection: 'row',
@@ -109,6 +102,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  saving: { opacity: 0.6 },
   saveLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
   caption: {
     color: colors.faint,

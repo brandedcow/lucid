@@ -1,32 +1,55 @@
 import { useState } from 'react';
-import { SafeAreaView, StyleSheet } from 'react-native';
-import { useMockTranscript } from '../hooks/useMockTranscript';
-import { useRecordingTimer } from '../hooks/useRecordingTimer';
+import { Alert, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
 import { colors } from '../theme';
 import { IdleView } from './capture/IdleView';
 import { ListeningView } from './capture/ListeningView';
 
 type Phase = 'idle' | 'listening';
 
-export function CaptureScreen() {
+type Props = { onRecorded: (recording: FinishedRecording) => void };
+
+export function CaptureScreen({ onRecorded }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [paused, setPaused] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const recorder = useDreamRecorder();
 
-  const running = phase === 'listening' && !paused;
-  const timer = useRecordingTimer(running);
-  const transcript = useMockTranscript(running);
-
-  const start = () => {
-    timer.reset();
-    transcript.reset();
-    setPaused(false);
-    setPhase('listening');
+  const start = async () => {
+    try {
+      const started = await recorder.start();
+      if (!started) {
+        Alert.alert(
+          'Microphone access needed',
+          'Lucid needs the microphone to record your dream. You can allow it in Settings.',
+        );
+        return;
+      }
+      setPaused(false);
+      setPhase('listening');
+    } catch {
+      Alert.alert('Could not start recording', 'Please try again.');
+    }
   };
 
-  // TODO: persist the dream (audio + transcript) before returning to idle.
-  const save = () => {
-    setPhase('idle');
-    setPaused(false);
+  const togglePause = () => {
+    if (paused) recorder.resume();
+    else recorder.pause();
+    setPaused(!paused);
+  };
+
+  // Stops recording and hands the file to the review step; nothing is saved yet.
+  const finish = async () => {
+    setStopping(true);
+    try {
+      const recording = await recorder.stop();
+      if (!recording) throw new Error('No recording was produced');
+      onRecorded(recording);
+    } catch {
+      Alert.alert('Could not finish recording', 'Please try again.');
+      setStopping(false);
+    }
   };
 
   return (
@@ -35,11 +58,12 @@ export function CaptureScreen() {
         <IdleView onStart={start} onSkip={() => {}} onWrite={() => {}} />
       ) : (
         <ListeningView
-          seconds={timer.seconds}
+          durationMs={recorder.durationMs}
+          level={recorder.level}
           paused={paused}
-          lines={transcript.lines}
-          onTogglePause={() => setPaused((p) => !p)}
-          onSave={save}
+          saving={stopping}
+          onTogglePause={togglePause}
+          onSave={finish}
         />
       )}
     </SafeAreaView>

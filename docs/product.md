@@ -15,7 +15,8 @@ The idea behind it: the journal reflects the conscious mind, dreams reflect the 
 
 - **Journal first.** Version one is a journal app. There are no AI features in v1.
 - **Insight comes from the user.** The app helps the user capture, organize and revisit. It does not interpret, analyze or tell the user what their entries mean.
-- **Low friction.** Capturing should never feel like data entry. No required fields, no streaks, no scores, no gamification.
+- **Open structure that guides.** The app offers a light structure (a title, how it felt, tags) so entries are easy to find and compare later, without dictating what the user says. Fields are free text, never fixed lists, scales or ratings, so the user decides what goes in them. Keep required fields to the minimum that makes an entry findable (currently just the dream title); everything else is optional.
+- **Low friction.** Capturing should never feel like data entry. The structure above guides but never gets in the way: no streaks, no scores, no gamification.
 - **Plain language.** The design is inspired by Jungian ideas (conscious and unconscious, recurring symbols, noticing strong reactions), but the app never uses psychological or Jungian terms. No "shadow," "archetype," "individuation," etc. in UI copy, and don't present anything as psychological interpretation.
 
 ## Vocabulary
@@ -26,6 +27,8 @@ Use these terms consistently in UI copy, code and data models.
 | ------------- | ----------------------------------------------------------------------------------------------------- |
 | Journal entry | A free-form daily writing entry.                                                                      |
 | Dream         | A dream capture, usually made right after waking.                                                     |
+| Title         | A short name the user gives a dream so it can be found later. Required for dreams.                    |
+| Emotion       | Free text about how a dream felt. Optional, never a fixed list or rating.                             |
 | Tag           | A label the user applies to journal entries and dreams.                                               |
 | No dream      | The one-tap option on dream capture for a morning with nothing to record. Counts as done for the day. |
 
@@ -41,6 +44,13 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - Audio recordings are kept alongside transcripts.
 - Dream capture must be fast: the user should be able to start capturing immediately, since dreams fade within minutes.
 - The screen should be calm and low-glare (dark), suitable for use right after waking.
+
+#### After recording: review
+
+- Recording ends on a review step before anything is saved, so the user can check what they captured.
+- The user can play the recording back, and can delete it and record again.
+- The user adds a title (required), an emotion (free text, optional) and tags (optional).
+- Once saved, the user sees the dream list.
 
 ### Journal
 
