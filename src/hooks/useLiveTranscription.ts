@@ -398,6 +398,8 @@ export function useLiveTranscription() {
       setError('Live text could not start.');
       return false;
     }
+    // The helpers only touch refs and state setters, which are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
