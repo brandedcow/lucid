@@ -27,6 +27,23 @@ describe('ListeningView', () => {
     expect(screen.getByText('Listening...')).toBeTruthy();
   });
 
+  it('leaves the body blank while paused with no transcript', async () => {
+    await render(<ListeningView {...props} paused transcript="" />);
+    expect(screen.queryByText('Listening...', hidden)).toBeNull();
+    expect(screen.getByText('Paused · 0:42')).toBeTruthy();
+  });
+
+  it('still shows the empty state when not paused and the transcript is empty', async () => {
+    await render(<ListeningView {...props} paused={false} transcript="" />);
+    expect(screen.getByText('Listening...')).toBeTruthy();
+  });
+
+  it('shows the transcript while paused with text', async () => {
+    await render(<ListeningView {...props} paused transcript="I was on a boat" />);
+    expect(screen.getByLabelText('I was on a boat')).toBeTruthy();
+    expect(screen.queryByText('Listening...', hidden)).toBeNull();
+  });
+
   it('shows status with the time, and the date', async () => {
     await render(<ListeningView {...props} />);
     expect(screen.getByText('Listening · 0:42')).toBeTruthy();
