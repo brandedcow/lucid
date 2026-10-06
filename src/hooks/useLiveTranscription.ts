@@ -92,6 +92,8 @@ export function useLiveTranscription() {
   const pausedRef = useRef(false);
   /** Permission and the Android locale check passed once; resume() relies on it. */
   const ready = useRef(false);
+  /** The resume() currently waiting for the old session to wind down; single-flight. */
+  const resumeInFlight = useRef<Promise<boolean> | null>(null);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endWaiters = useRef<(() => void)[]>([]);
 
@@ -282,13 +284,15 @@ export function useLiveTranscription() {
   });
 
   /**
-   * A previous session is still winding down: let it finish (or abort it) first. Callers compare
-   * the token afterwards to see whether stop() or unmount ran while this waited.
+   * A previous session is still winding down: let it finish (or abort it) first. Callers pass the
+   * token they captured before the call; if it changed after any await (stop() or unmount ran),
+   * this returns without writing state and the caller bails out too.
    */
-  const windDownPrevious = async () => {
+  const windDownPrevious = async (mine: number) => {
     staleEndPending.current = false;
     if (phase.current !== 'stopping') return;
     const ended = await waitForEnd(START_WAIT_FOR_END_MS);
+    if (token.current !== mine) return;
     if (!ended && phase.current === 'stopping') {
       log('previous session did not end in time; aborting it');
       try {
@@ -296,11 +300,13 @@ export function useLiveTranscription() {
       } catch (e) {
         log('abort failed', e);
       }
-      await waitForEnd(500);
-      phase.current = 'idle';
+      const endedAfterAbort = await waitForEnd(500);
+      if (token.current !== mine) return;
+      commitInterim();
+      phase.current = pausedRef.current ? 'paused' : 'idle';
       nativeActive.current = false;
       // The aborted session may still deliver its `end` after the new one has begun.
-      staleEndPending.current = true;
+      staleEndPending.current = !endedAfterAbort;
     }
   };
 
@@ -316,7 +322,7 @@ export function useLiveTranscription() {
 
     try {
       const tokenBeforeWait = token.current;
-      await windDownPrevious();
+      await windDownPrevious(tokenBeforeWait);
       // stop() or unmount ran while we waited: this start is no longer wanted.
       if (token.current !== tokenBeforeWait) return false;
 
@@ -407,6 +413,12 @@ export function useLiveTranscription() {
    * runs while paused. A no-op unless live text is running or starting.
    */
   const pause = useCallback(() => {
+    if (resumeInFlight.current) {
+      // A resume is waiting on the old session: record the newer intent (pause); resume() checks
+      // it when the wait is over. No native action.
+      setPausedFlag(true);
+      return;
+    }
     const current = phase.current;
     if (current === 'starting') {
       setPausedFlag(true);
@@ -429,6 +441,9 @@ export function useLiveTranscription() {
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch (e) {
+      // Accepted gap: if native was actually still alive, a later resume() would start a second
+      // session. Native stop() throwing is not realistically reachable, so no abort/stale-end
+      // handling here.
       log('pause stop failed', e);
       nativeActive.current = false;
       phase.current = 'paused';
@@ -442,30 +457,54 @@ export function useLiveTranscription() {
 
   /**
    * Starts a new recognition session after pause(); its text appends to the transcript.
-   * Resolves false if there was nothing to resume or it could not start; never throws.
+   * Single-flight: a call while one is in flight records "resume" as the latest intent and shares
+   * its result. Resolves false if there was nothing to resume or it could not start; never throws.
    */
-  const resume = useCallback(async (): Promise<boolean> => {
-    const draining = phase.current === 'stopping' && pausedRef.current;
-    if ((phase.current !== 'paused' && !draining) || !ready.current) return false;
-    try {
-      const mine = token.current;
-      await windDownPrevious();
-      // stop(), start() or unmount ran while we waited, or another resume() got there first.
-      if (token.current !== mine || !pausedRef.current) return false;
-
-      setPausedFlag(false);
-      wanted.current = true;
-      failedRestarts.current = 0;
-      phase.current = 'running';
-      beginRecognition(false);
-      return true;
-    } catch (e) {
-      log('resume failed', e);
-      wanted.current = false;
-      phase.current = 'idle';
-      setError('Live text stopped.');
-      return false;
+  const resume = useCallback((): Promise<boolean> => {
+    if (resumeInFlight.current) {
+      if (pausedRef.current) setPausedFlag(false); // last intent wins
+      return resumeInFlight.current;
     }
+    if (phase.current === 'starting' && pausedRef.current) {
+      // start() checks the flag after its awaits and then goes straight to running.
+      setPausedFlag(false);
+      return Promise.resolve(true);
+    }
+    const draining = phase.current === 'stopping' && pausedRef.current;
+    if ((phase.current !== 'paused' && !draining) || !ready.current) return Promise.resolve(false);
+
+    const mine = token.current;
+    // From here on, pausedRef true means "pause() came in again while we waited".
+    setPausedFlag(false);
+    const run = async (): Promise<boolean> => {
+      try {
+        await windDownPrevious(mine);
+        // stop(), start() or unmount ran while we waited.
+        if (token.current !== mine) return false;
+        if (pausedRef.current) {
+          // The user paused again during the wait.
+          if (phase.current === 'idle') phase.current = 'paused';
+          return false;
+        }
+        setPausedFlag(false);
+        wanted.current = true;
+        failedRestarts.current = 0;
+        phase.current = 'running';
+        beginRecognition(false);
+        return true;
+      } catch (e) {
+        log('resume failed', e);
+        wanted.current = false;
+        phase.current = 'idle';
+        setError('Live text stopped.');
+        return false;
+      } finally {
+        resumeInFlight.current = null;
+      }
+    };
+    const promise = run();
+    resumeInFlight.current = promise;
+    return promise;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -475,6 +514,8 @@ export function useLiveTranscription() {
    */
   const stop = useCallback(async (): Promise<string> => {
     log('stop requested');
+    // A second native stop() while one is already finishing cancels the final-result flush on iOS.
+    const alreadyStopping = phase.current === 'stopping';
     token.current += 1;
     wanted.current = false;
     clearRestartTimer();
@@ -497,10 +538,12 @@ export function useLiveTranscription() {
     if (phase.current === 'starting') phase.current = 'idle';
     if (phase.current === 'running') phase.current = 'stopping';
     const waiting = phase.current === 'stopping';
-    try {
-      ExpoSpeechRecognitionModule.stop();
-    } catch (e) {
-      log('stop failed', e);
+    if (!alreadyStopping) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch (e) {
+        log('stop failed', e);
+      }
     }
     if (waiting) await waitForEnd(STOP_WAIT_FOR_END_MS);
     commitInterim();
