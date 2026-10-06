@@ -1,13 +1,17 @@
-import { useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Waveform } from '../../components/Waveform';
 import { colors, fonts, spacing } from '../../theme';
+import { fadeTail } from '../../utils/fadeTail';
 import { formatDuration, formatToday } from '../../utils/format';
 
 type Props = {
   durationMs: number;
   level: number;
   saving: boolean;
+  /** Recording is paused: hollow dot, flat waveform, still caret, play icon. */
+  paused?: boolean;
+  onTogglePause?: () => void;
   /** Live text from on-device recognition; empty until something is heard. */
   transcript?: string;
   /** Small debug line for the device test; omitted when there is no problem. */
@@ -15,58 +19,86 @@ type Props = {
   onSave: () => void;
 };
 
+function PauseGlyph({ paused }: { paused: boolean }) {
+  if (paused) return <View style={styles.play} />;
+  return (
+    <View style={styles.pauseBars}>
+      <View style={styles.pauseBar} />
+      <View style={styles.pauseBar} />
+    </View>
+  );
+}
+
 export function ListeningView({
   durationMs,
   level,
   saving,
+  paused = false,
+  onTogglePause,
   transcript = '',
   transcriptNote = null,
   onSave,
 }: Props) {
-  const scroll = useRef<ScrollView>(null);
   const time = formatDuration(Math.floor(durationMs / 1000));
+  const tail = useMemo(() => fadeTail(transcript), [transcript]);
+  const pauseDisabled = saving || !onTogglePause;
 
   return (
     <>
       <View style={styles.header}>
         <View style={styles.status}>
-          <View style={styles.dot} />
-          <Text style={styles.statusText}>Listening</Text>
+          <View style={[styles.dot, paused && styles.dotHollow]} />
+          <Text style={styles.statusText}>{`${paused ? 'Paused' : 'Listening'} · ${time}`}</Text>
         </View>
         <Text style={styles.small}>{formatToday()}</Text>
       </View>
 
-      <View style={styles.center}>
-        <Text style={styles.timer}>{time}</Text>
+      <View style={styles.transcript}>
+        {tail.length === 0 ? (
+          <Text style={styles.transcriptEmpty}>Listening...</Text>
+        ) : (
+          <Text
+            style={styles.transcriptText}
+            accessible={paused}
+            accessibilityLabel={paused ? transcript : undefined}
+            accessibilityElementsHidden={!paused}
+            importantForAccessibility={paused ? 'yes' : 'no-hide-descendants'}
+          >
+            {tail.map(({ word, opacity }, i) => (
+              <Text key={i} style={{ opacity }}>
+                {i < tail.length - 1 ? `${word} ` : word}
+              </Text>
+            ))}
+            {paused ? null : <Text style={styles.caret}>|</Text>}
+          </Text>
+        )}
       </View>
-
-      <ScrollView
-        ref={scroll}
-        style={styles.transcript}
-        contentContainerStyle={styles.transcriptContent}
-        onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
-      >
-        <Text style={transcript ? styles.transcriptText : styles.transcriptEmpty}>
-          {transcript || 'Listening...'}
-        </Text>
-      </ScrollView>
       {transcriptNote ? <Text style={styles.note}>{transcriptNote}</Text> : null}
 
       <View style={styles.waveWrap}>
-        <Waveform level={level} active />
+        <Waveform level={paused ? 0 : level} active={!paused} />
       </View>
 
       <View style={styles.controls}>
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={paused ? 'Resume' : 'Pause'}
+          disabled={pauseDisabled}
+          onPress={onTogglePause}
+          style={[styles.pause, pauseDisabled && styles.disabled]}
+        >
+          <PauseGlyph paused={paused} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
           disabled={saving}
           onPress={onSave}
-          style={[styles.save, saving && styles.saving]}
+          style={[styles.save, saving && styles.disabled]}
         >
           <Text style={styles.saveLabel}>{saving ? 'Saving…' : 'Save dream'}</Text>
         </Pressable>
       </View>
-      <Text style={styles.caption}>Your recording is saved on this device</Text>
+      <Text style={styles.caption}>Audio and transcript are both kept</Text>
     </>
   );
 }
@@ -82,10 +114,14 @@ const styles = StyleSheet.create({
   small: { color: colors.muted, fontSize: 13 },
   status: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  statusText: { color: colors.text, fontSize: 13 },
-  center: { alignItems: 'center', justifyContent: 'center', paddingTop: spacing.md },
-  transcript: { flex: 1, marginHorizontal: spacing.lg },
-  transcriptContent: { paddingVertical: spacing.md },
+  dotHollow: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: colors.accent },
+  statusText: { color: colors.text, fontSize: 13, fontVariant: ['tabular-nums'] },
+  transcript: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    marginHorizontal: spacing.lg,
+  },
   transcriptText: { color: colors.text, fontFamily: fonts.serif, fontSize: 20, lineHeight: 30 },
   transcriptEmpty: {
     color: colors.faint,
@@ -93,12 +129,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     textAlign: 'center',
   },
-  note: { color: colors.faint, fontSize: 11, textAlign: 'center', paddingHorizontal: spacing.lg },
-  timer: {
-    color: colors.text,
-    fontFamily: fonts.serif,
-    fontSize: 48,
-    fontVariant: ['tabular-nums'],
+  caret: { color: colors.text },
+  note: {
+    color: colors.faint,
+    fontSize: 11,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   waveWrap: { alignItems: 'center', paddingVertical: spacing.lg },
   controls: {
@@ -106,6 +143,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
+  },
+  pause: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseBars: { flexDirection: 'row', gap: 5 },
+  pauseBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: colors.text },
+  play: {
+    marginLeft: 4,
+    borderTopWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftWidth: 16,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: colors.text,
   },
   save: {
     flex: 1,
@@ -115,7 +172,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saving: { opacity: 0.6 },
+  disabled: { opacity: 0.6 },
   saveLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
   caption: {
     color: colors.faint,
