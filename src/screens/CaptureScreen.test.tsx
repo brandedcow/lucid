@@ -236,6 +236,104 @@ describe('CaptureScreen reconcile', () => {
   });
 });
 
+describe('CaptureScreen reconcile stay-true', () => {
+  it('keeps re-pausing a recorder that stays recording, then follows it by resuming', async () => {
+    await setup();
+    await tapPause(); // the user's own pause call; isRecording stays true and pause is a no-op
+    expect(mockRec.pause).toHaveBeenCalledTimes(1);
+    mockRec.pause.mockClear();
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(1);
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(2);
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(3);
+    expect(mockRec.resume).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(3);
+    expect(mockRec.resume).toHaveBeenCalledTimes(1);
+    expect(mockTx.resume).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/^Listening ·/)).toBeTruthy();
+    expect(screen.queryByText(/^Paused/)).toBeNull();
+    await advance(2000);
+    expect(mockRec.pause).toHaveBeenCalledTimes(3);
+    expect(mockRec.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes no further pause calls after a manual resume following one re-pause', async () => {
+    await setup();
+    await tapPause();
+    mockRec.pause.mockClear();
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(1);
+    await tapResume();
+    mockRec.pause.mockClear();
+    await advance(2000);
+    expect(mockRec.pause).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Listening ·/)).toBeTruthy();
+  });
+
+  it('makes no reconcile pause calls when the recorder is not recording after a pause', async () => {
+    const { view } = await setup();
+    await tapPause();
+    await setRecording(view, false);
+    mockRec.pause.mockClear();
+    await advance(2000);
+    expect(mockRec.pause).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Paused/)).toBeTruthy();
+  });
+
+  it('does nothing and warns about nothing when unmounted mid-wait', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { view } = await setup();
+    await tapPause();
+    mockRec.pause.mockClear();
+    await advance(300);
+    await view.unmount();
+    await advance(3000);
+    expect(mockRec.pause).not.toHaveBeenCalled();
+    expect(mockRec.resume).not.toHaveBeenCalled();
+    expect(mockTx.resume).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('makes no calls while a Save is pending or after it finishes', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let release: (r: typeof recording) => void = () => {};
+    mockRec.stop.mockReturnValue(new Promise((r) => (release = r)));
+    await setup();
+    await tapPause();
+    mockRec.pause.mockClear();
+    await advance(300);
+    await pressWithoutWaiting(screen.getByRole('button', { name: 'Save dream' }));
+    await advance(3000);
+    await act(async () => release(recording));
+    await advance(3000);
+    expect(mockRec.pause).not.toHaveBeenCalled();
+    expect(mockRec.resume).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps retrying and reaches the cap when the re-pause throws', async () => {
+    await setup();
+    await tapPause();
+    mockRec.pause.mockClear();
+    mockRec.pause.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    await advance(500);
+    await advance(500);
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(3);
+    expect(mockRec.resume).not.toHaveBeenCalled();
+    await advance(500);
+    expect(mockRec.pause).toHaveBeenCalledTimes(3);
+    expect(mockRec.resume).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/^Listening ·/)).toBeTruthy();
+  });
+});
+
 describe('CaptureScreen finish while paused', () => {
   it('stops both, hands off the recording, and blocks the toggle afterwards', async () => {
     const { onRecorded } = await setup();

@@ -58,6 +58,7 @@ export function CaptureScreen({ onRecorded }: Props) {
   const startingRef = useRef(false);
   const lastToggleAt = useRef(0);
   const repauseCount = useRef(0);
+  const [reconcileTick, setReconcileTick] = useState(0);
   const isRecordingRef = useRef(recorder.isRecording);
   useEffect(() => {
     isRecordingRef.current = recorder.isRecording;
@@ -119,10 +120,12 @@ export function CaptureScreen({ onRecorded }: Props) {
       } catch (e) {
         logRecording('recorder re-pause failed', e);
       }
+      // Re-run the effect so a re-pause that changed nothing is checked again (capped above).
+      setReconcileTick((n) => n + 1);
     }, RECONCILE_DELAY_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused, recorder.isRecording, stopping]);
+  }, [paused, recorder.isRecording, stopping, reconcileTick]);
 
   const start = async () => {
     if (startingRef.current) return;
