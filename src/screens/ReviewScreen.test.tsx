@@ -157,8 +157,18 @@ describe('ReviewScreen layout', () => {
 
   it('opens Edit when the whole card is tapped', async () => {
     await renderReview();
-    await fireEvent.press(screen.getByLabelText('Edit text'));
+    await fireEvent.press(screen.getByRole('button', { name: /^Edit text/ }));
     expect(callbacks.onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces the text and word count on the card, not just "Edit text"', async () => {
+    await renderReview({ transcript: '\n  I was in a hallway\nsecond line' });
+    expect(screen.getByLabelText('Edit text. I was in a hallway, 7 words')).toBeTruthy();
+  });
+
+  it('announces "No text yet" for an empty card', async () => {
+    await renderReview({ transcript: ' ', noAudio: true });
+    expect(screen.getByLabelText('Edit text. No text yet, 0 words')).toBeTruthy();
   });
 
   it('calls onBack from the back arrow', async () => {
@@ -172,18 +182,49 @@ describe('ReviewScreen emotion and tags', () => {
   it('appends a tapped chip in lowercase, and removes it on a second tap', async () => {
     await renderReview();
     await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('calm');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm');
     await press('Uneasy');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('calm, uneasy');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm, Uneasy');
     await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('uneasy');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Uneasy');
   });
 
   it('accepts free text and offers no preset feelings', async () => {
     await renderReview();
     expect(screen.queryByText('Afraid')).toBeNull();
     await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'a bit wistful');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('a bit wistful');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('A bit wistful');
+  });
+
+  it('replaces a partly typed word when its chip is tapped, and saves only the chip word', async () => {
+    await renderReview();
+    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'Ca');
+    await press('Calm');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm');
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].details.emotion).toBe('calm');
+  });
+
+  it('shows each entry capitalized while the stored text stays lowercase', async () => {
+    await renderReview();
+    const input = () => screen.getByLabelText('How did it feel?');
+    // Typing character by character: same length every step, so the cursor has nothing to jump over.
+    for (const ch of 'calm, a bit uneasy') {
+      const typed = `${input().props.value}${ch}`;
+      await fireEvent.changeText(input(), typed);
+      expect(input().props.value).toHaveLength(typed.length);
+    }
+    expect(input().props.value).toBe('Calm, A bit uneasy');
+    // Backspacing works the same way.
+    await fireEvent.changeText(input(), 'Calm, A bit uneas');
+    expect(input().props.value).toBe('Calm, A bit uneas');
+    await fireEvent.changeText(input(), 'Calm, A bit uneasy');
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].details.emotion).toBe('calm, a bit uneasy');
   });
 
   it('adds a suggested tag with one tap and lets it be removed', async () => {
@@ -300,6 +341,24 @@ describe('ReviewScreen saving', () => {
     await press('Finish later');
     expect(callbacks.onBack).not.toHaveBeenCalled();
     expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ id: '77', createdAt: 'c' }));
+  });
+
+  it('locks the card and every field while a save is in flight', async () => {
+    await renderReview();
+    await typeTitle('Hallway');
+    let resolve: (v: unknown) => void = () => {};
+    save.mockReturnValue(new Promise((r) => (resolve = r)));
+    await press('Done');
+    expect(screen.getByLabelText('Title').props.editable).toBe(false);
+    expect(screen.getByLabelText('How did it feel?').props.editable).toBe(false);
+    await fireEvent.press(screen.getByRole('button', { name: /^Edit text/ }));
+    expect(callbacks.onEdit).not.toHaveBeenCalled();
+    // Chips and tag controls ignore touches too.
+    await press('Calm');
+    expect(screen.getByLabelText('How did it feel?').props.value).toBe('');
+    await press('+ water');
+    expect(screen.queryByLabelText('Remove tag water')).toBeNull();
     await act(async () => resolve({ id: '77', createdAt: 'c' }));
   });
 

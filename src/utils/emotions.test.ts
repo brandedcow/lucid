@@ -1,4 +1,10 @@
-import { splitEmotions, suggestEmotions, toggleEmotion } from './emotions';
+import {
+  displayEmotions,
+  splitEmotions,
+  storeEmotionInput,
+  suggestEmotions,
+  toggleEmotion,
+} from './emotions';
 
 describe('splitEmotions', () => {
   it('splits on commas and semicolons, trims and lowercases', () => {
@@ -40,6 +46,81 @@ describe('toggleEmotion', () => {
     expect(toggleEmotion('a', 'b;c')).toBe('a');
     expect(toggleEmotion('a', '')).toBe('a');
     expect(toggleEmotion('a', ' , ')).toBe('a');
+  });
+});
+
+describe('toggleEmotion with a partial word typed', () => {
+  it('replaces the start of the word being typed', () => {
+    expect(toggleEmotion('ca', 'calm')).toBe('calm');
+    expect(toggleEmotion('CA', 'Calm')).toBe('Calm');
+    expect(toggleEmotion('calm, un', 'uneasy')).toBe('calm, uneasy');
+    expect(toggleEmotion('calm; un', 'uneasy')).toBe('calm, uneasy');
+  });
+
+  it('replaces the start of a multi-word phrase', () => {
+    expect(toggleEmotion('a bit', 'a bit uneasy')).toBe('a bit uneasy');
+    expect(toggleEmotion('calm, a bit', 'a bit uneasy')).toBe('calm, a bit uneasy');
+  });
+
+  it('appends when nothing is being typed', () => {
+    expect(toggleEmotion('', 'calm')).toBe('calm');
+    expect(toggleEmotion('uneasy,', 'calm')).toBe('uneasy, calm');
+    expect(toggleEmotion('uneasy, ', 'calm')).toBe('uneasy, calm');
+    expect(toggleEmotion('uneasy; ', 'calm')).toBe('uneasy, calm');
+  });
+
+  it('appends when the text being typed is not the start of the word', () => {
+    expect(toggleEmotion('xyz', 'calm')).toBe('xyz, calm');
+    expect(toggleEmotion('calmer', 'calm')).toBe('calmer, calm');
+  });
+
+  it('still removes a word that is already there', () => {
+    expect(toggleEmotion('calm', 'calm')).toBe('');
+    expect(toggleEmotion('uneasy, calm', 'Calm')).toBe('uneasy');
+  });
+
+  it('never leaves the partial word in the result', () => {
+    expect(splitEmotions(toggleEmotion('ca', 'calm'))).toEqual(['calm']);
+  });
+});
+
+describe('displayEmotions', () => {
+  it('capitalizes the first letter of each entry', () => {
+    expect(displayEmotions('calm, uneasy')).toBe('Calm, Uneasy');
+    expect(displayEmotions('calm;uneasy')).toBe('Calm;Uneasy');
+  });
+
+  it('capitalizes only the first letter of a multi-word entry', () => {
+    expect(displayEmotions('a bit uneasy')).toBe('A bit uneasy');
+    expect(displayEmotions('calm, a bit uneasy')).toBe('Calm, A bit uneasy');
+  });
+
+  it('handles empty entries, spaces and a trailing separator, keeping the length', () => {
+    for (const s of ['', ' ', ',', 'calm, ', ' calm ,, uneasy', 'ca, ', ';x']) {
+      expect(displayEmotions(s)).toHaveLength(s.length);
+    }
+    expect(displayEmotions(' calm ,, uneasy')).toBe(' Calm ,, Uneasy');
+    expect(displayEmotions('calm, ')).toBe('Calm, ');
+  });
+
+  it('leaves a letter alone when its uppercase form is longer', () => {
+    expect(displayEmotions('ßad')).toBe('ßad');
+  });
+
+  it('does not change the stored value', () => {
+    const stored = 'calm, uneasy';
+    displayEmotions(stored);
+    expect(stored).toBe('calm, uneasy');
+  });
+});
+
+describe('storeEmotionInput', () => {
+  it('lowercases what was typed', () => {
+    expect(storeEmotionInput('Calm, Uneasy')).toBe('calm, uneasy');
+  });
+
+  it('keeps the text as typed when lowercasing would change its length', () => {
+    expect(storeEmotionInput('İ')).toBe('İ');
   });
 });
 

@@ -15,6 +15,7 @@ import { MicIcon } from '../components/MicIcon';
 import { TagInput } from '../components/TagInput';
 import { listEmotions, listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
+import { displayEmotions, storeEmotionInput } from '../utils/emotions';
 import { countWords, formatDuration } from '../utils/format';
 
 /**
@@ -25,8 +26,9 @@ import { countWords, formatDuration } from '../utils/format';
  *   typed but not yet confirmed) survive Review -> Edit -> Review.
  * - onEditTranscript: go back to Read it back to edit the text (the whole preview card is the button).
  * - onDone / onFinishLater: the parent saves the session (as 'saved' / as a draft) and leaves.
- *   Done is disabled until there is a title; Finish later is always available.
- * - saving: a save is in flight; Done, Finish later and the back arrow do nothing.
+ *   Done is disabled until there is a title; Finish later is available unless a save is in flight.
+ * - saving: a save is in flight; Done, Finish later and the back arrow do nothing, and the card and
+ *   all fields are locked so a late edit cannot be lost.
  * - onBack: the back arrow; the parent decides where it goes.
  * - date: label shown in the header ("Dream · <date>").
  */
@@ -80,12 +82,20 @@ export function ReviewScreen({
   const canDone = title.trim().length > 0 && !saving;
   const words = countWords(transcript);
   const wordLabel = `${words} ${words === 1 ? 'word' : 'words'}`;
+  const firstLine =
+    transcript
+      .split('\n')
+      .find((l) => l.trim())
+      ?.trim() ?? 'No text yet';
+  const cardLabel = `Edit text. ${firstLine}, ${wordLabel}`;
   const meta = audio
     ? `${formatDuration(Math.round(durationMs / 1000))} · ${wordLabel}`
     : wordLabel;
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Android: no keyboard behavior here, assuming edge-to-edge/adjustResize already moves the
+          content. Unverified on a device; Read it back uses 'padding' on both platforms. */}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -117,6 +127,7 @@ export function ReviewScreen({
             <TextInput
               value={title}
               onChangeText={onTitleChange}
+              editable={!saving}
               placeholder="Name this dream"
               placeholderTextColor={colors.faint}
               accessibilityLabel="Title"
@@ -129,7 +140,9 @@ export function ReviewScreen({
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Edit text"
+            accessibilityLabel={cardLabel}
+            accessibilityState={{ disabled: saving }}
+            disabled={saving}
             onPress={onEditTranscript}
             style={styles.card}
           >
@@ -145,14 +158,15 @@ export function ReviewScreen({
             </View>
           </Pressable>
 
-          <View style={styles.field}>
+          <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>How did it feel?</Text>
               <Text style={styles.optional}>Optional</Text>
             </View>
             <TextInput
-              value={emotion}
-              onChangeText={onEmotionChange}
+              value={displayEmotions(emotion)}
+              onChangeText={(text) => onEmotionChange(storeEmotionInput(text))}
+              editable={!saving}
               placeholder="Your own word..."
               placeholderTextColor={colors.faint}
               accessibilityLabel="How did it feel?"
@@ -163,7 +177,7 @@ export function ReviewScreen({
             <EmotionChips known={knownEmotions} value={emotion} onChange={onEmotionChange} />
           </View>
 
-          <View style={styles.field}>
+          <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Tags</Text>
               <Text style={styles.optional}>Optional</Text>

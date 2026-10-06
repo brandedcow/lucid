@@ -54,6 +54,18 @@ describe('EmotionChips', () => {
     expect(screen.queryByText('Curious')).toBeNull();
   });
 
+  it('replaces a partly typed word instead of keeping it', async () => {
+    await render(<Harness known={['calm', 'curious']} initial="ca" />);
+    await fireEvent.press(screen.getByText('Calm'));
+    expect(field()).toBe('calm');
+  });
+
+  it('replaces only the last partly typed word', async () => {
+    await render(<Harness known={['calm', 'uneasy']} initial="calm, un" />);
+    await fireEvent.press(screen.getByText('Uneasy'));
+    expect(field()).toBe('calm, uneasy');
+  });
+
   it('shows at most 8 chips', async () => {
     const known = ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8', 'i9', 'j0'];
     await render(<Harness known={known} />);
