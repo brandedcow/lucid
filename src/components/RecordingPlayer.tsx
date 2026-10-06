@@ -7,10 +7,12 @@ type Props = {
   uri: string;
   /** Known length of the recording, used until the player reports its own. */
   durationMs: number;
+  /** Replaces the elapsed/total time line with this text (e.g. a card caption). */
+  label?: string;
 };
 
 /** Play/pause with elapsed time and a progress bar for a single recording. */
-export function RecordingPlayer({ uri, durationMs }: Props) {
+export function RecordingPlayer({ uri, durationMs, label }: Props) {
   const player = useAudioPlayer(uri);
   const status = useAudioPlayerStatus(player);
 
@@ -43,9 +45,13 @@ export function RecordingPlayer({ uri, durationMs }: Props) {
         <View style={styles.bar}>
           <View style={[styles.fill, { width: `${progress * 100}%` }]} />
         </View>
-        <Text style={styles.time}>
-          {formatDuration(Math.floor(status.currentTime))} / {formatDuration(Math.round(total))}
-        </Text>
+        {label ? (
+          <Text style={styles.label}>{label}</Text>
+        ) : (
+          <Text style={styles.time}>
+            {formatDuration(Math.floor(status.currentTime))} / {formatDuration(Math.round(total))}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -72,5 +78,6 @@ const styles = StyleSheet.create({
   track: { flex: 1, gap: spacing.sm },
   bar: { height: 4, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
   fill: { height: 4, backgroundColor: colors.accent },
+  label: { color: colors.muted, fontSize: 13 },
   time: { color: colors.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
 });

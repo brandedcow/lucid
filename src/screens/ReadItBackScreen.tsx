@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,9 +12,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 import { colors, fonts, spacing } from '../theme';
+import { formatDuration } from '../utils/format';
 
 /**
- * Prop contract (stable; a later chunk restyles this screen without changing it):
+ * Prop contract (stable):
  * - text / onChangeText: the session transcript, controlled by the parent.
  * - audio: the recording to play back, if there is one (absent for Write instead).
  * - autoFocus: focus the text box on entry (Write instead with empty text only).
@@ -30,7 +33,22 @@ export type ReadItBackScreenProps = {
   date: string;
 };
 
-// Minimal working version; restyled per the mockup in a later chunk.
+/** True while the on-screen keyboard is showing. */
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hide = Keyboard.addListener(hideEvent, () => setVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return visible;
+}
+
 export function ReadItBackScreen({
   text,
   onChangeText,
@@ -41,31 +59,41 @@ export function ReadItBackScreen({
   date,
 }: ReadItBackScreenProps) {
   const canContinue = text.trim().length > 0 || !!audio;
+  const keyboardVisible = useKeyboardVisible();
+
+  const handleContinue = () => {
+    Keyboard.dismiss();
+    onContinue();
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={onBack}
             hitSlop={12}
+            style={styles.headerSide}
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <Text style={styles.date}>{date}</Text>
+          <Text style={styles.date}>Dream · {date}</Text>
+          <View style={styles.headerSide} />
         </View>
 
-        <Text style={styles.heading}>Read it back</Text>
+        <Text accessibilityRole="header" style={styles.heading}>
+          Read it back
+        </Text>
+        <Text style={styles.subtitle}>
+          Fix anything that came out wrong, and add what comes back to you.
+        </Text>
 
         <TextInput
           value={text}
           onChangeText={onChangeText}
-          placeholder="Write your dream"
+          placeholder="Type what you remember"
           placeholderTextColor={colors.faint}
           accessibilityLabel="Dream text"
           autoFocus={autoFocus}
@@ -76,12 +104,19 @@ export function ReadItBackScreen({
         />
 
         <View style={styles.footer}>
-          {audio && <RecordingPlayer uri={audio.uri} durationMs={audio.durationMs} />}
+          {audio && !keyboardVisible && (
+            <RecordingPlayer
+              uri={audio.uri}
+              durationMs={audio.durationMs}
+              label={`Original recording · ${formatDuration(Math.round(audio.durationMs / 1000))} · always kept`}
+            />
+          )}
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Continue"
             accessibilityState={{ disabled: !canContinue }}
             disabled={!canContinue}
-            onPress={onContinue}
+            onPress={handleContinue}
             style={[styles.continue, !canContinue && styles.continueDisabled]}
           >
             <Text style={styles.continueLabel}>Continue</Text>
@@ -98,25 +133,33 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+  headerSide: { width: 40 },
   back: { color: colors.text, fontSize: 24 },
-  date: { color: colors.muted, fontSize: 13 },
+  date: { flex: 1, textAlign: 'center', color: colors.muted, fontSize: 13 },
   heading: {
     color: colors.text,
     fontFamily: fonts.serif,
-    fontSize: 32,
+    fontSize: 34,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.lg,
+  },
+  subtitle: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.md,
   },
   input: {
     flex: 1,
     color: colors.text,
-    fontSize: 17,
-    lineHeight: 26,
+    fontFamily: fonts.serif,
+    fontSize: 20,
+    lineHeight: 30,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },

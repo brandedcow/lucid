@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { ComponentProps } from 'react';
+import { Keyboard } from 'react-native';
 import { ReadItBackScreen } from './ReadItBackScreen';
 
 jest.mock('expo-audio', () => ({
@@ -31,7 +32,6 @@ async function setup(props: Partial<ComponentProps<typeof ReadItBackScreen>> = {
 describe('ReadItBackScreen', () => {
   it('shows the heading and the text it is given', async () => {
     await setup({ text: 'I was flying' });
-    expect(screen.getByText('Read it back')).toBeTruthy();
     expect(screen.getByLabelText('Dream text').props.value).toBe('I was flying');
   });
 
@@ -74,5 +74,52 @@ describe('ReadItBackScreen', () => {
     const { onBack } = await setup();
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the heading, subtitle and dated header', async () => {
+    await setup();
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    expect(
+      screen.getByText('Fix anything that came out wrong, and add what comes back to you.'),
+    ).toBeTruthy();
+    expect(screen.getByText('Dream · Tuesday, October 6')).toBeTruthy();
+  });
+
+  it('shows a placeholder when the text is empty', async () => {
+    await setup({ audio });
+    expect(screen.getByPlaceholderText('Type what you remember')).toBeTruthy();
+  });
+
+  it('labels the recording card with its length', async () => {
+    await setup({ audio });
+    expect(screen.getByText('Original recording · 0:04 · always kept')).toBeTruthy();
+  });
+
+  it('hides the recording card while the keyboard is showing', async () => {
+    const handlers: Record<string, () => void> = {};
+    const add = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: () => void,
+    ) => {
+      handlers[event] = handler;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+    await setup({ audio });
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    // jest-expo runs as iOS, so the will-show/will-hide events are the ones used.
+    await act(async () => handlers.keyboardWillShow());
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    await act(async () => handlers.keyboardWillHide());
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    add.mockRestore();
+  });
+
+  it('dismisses the keyboard on Continue', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    const { onContinue } = await setup({ text: 'x' });
+    await fireEvent.press(screen.getByLabelText('Continue'));
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    dismiss.mockRestore();
   });
 });
