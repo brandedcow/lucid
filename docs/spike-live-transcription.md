@@ -1,6 +1,8 @@
 # Spike: live transcription during recording
 
-Branch `spike/live-transcription`. Supported: iPhone iOS 17+ and Android 13+ (API 33+); on older versions live text is off with a quiet note and recording continues. On-device recognition only. Pause/resume is built (see "Pause and resume design"); not yet device-verified. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. Nothing is saved; the transcript only appears on the capture screen. Not verified on any device yet.
+> **Superseded (2026-10-06).** Live transcription is now part of the app: the transcript is saved with the dream and edited on Read it back (see `docs/status.md`). This file is kept as the **device checklist** for it. Lines below that say the transcript is not stored, or that only the capture screen shows it, are out of date and marked as such. Android has been partly verified (live text, audio quality, long dreams, airplane mode, no beeps); iOS is untested.
+
+Branch `spike/live-transcription`. Supported: iPhone iOS 17+ and Android 13+ (API 33+); on older versions live text is off with a quiet note and recording continues. On-device recognition only. Pause/resume is built (see "Pause and resume design"); not yet device-verified. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. _(Out of date: the transcript is now saved with the dream. Device verification is partial, see the note above.)_
 
 Code: `src/hooks/useLiveTranscription.ts`, wired in `src/screens/CaptureScreen.tsx`, shown by `src/screens/capture/ListeningView.tsx`. Watch the Metro / device logs for lines starting with `[transcription]`.
 
@@ -10,13 +12,13 @@ Code: `src/hooks/useLiveTranscription.ts`, wired in `src/screens/CaptureScreen.t
 
 ## Ways to make a dev build (not run by the spike)
 
-| Option                        | Command                                                                     | Needs                                                                                                                                 |
-| ----------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| iOS, local                    | `npx expo run:ios --device`                                                 | A Mac with Xcode, an iPhone on USB, an Apple ID (free account works for 7-day installs; set a signing team in Xcode on first run).    |
-| iOS, cloud (EAS)              | `npx eas-cli@latest build --profile development --platform ios`             | Expo account, `eas.json` (not in repo yet; `eas build:configure`), paid Apple Developer account and the device registered for ad hoc. |
-| Android, local                | `npx expo run:android --device`                                             | Android Studio / SDK and JDK, phone with USB debugging on. Works from Windows.                                                        |
-| Android, cloud (EAS)          | `npx eas-cli@latest build --profile development --platform android`         | Expo account and `eas.json`. Produces an APK to install; no Google account fee.                                                       |
-| Android, local EAS (no cloud) | `npx eas-cli@latest build --profile development --platform android --local` | Linux/macOS (or WSL) with the Android SDK; Expo account for config.                                                                   |
+| Option                        | Command                                                                     | Needs                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| iOS, local                    | `npx expo run:ios --device`                                                 | A Mac with Xcode, an iPhone on USB, an Apple ID (free account works for 7-day installs; set a signing team in Xcode on first run). |
+| iOS, cloud (EAS)              | `npx eas-cli@latest build --profile development --platform ios`             | Expo account, `eas.json`, paid Apple Developer account and the device registered for ad hoc.                                       |
+| Android, local                | `npx expo run:android --device`                                             | Android Studio / SDK and JDK, phone with USB debugging on. Works from Windows.                                                     |
+| Android, cloud (EAS)          | `npx eas-cli@latest build --profile development --platform android`         | Expo account and `eas.json`. Produces an APK to install; no Google account fee.                                                    |
+| Android, local EAS (no cloud) | `npx eas-cli@latest build --profile development --platform android --local` | Linux/macOS (or WSL) with the Android SDK; Expo account for config.                                                                |
 
 The EAS development profile needs `"developmentClient": true` and `"distribution": "internal"` in `eas.json`. Then run `npm start` and open the installed app.
 
@@ -82,7 +84,7 @@ Both the `expo-audio` and `expo-speech-recognition` plugins write `NSMicrophoneU
 
 ## Known limits of this spike
 
-- Transcript is not stored, not sent to the review screen, and is lost on save.
+- Out of date: the transcript is now stored with the dream and shown on Read it back.
 - English (en-US) only.
-- Pause/resume is built and unit-tested with mocks only; it has not been run on any device.
+- Pause/resume is built and unit-tested with mocks only; it has not been run on any device (still true).
 - The debug line under the live text is for the device test and would be removed later.

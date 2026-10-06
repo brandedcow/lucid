@@ -17,6 +17,7 @@ The idea behind it: the journal reflects the conscious mind, dreams reflect the 
 - **Insight comes from the user.** The app helps the user capture, organize and revisit. It does not interpret, analyze or tell the user what their entries mean.
 - **Open structure that guides.** The app offers a light structure (a title, how it felt, tags) so entries are easy to find and compare later, without dictating what the user says. Fields are free text, never fixed lists, scales or ratings, so the user decides what goes in them. Keep required fields to the minimum that makes an entry findable (currently just the dream title); everything else is optional.
 - **Low friction.** Capturing should never feel like data entry. The structure above guides but never gets in the way: no streaks, no scores, no gamification.
+- **On-device only.** Transcription runs on the device. No audio or text is sent anywhere.
 - **Plain language.** The design is inspired by Jungian ideas (conscious and unconscious, recurring symbols, noticing strong reactions), but the app never uses psychological or Jungian terms. No "shadow," "archetype," "individuation," etc. in UI copy, and don't present anything as psychological interpretation.
 
 ## Vocabulary
@@ -31,6 +32,8 @@ Use these terms consistently in UI copy, code and data models.
 | Emotion       | Free text about how a dream felt. Optional, never a fixed list or rating.                             |
 | Tag           | A label the user applies to journal entries and dreams.                                               |
 | No dream      | The one-tap option on dream capture for a morning with nothing to record. Counts as done for the day. |
+| Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved.                |
+| Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.           |
 
 Tags cover anything the user wants to track over time, such as a recurring dream image ("water"), strong emotional reactions, or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up. There is no separate "tracker" concept; tags fill that role.
 
@@ -40,17 +43,21 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 - When the user opens the app on waking, it opens to the dream capture screen.
 - Dream capture can always be dismissed with one tap via "No dream".
-- Once a dream is saved or "No dream" is chosen for the day, the app opens to the journal instead.
-- Audio recordings are kept alongside transcripts.
+- Once a dream is saved or "No dream" is chosen for the day, the app opens to the journal instead. (Not built yet: today "No dream" only opens the dream list, and the app always opens to capture.)
+- Audio recordings are kept alongside transcripts (a dream written with "Write instead" has no audio).
 - Dream capture must be fast: the user should be able to start capturing immediately, since dreams fade within minutes.
 - The screen should be calm and low-glare (dark), suitable for use right after waking.
 
-#### After recording: review
+#### After recording: Read it back, then Review
 
-- Recording ends on a review step before anything is saved, so the user can check what they captured.
-- The user can play the recording back, and can delete it and record again.
-- The user adds a title (required), an emotion (free text, optional) and tags (optional).
-- Once saved, the user sees the dream list.
+- When recording ends, the user sees **Read it back**: the transcript in an editable text box, with the original recording kept and playable beside it. The user can fix anything that came out wrong.
+- **Continue** goes to **Review**: a title (required to finish), how it felt (optional free text) and tags (optional). The transcript shows there as a short preview with an Edit link back to Read it back.
+- Nothing is permanently saved until the user taps **Done** or **Finish later**.
+- **Done** finishes the dream and needs a title. **Finish later** saves a draft and needs nothing. A draft appears in the dream list as "Not finished", and tapping it reopens Review.
+- The back arrow on Read it back discards an unsaved recording, after a confirmation ("Discard this dream?"). There is no "Delete and record again".
+- **Write instead** (on dream capture) opens Read it back with an empty text box and creates a dream with no audio.
+- Emotion stays a free-text field, never a fixed list or rating. Quick-pick chips are made from words the user has used before (shown with a capital first letter). Tag suggestions come from tags the user has used before. Nothing is derived from the content of a dream.
+- Once finished, the user sees the dream list.
 
 ### Journal
 
@@ -80,8 +87,9 @@ Do not build these unless explicitly asked:
 
 ## Open decisions
 
+Resolved: dream capture leads with voice, and "Write instead" is the secondary option.
+
 These are undecided. Ask before assuming an answer.
 
-- Whether dream capture leads with voice or writing (both directions have been mocked up)
 - How "on waking" is detected (time window, first open of the day, user setting)
 - Journal structure and navigation
