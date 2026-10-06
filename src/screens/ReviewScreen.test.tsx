@@ -58,10 +58,11 @@ describe('ReviewScreen', () => {
     await fireEvent.press(screen.getByText('Save dream'));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saveDream).toHaveBeenCalledWith(recording.uri, recording.durationMs, {
-      title: 'Flooded hallway',
-      emotion: 'uneasy',
-      tags: ['falling'],
+    expect(saveDream).toHaveBeenCalledWith({
+      recordingUri: recording.uri,
+      durationMs: recording.durationMs,
+      details: { title: 'Flooded hallway', emotion: 'uneasy', tags: ['falling'] },
+      status: 'saved',
     });
   });
 

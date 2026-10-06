@@ -44,10 +44,11 @@ export function ReviewScreen({ recording, onSaved, onRerecord }: Props) {
     setSaving(true);
     try {
       // Include a tag that was typed but not yet confirmed.
-      await saveDream(recording.uri, recording.durationMs, {
-        title,
-        emotion,
-        tags: addTag(tags, draft),
+      await saveDream({
+        recordingUri: recording.uri,
+        durationMs: recording.durationMs,
+        details: { title, emotion, tags: addTag(tags, draft) },
+        status: 'saved',
       });
       onSaved();
     } catch {

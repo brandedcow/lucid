@@ -10,6 +10,9 @@ export function useDreamPlayback() {
   const [currentId, setCurrentId] = useState<string | null>(null);
 
   const toggle = async (dream: Dream) => {
+    const uri = dreamAudioUri(dream);
+    if (!uri) return; // Written dreams have no audio.
+
     if (currentId === dream.id) {
       if (status.playing) {
         player.pause();
@@ -22,7 +25,7 @@ export function useDreamPlayback() {
     }
 
     await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-    player.replace(dreamAudioUri(dream));
+    player.replace(uri);
     setCurrentId(dream.id);
     player.play();
   };

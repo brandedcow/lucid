@@ -1,4 +1,4 @@
-import { formatDuration, formatToday } from './format';
+import { countWords, formatDuration, formatToday } from './format';
 
 describe('formatDuration', () => {
   it.each([
@@ -14,5 +14,17 @@ describe('formatDuration', () => {
 describe('formatToday', () => {
   it('formats weekday, month and day', () => {
     expect(formatToday(new Date(2026, 9, 4))).toBe('Sunday, October 4');
+  });
+});
+
+describe('countWords', () => {
+  it.each([
+    ['', 0],
+    ['   \n\t ', 0],
+    ['one', 1],
+    ['  two   words ', 2],
+    ['line one\nline two\n\nthree', 5],
+  ])('counts %j as %i', (text, expected) => {
+    expect(countWords(text)).toBe(expected);
   });
 });

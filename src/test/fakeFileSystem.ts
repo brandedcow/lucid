@@ -42,6 +42,9 @@ export class File {
     files.delete(this.uri);
     this.uri = destination.uri;
   }
+  copy(destination: File) {
+    files.set(destination.uri, files.get(this.uri) ?? '');
+  }
   delete() {
     files.delete(this.uri);
   }

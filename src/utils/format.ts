@@ -7,3 +7,7 @@ export function formatDuration(totalSeconds: number): string {
 export function formatToday(now: Date = new Date()): string {
   return now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
+
+export function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
