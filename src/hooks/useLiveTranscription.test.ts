@@ -421,6 +421,269 @@ describe('useLiveTranscription', () => {
     });
   });
 
+  describe('pause and resume', () => {
+    const deferred = <T>() => {
+      let resolve!: (v: T) => void;
+      const promise = new Promise<T>((r) => (resolve = r));
+      return { promise, resolve };
+    };
+    const pause = (hook: Hook) =>
+      act(async () => {
+        hook.result.current.pause();
+      });
+    const resume = async (hook: Hook) => {
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await hook.result.current.resume();
+      });
+      return ok;
+    };
+    /** A session that ends `ms` after it began with no result, then lets the restart delay pass. */
+    const endAfter = async (ms: number) => {
+      await advance(ms);
+      await emit('end');
+      await advance(500);
+    };
+
+    it('pause while running stops native, keeps a final result from the drain, and goes quiet', async () => {
+      const hook = await started();
+      await result('hello', false);
+      await pause(hook);
+      expect(speech.stop).toHaveBeenCalledTimes(1);
+      expect(hook.result.current.paused).toBe(true);
+      await result('hello there.', true); // the flushed final text arrives during the drain
+      await emit('end');
+      await advance(3000);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+      expect(speech.abort).not.toHaveBeenCalled();
+      expect(hook.result.current.transcript).toBe('hello there.');
+      expect(hook.result.current.paused).toBe(true);
+      expect(hook.result.current.listening).toBe(false);
+    });
+
+    it('commits interim text left over when the drain ends without a final result', async () => {
+      const hook = await started();
+      await result('dangling words', false);
+      await pause(hook);
+      await emit('end');
+      expect(hook.result.current.transcript).toBe('dangling words');
+      await resume(hook);
+      await result('more', true);
+      expect(hook.result.current.transcript).toBe('dangling words more');
+    });
+
+    it('pause in the restart gap goes straight to paused with interim text committed', async () => {
+      const hook = await started();
+      await result('before the gap', false);
+      await emit('end'); // restart scheduled 300 ms out
+      speech.stop.mockClear();
+      await pause(hook);
+      expect(speech.stop).not.toHaveBeenCalled();
+      expect(hook.result.current.paused).toBe(true);
+      expect(hook.result.current.transcript).toBe('before the gap');
+      await advance(3000);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('pause during starting ends in paused without calling native start', async () => {
+      const permission = deferred<{ granted: boolean }>();
+      speech.requestPermissionsAsync.mockReturnValue(permission.promise as never);
+      const hook = await renderHook(() => useLiveTranscription());
+      let startResult: boolean | undefined;
+      await act(async () => {
+        void hook.result.current.start().then((r) => (startResult = r));
+      });
+      await pause(hook);
+      await act(async () => permission.resolve({ granted: true }));
+      expect(speech.start).not.toHaveBeenCalled();
+      expect(startResult).toBe(true);
+      expect(hook.result.current.paused).toBe(true);
+      // And it can be resumed without asking for permission again.
+      speech.requestPermissionsAsync.mockClear();
+      expect(await resume(hook)).toBe(true);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+      expect(speech.requestPermissionsAsync).not.toHaveBeenCalled();
+    });
+
+    it('ignores results and errors while paused', async () => {
+      const hook = await started();
+      await result('kept', true);
+      await pause(hook);
+      await emit('end');
+      await result('ghost', true);
+      await result('ghost two', false);
+      await emit('error', { error: 'network', message: 'blip' });
+      expect(hook.result.current.transcript).toBe('kept');
+      expect(hook.result.current.error).toBeNull();
+    });
+
+    it('resume starts a new session, appends, asks for nothing, and is not a restart', async () => {
+      setOs('android', 33);
+      const hook = await started();
+      await result('first', true);
+      await pause(hook);
+      await emit('end');
+      speech.requestPermissionsAsync.mockClear();
+      speech.getSupportedLocales.mockClear();
+      expect(await resume(hook)).toBe(true);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      expect(speech.requestPermissionsAsync).not.toHaveBeenCalled();
+      expect(speech.getSupportedLocales).not.toHaveBeenCalled();
+      expect(hook.result.current.paused).toBe(false);
+      await result('second', true);
+      expect(hook.result.current.transcript).toBe('first second');
+    });
+
+    it('a resumed session is not counted as a restart in the crash-loop guard', async () => {
+      const hook = await started();
+      await pause(hook);
+      await emit('end');
+      await resume(hook); // native start 2
+      // Same accounting as a first session: its failure is not counted, it only triggers a restart.
+      for (let i = 0; i < 5; i++) await endAfter(100);
+      expect(speech.start).toHaveBeenCalledTimes(7);
+      expect(hook.result.current.error).toBeNull();
+      await endAfter(100);
+      expect(speech.start).toHaveBeenCalledTimes(7);
+      expect(hook.result.current.error).toMatch(/stopped/);
+    });
+
+    it('resume while a pause is draining waits for end', async () => {
+      const hook = await started();
+      await result('a', true);
+      await pause(hook);
+      let ok: boolean | undefined;
+      await act(async () => {
+        void hook.result.current.resume().then((r) => (ok = r));
+      });
+      expect(speech.start).toHaveBeenCalledTimes(1);
+      await result('b.', true);
+      await emit('end');
+      await advance(0);
+      expect(ok).toBe(true);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      expect(speech.abort).not.toHaveBeenCalled();
+      expect(hook.result.current.transcript).toBe('a b.');
+    });
+
+    it('resume aborts a stuck pause and swallows the stale end', async () => {
+      const hook = await started();
+      await pause(hook);
+      await act(async () => {
+        void hook.result.current.resume();
+      });
+      await advance(1100);
+      expect(speech.abort).toHaveBeenCalled();
+      await advance(600);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      await emit('end'); // the stale end of the aborted session
+      await advance(1000);
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      await result('hello', true);
+      await emit('end');
+      await advance(500);
+      expect(speech.start).toHaveBeenCalledTimes(3);
+    });
+
+    it('stop() while paused returns the full text without native stop', async () => {
+      const hook = await started();
+      await result('all of it', true);
+      await pause(hook);
+      await emit('end');
+      speech.stop.mockClear();
+      let text: string | undefined;
+      await act(async () => {
+        void hook.result.current.stop().then((t) => (text = t));
+      });
+      expect(text).toBe('all of it');
+      expect(speech.stop).not.toHaveBeenCalled();
+      expect(hook.result.current.paused).toBe(false);
+      expect(await resume(hook)).toBe(false);
+      // Idle again: a new start() begins at once.
+      await act(async () => {
+        await hook.result.current.start();
+      });
+      expect(speech.start).toHaveBeenCalledTimes(2);
+      expect(speech.abort).not.toHaveBeenCalled();
+    });
+
+    it('stop() while a pause is draining returns the final text and ends idle', async () => {
+      const hook = await started();
+      await result('first', true);
+      await result('last', false);
+      await pause(hook);
+      let text: string | undefined;
+      await act(async () => {
+        void hook.result.current.stop().then((t) => (text = t));
+      });
+      expect(hook.result.current.paused).toBe(false);
+      expect(text).toBeUndefined();
+      await result('last.', true);
+      await emit('end');
+      expect(text).toBe('first last.');
+      await advance(3000);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+      expect(await resume(hook)).toBe(false);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('unmount while paused is clean', async () => {
+      const hook = await started();
+      await result('x', true);
+      await pause(hook);
+      await emit('end');
+      await hook.unmount();
+      await emit('end');
+      await advance(3000);
+      expect(speech.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('cycling pause and resume 6 times does not trip the crash-loop guard', async () => {
+      const hook = await started();
+      for (let i = 0; i < 6; i++) {
+        await advance(100); // short sessions with no result: would count if they were restarts
+        await pause(hook);
+        await emit('end');
+        expect(await resume(hook)).toBe(true);
+      }
+      expect(speech.start).toHaveBeenCalledTimes(7);
+      expect(hook.result.current.error).toBeNull();
+      // Still alive: an unexpected end restarts as usual.
+      await result('hello', false);
+      await emit('end');
+      await advance(500);
+      expect(speech.start).toHaveBeenCalledTimes(8);
+    });
+
+    it('pause, resume and stop are safe no-ops after a fatal error', async () => {
+      const hook = await started();
+      await emit('error', { error: 'not-allowed', message: 'denied' });
+      await emit('end');
+      speech.stop.mockClear();
+      await pause(hook);
+      expect(hook.result.current.paused).toBe(false);
+      expect(speech.stop).not.toHaveBeenCalled();
+      expect(await resume(hook)).toBe(false);
+      await hook.result.current.stop();
+      expect(speech.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('pause and resume do nothing when never started', async () => {
+      const hook = await renderHook(() => useLiveTranscription());
+      await act(async () => {
+        hook.result.current.pause();
+      });
+      expect(hook.result.current.paused).toBe(false);
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await hook.result.current.resume();
+      });
+      expect(ok).toBe(false);
+      expect(speech.start).not.toHaveBeenCalled();
+      expect(speech.stop).not.toHaveBeenCalled();
+    });
+  });
+
   describe('OS gate', () => {
     it.each([
       ['android', 32, false],
