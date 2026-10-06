@@ -60,6 +60,60 @@ describe('useDreamSession save', () => {
     expect(second).not.toHaveProperty('recordingUri');
   });
 
+  it('saves an edit with its id and full details, never a recordingUri, and keeps its audio', async () => {
+    const hook = await renderHook(() => useDreamSession());
+    const dream = {
+      id: '4',
+      createdAt: 'c0',
+      durationMs: 8000,
+      audioFileName: '4.m4a',
+      title: 'Old',
+      emotion: 'calm',
+      tags: ['a'],
+      transcript: 'old text',
+    };
+    await act(async () => hook.result.current.openDream(dream));
+    await act(async () => {
+      hook.result.current.setEmotion('');
+      hook.result.current.setTranscript('');
+    });
+    save.mockResolvedValue({ ...dream, emotion: undefined, transcript: undefined });
+    await act(async () => {
+      await hook.result.current.save('saved');
+    });
+    expect(save).toHaveBeenCalledWith({
+      id: '4',
+      durationMs: 8000,
+      details: { title: 'Old', emotion: '', tags: ['a'], transcript: '' },
+      status: 'saved',
+    });
+    expect(hook.result.current.session?.audio).toEqual({
+      uri: 'file:///docs/dreams/4.m4a',
+      durationMs: 8000,
+      persisted: true,
+    });
+  });
+
+  it('saves an edit of a dream with no audio with durationMs 0', async () => {
+    const hook = await renderHook(() => useDreamSession());
+    await act(async () =>
+      hook.result.current.openDream({
+        id: '5',
+        createdAt: 'c0',
+        durationMs: 0,
+        title: 'Typed',
+        tags: [],
+      }),
+    );
+    save.mockResolvedValue({ id: '5', createdAt: 'c0', durationMs: 0, title: 'Typed', tags: [] });
+    await act(async () => {
+      await hook.result.current.save('saved');
+    });
+    expect(save.mock.calls[0][0]).toMatchObject({ id: '5', durationMs: 0, status: 'saved' });
+    expect(save.mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(hook.result.current.session?.audio).toBeUndefined();
+  });
+
   it('does not save as finished without a title', async () => {
     const { result } = await started();
     let ok = true;

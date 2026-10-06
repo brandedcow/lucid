@@ -1,6 +1,12 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { Dream } from '../types/dream';
-import { Session, sessionFromDraft, sessionReducer, useDreamSession } from './useDreamSession';
+import {
+  Session,
+  sessionFromDraft,
+  sessionFromDream,
+  sessionReducer,
+  useDreamSession,
+} from './useDreamSession';
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
@@ -151,6 +157,70 @@ describe('sessionFromDraft', () => {
     expect(s.audio).toBeUndefined();
     expect(s.transcript).toBe('');
     expect(s.emotion).toBe('');
+  });
+});
+
+describe('sessionFromDream (edit)', () => {
+  const dream: Dream = {
+    id: '42',
+    createdAt: '2026-10-05T08:00:00.000Z',
+    durationMs: 9000,
+    audioFileName: '42.m4a',
+    title: 'Flooded hall',
+    emotion: 'uneasy',
+    tags: ['water', 'hall'],
+    transcript: 'it filled up',
+  };
+
+  it('builds an edit session with persisted audio and a baseline', () => {
+    const s = sessionFromDream(dream, 'edit');
+    expect(s).toMatchObject({
+      origin: 'edit',
+      id: '42',
+      createdAt: dream.createdAt,
+      transcript: 'it filled up',
+      title: 'Flooded hall',
+      emotion: 'uneasy',
+      tags: ['water', 'hall'],
+      tagDraft: '',
+      passedThroughReadItBack: true,
+      audio: { durationMs: 9000, persisted: true },
+      baseline: {
+        title: 'Flooded hall',
+        emotion: 'uneasy',
+        tags: ['water', 'hall'],
+        transcript: 'it filled up',
+      },
+    });
+    expect(s.audio?.uri).toContain('42.m4a');
+  });
+
+  it('keeps the baseline fixed while the session is edited', () => {
+    let s = sessionReducer(null, { type: 'openDraft', session: sessionFromDream(dream, 'edit') });
+    s = sessionReducer(s, { type: 'setTitle', value: 'New' });
+    s = sessionReducer(s, { type: 'setTags', value: ['x'] });
+    expect(s?.baseline).toMatchObject({ title: 'Flooded hall', tags: ['water', 'hall'] });
+  });
+
+  it('handles a no-audio dream with missing optional fields', () => {
+    const s = sessionFromDream(
+      { id: '1', createdAt: 'c', durationMs: 0, title: 't', tags: [] },
+      'edit',
+    );
+    expect(s.audio).toBeUndefined();
+    expect(s.baseline).toEqual({ title: 't', emotion: '', tags: [], transcript: '' });
+  });
+
+  it('gives drafts no baseline, and sessionFromDraft is unchanged', () => {
+    expect(sessionFromDream(dream, 'draft').baseline).toBeUndefined();
+    expect(sessionFromDraft(dream)).toEqual(sessionFromDream(dream, 'draft'));
+    expect(sessionFromDraft(dream).origin).toBe('draft');
+  });
+
+  it('openDream opens an edit session', async () => {
+    const { result } = await renderHook(() => useDreamSession());
+    await act(async () => result.current.openDream(dream));
+    expect(result.current.session).toMatchObject({ origin: 'edit', id: '42' });
   });
 });
 

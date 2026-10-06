@@ -42,7 +42,7 @@ const callbacks = {
  * Wires the screen to the real session hook the way App does: Done and Finish later save, and
  * leave only if the save worked.
  */
-function Harness({ transcript = 'I was in a hallway', draftId, noAudio }: Extra) {
+function Harness({ transcript = 'I was in a hallway', draftId, noAudio, showFinishLater }: Extra) {
   const dream = useDreamSession();
   const { session } = dream;
   useEffect(() => {
@@ -86,6 +86,7 @@ function Harness({ transcript = 'I was in a hallway', draftId, noAudio }: Extra)
       onEditTranscript={callbacks.onEdit}
       onDone={() => void leave('saved')}
       onFinishLater={() => void leave('draft')}
+      showFinishLater={showFinishLater}
       saving={dream.saving}
       onBack={callbacks.onBack}
       date="Sunday, October 4"
@@ -125,6 +126,15 @@ describe('ReviewScreen layout', () => {
     expect(screen.getByText('Done')).toBeTruthy();
     expect(screen.getByText('Finish later')).toBeTruthy();
     expect(screen.queryByText('Delete and record again')).toBeNull();
+  });
+
+  it('hides Finish later when showFinishLater is false, and keeps Done working', async () => {
+    await renderReview({ showFinishLater: false });
+    expect(screen.queryByText('Finish later')).toBeNull();
+    expect(screen.getByText('Done')).toBeTruthy();
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('saved'));
   });
 
   it('focuses the title only while it is empty', async () => {

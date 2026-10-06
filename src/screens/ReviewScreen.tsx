@@ -27,6 +27,8 @@ import { countWords, formatDuration } from '../utils/format';
  * - onEditTranscript: go back to Read it back to edit the text (the whole preview card is the button).
  * - onDone / onFinishLater: the parent saves the session (as 'saved' / as a draft) and leaves.
  *   Done is disabled until there is a title; Finish later is available unless a save is in flight.
+ * - showFinishLater: false hides the Finish later link (default true); App hides it when editing a
+ *   finished dream.
  * - saving: a save is in flight; Done, Finish later and the back arrow do nothing, and the card and
  *   all fields are locked so a late edit cannot be lost.
  * - onBack: the back arrow; the parent decides where it goes.
@@ -47,6 +49,7 @@ export type ReviewScreenProps = {
   onEditTranscript: () => void;
   onDone: () => void;
   onFinishLater: () => void;
+  showFinishLater?: boolean;
   saving?: boolean;
   onBack: () => void;
   date?: string;
@@ -67,6 +70,7 @@ export function ReviewScreen({
   onEditTranscript,
   onDone,
   onFinishLater,
+  showFinishLater = true,
   saving = false,
   onBack,
   date,
@@ -201,16 +205,18 @@ export function ReviewScreen({
             >
               <Text style={styles.doneLabel}>{saving ? 'Saving…' : 'Done'}</Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: saving }}
-              disabled={saving}
-              onPress={onFinishLater}
-              hitSlop={8}
-              style={styles.later}
-            >
-              <Text style={styles.laterLabel}>Finish later</Text>
-            </Pressable>
+            {showFinishLater && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: saving }}
+                disabled={saving}
+                onPress={onFinishLater}
+                hitSlop={8}
+                style={styles.later}
+              >
+                <Text style={styles.laterLabel}>Finish later</Text>
+              </Pressable>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

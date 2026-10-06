@@ -7,8 +7,8 @@ import { hasSomethingToKeep } from '../utils/sessionNavigation';
 
 /** Everything about the dream being captured or edited, kept above the screens. */
 export type Session = {
-  origin: 'capture' | 'write' | 'draft';
-  /** Set when a saved draft is reopened. */
+  origin: 'edit' | 'capture' | 'write' | 'draft';
+  /** Set when a saved draft or finished dream is reopened. */
   id?: string;
   createdAt?: string;
   /**
@@ -23,6 +23,8 @@ export type Session = {
   /** Tag text typed on Review but not yet turned into a tag; kept so it survives Review -> Edit. */
   tagDraft: string;
   passedThroughReadItBack: boolean;
+  /** Only for origin 'edit': the dream's values when opened, to tell whether anything changed. */
+  baseline?: { title: string; emotion: string; tags: string[]; transcript: string };
 };
 
 type Recording = { uri: string; durationMs: number };
@@ -105,11 +107,14 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
   }
 }
 
-/** Builds the session for a reopened draft. Its audio is the permanent file. */
-export function sessionFromDraft(dream: Dream): Session {
+/**
+ * Builds the session for a stored dream (a reopened draft, or a finished dream being edited). Its
+ * audio is the permanent file. An 'edit' session also keeps a baseline of the values it opened with.
+ */
+export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Session {
   const uri = dreamAudioUri(dream);
-  return {
-    origin: 'draft',
+  const session: Session = {
+    origin,
     id: dream.id,
     createdAt: dream.createdAt,
     ...(uri ? { audio: { uri, durationMs: dream.durationMs, persisted: true } } : {}),
@@ -118,9 +123,23 @@ export function sessionFromDraft(dream: Dream): Session {
     emotion: dream.emotion ?? '',
     tags: dream.tags,
     tagDraft: '',
-    // A draft already went through Read it back once.
+    // A stored dream already went through Read it back once.
     passedThroughReadItBack: true,
   };
+  if (origin === 'edit') {
+    session.baseline = {
+      title: session.title,
+      emotion: session.emotion,
+      tags: [...session.tags],
+      transcript: session.transcript,
+    };
+  }
+  return session;
+}
+
+/** Builds the session for a reopened draft. Its audio is the permanent file. */
+export function sessionFromDraft(dream: Dream): Session {
+  return sessionFromDream(dream, 'draft');
 }
 
 export type SaveStatus = 'draft' | 'saved';
@@ -148,6 +167,8 @@ export function useDreamSession() {
       startWriting: () => dispatch({ type: 'startWriting' }),
       openDraft: (dream: Dream) =>
         dispatch({ type: 'openDraft', session: sessionFromDraft(dream) }),
+      openDream: (dream: Dream) =>
+        dispatch({ type: 'openDraft', session: sessionFromDream(dream, 'edit') }),
       setTranscript: (value: string) => dispatch({ type: 'setTranscript', value }),
       setTitle: (value: string) => dispatch({ type: 'setTitle', value }),
       setEmotion: (value: string) => dispatch({ type: 'setEmotion', value }),

@@ -1,5 +1,15 @@
 import { Session } from '../hooks/useDreamSession';
-import { hasAtStake, hasSomethingToKeep, readItBackBack, reviewBack } from './sessionNavigation';
+import {
+  DISCARD_CHANGES_DISCARD,
+  DISCARD_CHANGES_KEEP,
+  DISCARD_CHANGES_MESSAGE,
+  DISCARD_CHANGES_TITLE,
+  hasAtStake,
+  hasEdits,
+  hasSomethingToKeep,
+  readItBackBack,
+  reviewBack,
+} from './sessionNavigation';
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
@@ -73,5 +83,61 @@ describe('reviewBack', () => {
   it('is blocked while a save is in flight, for any origin', () => {
     expect(reviewBack(base, true)).toBe('blocked');
     expect(reviewBack({ ...base, origin: 'draft' }, true)).toBe('blocked');
+  });
+});
+
+describe('hasEdits', () => {
+  const baseline = { title: 'Hall', emotion: 'Calm', tags: ['a', 'b'], transcript: 'text' };
+  const edit: Session = {
+    ...base,
+    origin: 'edit',
+    title: 'Hall',
+    emotion: 'Calm',
+    tags: ['a', 'b'],
+    transcript: 'text',
+    baseline,
+  };
+  it('is false when nothing changed or there is no baseline', () => {
+    expect(hasEdits(edit)).toBe(false);
+    expect(hasEdits({ ...edit, baseline: undefined, title: 'other' })).toBe(false);
+  });
+  it('ignores whitespace-only changes to title, transcript and emotion', () => {
+    expect(hasEdits({ ...edit, title: '  Hall ', transcript: 'text\n', emotion: ' Calm' })).toBe(
+      false,
+    );
+  });
+  it('counts real changes, including case in emotion (no folding)', () => {
+    expect(hasEdits({ ...edit, title: 'Hall 2' })).toBe(true);
+    expect(hasEdits({ ...edit, transcript: 'text more' })).toBe(true);
+    expect(hasEdits({ ...edit, emotion: 'calm' })).toBe(true);
+    expect(hasEdits({ ...edit, emotion: '' })).toBe(true);
+  });
+  it('counts tags added, removed or reordered', () => {
+    expect(hasEdits({ ...edit, tags: ['a', 'b', 'c'] })).toBe(true);
+    expect(hasEdits({ ...edit, tags: ['a'] })).toBe(true);
+    expect(hasEdits({ ...edit, tags: ['b', 'a'] })).toBe(true);
+  });
+  it('counts pending tag text but not blank tag text', () => {
+    expect(hasEdits({ ...edit, tagDraft: 'x' })).toBe(true);
+    expect(hasEdits({ ...edit, tagDraft: '  ' })).toBe(false);
+  });
+});
+
+describe('edit origin navigation', () => {
+  const edit: Session = { ...base, origin: 'edit', audio: { ...audio, persisted: true } };
+  it('reviewBack gives editBack, still blocked while saving', () => {
+    expect(reviewBack(edit)).toBe('editBack');
+    expect(reviewBack(edit, true)).toBe('blocked');
+  });
+  it('Read it back always returns to Review, with or without audio or text', () => {
+    expect(readItBackBack(edit, false)).toBe('review');
+    expect(readItBackBack(edit, true)).toBe('review');
+    expect(readItBackBack({ ...edit, audio: undefined, transcript: 'x' }, false)).toBe('review');
+  });
+  it('exports the discard confirmation strings', () => {
+    expect(DISCARD_CHANGES_TITLE).toBe('Discard changes?');
+    expect(DISCARD_CHANGES_MESSAGE).toBe('Your changes to this dream will be lost.');
+    expect(DISCARD_CHANGES_KEEP).toBe('Keep editing');
+    expect(DISCARD_CHANGES_DISCARD).toBe('Discard');
   });
 });
