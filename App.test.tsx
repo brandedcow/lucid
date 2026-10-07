@@ -2,6 +2,12 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton, BackHandler } from 'react-native';
 import App from './App';
 import { discardRecording, saveDream } from './src/services/dreamStorage';
+import {
+  DISCARD_CHANGES_DISCARD,
+  DISCARD_CHANGES_KEEP,
+  DISCARD_CHANGES_MESSAGE,
+  DISCARD_CHANGES_TITLE,
+} from './src/utils/sessionNavigation';
 
 jest.mock('expo-file-system', () => jest.requireActual('./src/test/fakeFileSystem'));
 // The real provider renders nothing until it measures the screen, which never happens in tests.
@@ -25,9 +31,12 @@ jest.mock('./src/services/dreamStorage', () => ({
 jest.mock('./src/screens/CaptureScreen', () => {
   const { Pressable, Text, View } = require('react-native');
   return {
-    CaptureScreen: ({ onRecorded, onWrite }: any) => (
+    CaptureScreen: ({ onRecorded, onWrite, onNoDream }: any) => (
       <View>
         <Text>capture-screen</Text>
+        <Pressable onPress={onNoDream}>
+          <Text>stub-no-dream</Text>
+        </Pressable>
         <Pressable
           onPress={() => onRecorded({ uri: 'file:///cache/r.m4a', durationMs: 7000 }, 'live')}
         >
@@ -54,6 +63,7 @@ jest.mock('./src/screens/ReviewScreen', () => {
         <Text>{`audio:${p.audio ? p.audio.uri : 'none'}`}</Text>
         <Text>{`date:${p.date}`}</Text>
         <Text>{`saving:${p.saving}`}</Text>
+        <Text>{`finishLater:${p.showFinishLater !== false}`}</Text>
         <Pressable onPress={() => p.onTitleChange('My title')}>
           <Text>stub-set-title</Text>
         </Pressable>
@@ -73,9 +83,8 @@ jest.mock('./src/screens/ReviewScreen', () => {
     ),
   };
 });
-jest.mock('./src/screens/DreamListScreen', () => {
-  const { Text } = require('react-native');
-  const { Pressable } = require('react-native');
+jest.mock('./src/screens/DreamLogScreen', () => {
+  const { Pressable, Text } = require('react-native');
   const draft = {
     id: '42',
     createdAt: '2026-10-05T08:00:00.000Z',
@@ -87,16 +96,82 @@ jest.mock('./src/screens/DreamListScreen', () => {
     status: 'draft',
   };
   return {
-    DreamListScreen: ({ onOpenDraft }: any) => (
+    DreamLogScreen: ({ view, onOpenDream, onOpenDraft, onNewDream }: any) => (
       <>
-        <Text>list-screen</Text>
+        <Text>log-screen</Text>
+        <Text>{`query:${view.query}`}</Text>
+        <Text>{`searching:${view.searching}`}</Text>
         <Pressable onPress={() => onOpenDraft(draft)}>
           <Text>stub-open-draft</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenDream('7')}>
+          <Text>stub-open-dream</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenDream('missing')}>
+          <Text>stub-open-missing</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenDream('42')}>
+          <Text>stub-open-draft-as-dream</Text>
+        </Pressable>
+        <Pressable onPress={onNewDream}>
+          <Text>stub-new-dream</Text>
+        </Pressable>
+        <Pressable onPress={view.openSearch}>
+          <Text>stub-open-search</Text>
+        </Pressable>
+        <Pressable onPress={() => view.setQuery('hall')}>
+          <Text>stub-set-query</Text>
         </Pressable>
       </>
     ),
   };
 });
+jest.mock('./src/screens/DreamDetailScreen', () => {
+  const { Pressable, Text } = require('react-native');
+  return {
+    DreamDetailScreen: ({ dream, onBack, onEdit }: any) => (
+      <>
+        <Text>detail-screen</Text>
+        <Text>{`detail-title:${dream.title}`}</Text>
+        <Pressable onPress={onBack}>
+          <Text>stub-detail-back</Text>
+        </Pressable>
+        <Pressable onPress={onEdit}>
+          <Text>stub-detail-edit</Text>
+        </Pressable>
+      </>
+    ),
+  };
+});
+// The library is faked so tests control what the log holds and when a refresh finishes.
+const mockLibrary: { dreams: any[]; onRefresh?: () => Promise<void> | void } = { dreams: [] };
+jest.mock('./src/hooks/useDreamLibrary', () => {
+  const { useState } = require('react');
+  return {
+    useDreamLibrary: () => {
+      const [dreams, setDreams] = useState(mockLibrary.dreams);
+      return {
+        dreams,
+        indexStatus: 'ok',
+        refresh: async () => {
+          await mockLibrary.onRefresh?.();
+          setDreams(mockLibrary.dreams);
+        },
+      };
+    },
+  };
+});
+
+const finishedDream = {
+  id: '7',
+  createdAt: '2026-10-01T08:00:00.000Z',
+  durationMs: 5000,
+  audioFileName: '7.m4a',
+  title: 'Old title',
+  emotion: '',
+  tags: ['water'],
+  transcript: 'old text',
+};
 
 let addListener: jest.SpyInstance;
 const hardwareBack = async (): Promise<boolean> => {
@@ -115,6 +190,8 @@ const lastAlertButtons = () =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockLibrary.dreams = [finishedDream];
+  mockLibrary.onRefresh = undefined;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as any);
   addListener = jest.spyOn(BackHandler, 'addEventListener');
@@ -168,7 +245,7 @@ describe('App flow', () => {
     expect(discardRecording).not.toHaveBeenCalled();
   });
 
-  it('Done saves the session as a finished dream, then clears it and shows the list', async () => {
+  it('Done saves the session as a finished dream, then clears it and shows the log', async () => {
     await render(<App />);
     await press('stub-save-recording');
     await press('Continue');
@@ -181,16 +258,16 @@ describe('App flow', () => {
         details: expect.objectContaining({ title: 'My title', transcript: 'live' }),
       }),
     );
-    expect(screen.getByText('list-screen')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
-  it('Finish later saves a draft without a title, then shows the list', async () => {
+  it('Finish later saves a draft without a title, then shows the log', async () => {
     await render(<App />);
     await press('stub-save-recording');
     await press('Continue');
     await press('stub-finish-later');
     expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
-    expect(screen.getByText('list-screen')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
   it('stays on Review with the session kept when saving fails', async () => {
@@ -218,7 +295,7 @@ describe('App flow', () => {
 const dateLabel = (d: Date) =>
   d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-/** Saves a written dream as a draft so the list stub is on screen. */
+/** Saves a written dream as a draft so the log stub is on screen. */
 async function reachList() {
   await render(<App />);
   await press('stub-write');
@@ -240,7 +317,7 @@ describe('App draft reopening', () => {
     ).toBeTruthy();
   });
 
-  it('back from a reopened draft saves its edits as a draft and returns to the list', async () => {
+  it('back from a reopened draft saves its edits as a draft and returns to the log', async () => {
     await reachList();
     await press('stub-open-draft');
     await press('stub-set-title');
@@ -253,7 +330,7 @@ describe('App draft reopening', () => {
       }),
     );
     expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
-    expect(screen.getByText('list-screen')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
   it('hardware back from a reopened draft does the same', async () => {
@@ -261,7 +338,7 @@ describe('App draft reopening', () => {
     await press('stub-open-draft');
     expect(await hardwareBack()).toBe(true);
     expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ id: '42', status: 'draft' }));
-    expect(screen.getByText('list-screen')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
   it('stays on the draft when saving it on the way back fails', async () => {
@@ -292,7 +369,7 @@ describe('App Review back while saving', () => {
     expect(screen.queryByText('Read it back')).toBeNull();
 
     await act(async () => resolve({ id: '1', createdAt: 'c' }));
-    expect(screen.getByText('list-screen')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 });
 
@@ -370,7 +447,7 @@ describe('App back rules', () => {
 });
 
 describe('App Android hardware back', () => {
-  it('is not handled on capture or the list (default behavior)', async () => {
+  it('is not handled on capture or the log (default behavior)', async () => {
     await render(<App />);
     expect(await hardwareBack()).toBe(false);
     await press('stub-save-recording');
@@ -418,5 +495,266 @@ describe('App Android hardware back', () => {
     const view = await render(<App />);
     await view.unmount();
     expect(remove).toHaveBeenCalled();
+  });
+});
+
+/** Capture -> No dream -> log, then opens the finished dream on its detail screen. */
+async function reachDetail() {
+  await render(<App />);
+  await press('stub-no-dream');
+  await press('stub-open-dream');
+}
+
+/** Detail -> Edit: an edit session on Review. */
+async function reachEdit() {
+  await reachDetail();
+  await press('stub-detail-edit');
+}
+
+describe('App Dream log and detail', () => {
+  it('opens on capture, and No dream goes to the log', async () => {
+    await render(<App />);
+    expect(screen.getByText('capture-screen')).toBeTruthy();
+    await press('stub-no-dream');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('New dream goes to capture without resetting the log view state', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-open-search');
+    await press('stub-set-query');
+    await press('stub-new-dream');
+    expect(screen.getByText('capture-screen')).toBeTruthy();
+    await press('stub-no-dream');
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    expect(screen.getByText('searching:true')).toBeTruthy();
+  });
+
+  it('a row tap opens that dream on the detail screen', async () => {
+    await reachDetail();
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.getByText('detail-title:Old title')).toBeTruthy();
+  });
+
+  it('detail back returns to the log with the view state kept', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-set-query');
+    await press('stub-open-dream');
+    await press('stub-detail-back');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.getByText('query:hall')).toBeTruthy();
+  });
+
+  it('hardware back on detail goes to the log and is handled', async () => {
+    await reachDetail();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('hardware back on the log closes an open search, then falls through to the default', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    expect(await hardwareBack()).toBe(false);
+    await press('stub-open-search');
+    await press('stub-set-query');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('searching:false')).toBeTruthy();
+    expect(screen.getByText('query:')).toBeTruthy();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('falls back to the log when the detail dream is missing or a draft', async () => {
+    mockLibrary.dreams = [finishedDream, { ...finishedDream, id: '42', status: 'draft' }];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-open-missing');
+    expect(screen.queryByText('detail-screen')).toBeNull();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    await press('stub-open-draft-as-dream');
+    expect(screen.queryByText('detail-screen')).toBeNull();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+});
+
+describe('App edit flow', () => {
+  it('Edit opens Review as an edit session with Finish later hidden', async () => {
+    await reachEdit();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('title:Old title')).toBeTruthy();
+    expect(screen.getByText('transcript:old text')).toBeTruthy();
+    expect(screen.getByText('finishLater:false')).toBeTruthy();
+  });
+
+  it('a new dream still offers Finish later', async () => {
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    expect(screen.getByText('finishLater:true')).toBeTruthy();
+  });
+
+  it('Done with no edits writes nothing and returns to detail', async () => {
+    await reachEdit();
+    await press('stub-done');
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.getByText('detail-title:Old title')).toBeTruthy();
+  });
+
+  it('Done with changes saves as saved with full strings, refreshes and shows the new dream', async () => {
+    mockLibrary.onRefresh = () => {
+      mockLibrary.dreams = [{ ...finishedDream, title: 'My title' }];
+    };
+    await reachEdit();
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalledTimes(1);
+    const arg = jest.mocked(saveDream).mock.calls[0][0] as any;
+    expect(arg).toMatchObject({
+      id: '7',
+      status: 'saved',
+      details: { title: 'My title', emotion: '', tags: ['water'], transcript: 'old text' },
+    });
+    expect(arg).not.toHaveProperty('recordingUri');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.getByText('detail-title:My title')).toBeTruthy();
+  });
+
+  it('never saves a draft for an edit session (Finish later, back, hardware back)', async () => {
+    await reachEdit();
+    await press('stub-finish-later');
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    await press('stub-set-title');
+    await press('stub-review-back');
+    await hardwareBack();
+    expect(jest.mocked(saveDream).mock.calls.some(([a]) => a.status === 'draft')).toBe(false);
+    expect(saveDream).not.toHaveBeenCalled();
+  });
+
+  it('stays on Review with the session kept when saving the edit fails', async () => {
+    jest.mocked(saveDream).mockRejectedValue(new Error('disk full'));
+    await reachEdit();
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not save your dream', 'Please try again.');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('title:My title')).toBeTruthy();
+  });
+
+  it('back with edits asks first; Keep editing stays on Review', async () => {
+    await reachEdit();
+    await press('stub-set-title');
+    await press('stub-review-back');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      DISCARD_CHANGES_TITLE,
+      DISCARD_CHANGES_MESSAGE,
+      expect.any(Array),
+    );
+    const keep = lastAlertButtons().find((b) => b.text === DISCARD_CHANGES_KEEP);
+    expect(keep?.style).toBe('cancel');
+    expect(keep?.onPress).toBeUndefined();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('title:My title')).toBeTruthy();
+  });
+
+  it('Discard clears the edit and returns to detail with the stored dream', async () => {
+    await reachEdit();
+    await press('stub-set-title');
+    await press('stub-review-back');
+    const discard = lastAlertButtons().find((b) => b.text === DISCARD_CHANGES_DISCARD);
+    expect(discard?.style).toBe('destructive');
+    await act(async () => discard?.onPress?.());
+    expect(screen.getByText('detail-title:Old title')).toBeTruthy();
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(discardRecording).not.toHaveBeenCalled();
+    // The session is gone: Edit starts again from the stored values.
+    await press('stub-detail-edit');
+    expect(screen.getByText('title:Old title')).toBeTruthy();
+  });
+
+  it('back and hardware back without edits go straight to detail', async () => {
+    await reachEdit();
+    await press('stub-review-back');
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    await press('stub-detail-edit');
+    expect(await hardwareBack()).toBe(true);
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+  });
+
+  it('hardware back with edits shows the same alert', async () => {
+    await reachEdit();
+    await press('stub-set-title');
+    expect(await hardwareBack()).toBe(true);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      DISCARD_CHANGES_TITLE,
+      DISCARD_CHANGES_MESSAGE,
+      expect.any(Array),
+    );
+  });
+
+  it('Edit text then back returns to Review with no confirmation', async () => {
+    await reachEdit();
+    await press('stub-edit');
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe('App refresh before leaving', () => {
+  it('awaits the library refresh before leaving Review after Done', async () => {
+    let finishRefresh: () => void = () => {};
+    mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalled();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.queryByText('log-screen')).toBeNull();
+    await act(async () => finishRefresh());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('awaits the refresh for Finish later and for a draft back, and blocks back meanwhile', async () => {
+    let finishRefresh: () => void = () => {};
+    mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-finish-later');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    // A second back while the refresh is pending must not save again.
+    await press('stub-review-back');
+    expect(saveDream).toHaveBeenCalledTimes(1);
+    await act(async () => finishRefresh());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+
+    jest.mocked(saveDream).mockClear();
+    await press('stub-open-draft');
+    await press('stub-review-back');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    await act(async () => finishRefresh());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ id: '42', status: 'draft' }));
+  });
+
+  it('awaits the refresh before returning to detail after an edit', async () => {
+    let finishRefresh: () => void = () => {};
+    mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
+    await reachEdit();
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    await act(async () => finishRefresh());
+    expect(screen.getByText('detail-screen')).toBeTruthy();
   });
 });
