@@ -211,6 +211,15 @@ describe('sessionFromDream (edit)', () => {
     expect(s.baseline).toEqual({ title: 't', emotion: '', tags: [], transcript: '' });
   });
 
+  it('treats non-array tags as no tags, in the session and the baseline', () => {
+    const odd = { id: '1', createdAt: 'c', durationMs: 0, title: 't', tags: 'water' } as unknown;
+    const s = sessionFromDream(odd as Dream, 'edit');
+    expect(s.tags).toEqual([]);
+    expect(s.baseline?.tags).toEqual([]);
+    const gone = { id: '2', createdAt: 'c', durationMs: 0, title: 't' } as unknown;
+    expect(sessionFromDream(gone as Dream, 'draft').tags).toEqual([]);
+  });
+
   it('gives drafts no baseline, and sessionFromDraft is unchanged', () => {
     expect(sessionFromDream(dream, 'draft').baseline).toBeUndefined();
     expect(sessionFromDraft(dream)).toEqual(sessionFromDream(dream, 'draft'));

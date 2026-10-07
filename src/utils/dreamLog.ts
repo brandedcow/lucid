@@ -1,7 +1,7 @@
 import { Dream, hasAudio, isDraft } from '../types/dream';
 import { capitalizeFirst } from './capitalizeFirst';
 import { splitEmotions } from './emotions';
-import { formatDuration, formatShortDate, LOCALE } from './format';
+import { formatDuration, formatShortDate, LOCALE, plainSpaces } from './format';
 
 export const PREVIEW_CHARS = 160;
 export const MAX_TAG_CHIPS = 20;
@@ -44,9 +44,11 @@ export function buildLogItems(dreams: Dream[], now: Date = new Date()): LogItem[
     const key = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
     let group = groups.get(key);
     if (!group) {
-      const month = new Date(date.getFullYear(), date.getMonth(), 1)
-        .toLocaleDateString(LOCALE, { month: 'long' })
-        .toUpperCase();
+      const month = plainSpaces(
+        new Date(date.getFullYear(), date.getMonth(), 1).toLocaleDateString(LOCALE, {
+          month: 'long',
+        }),
+      ).toUpperCase();
       group = {
         label: date.getFullYear() === now.getFullYear() ? month : `${month} ${date.getFullYear()}`,
         dreams: [],
@@ -161,7 +163,12 @@ export function filterDreams(
 
 /** Collapses whitespace and cuts to `max` characters (by code point) with an ellipsis. Empty when no text. */
 export function transcriptPreview(text: string | undefined, max: number = PREVIEW_CHARS): string {
-  const flat = textOf(text).replace(/\s+/g, ' ').trim();
+  // Bound the work on huge transcripts: a code point is at most 2 UTF-16 units, so `max * 4` units
+  // is plenty. Drop a trailing lone high surrogate so a cut never leaves half an emoji.
+  const head = textOf(text)
+    .slice(0, max * 4)
+    .replace(/[\uD800-\uDBFF]$/, '');
+  const flat = head.replace(/\s+/g, ' ').trim();
   const chars = Array.from(flat);
   return chars.length > max ? `${chars.slice(0, max).join('').trimEnd()}…` : flat;
 }
@@ -221,7 +228,9 @@ export function dreamRow(dream: Dream, now: Date = new Date()): DreamRow {
     isDraft: draft,
     hasAudio: audio,
     draftSuffix: draft && audio ? ` · ${formatDuration(Math.max(0, seconds))}` : '',
-    weekday: date ? date.toLocaleDateString(LOCALE, { weekday: 'short' }).toUpperCase() : '',
+    weekday: date
+      ? plainSpaces(date.toLocaleDateString(LOCALE, { weekday: 'short' })).toUpperCase()
+      : '',
     day: date ? date.getDate() : null,
     dateLabel,
     preview: draft ? '' : transcriptPreview(dream.transcript),

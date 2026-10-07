@@ -114,6 +114,67 @@ describe('useDreamSession save', () => {
     expect(hook.result.current.session?.audio).toBeUndefined();
   });
 
+  it('refuses to save an edit as a draft: returns false, saves nothing, keeps the session', async () => {
+    const hook = await renderHook(() => useDreamSession());
+    await act(async () =>
+      hook.result.current.openDream({
+        id: '6',
+        createdAt: 'c0',
+        durationMs: 0,
+        title: 'Finished',
+        tags: [],
+        transcript: 'text',
+      }),
+    );
+    const before = hook.result.current.session;
+    let ok = true;
+    await act(async () => {
+      ok = await hook.result.current.save('draft');
+    });
+    expect(ok).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(hook.result.current.session).toBe(before);
+    expect(hook.result.current.saving).toBe(false);
+    // Saving the edit as finished still works.
+    await act(async () => {
+      ok = await hook.result.current.save('saved');
+    });
+    expect(ok).toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('still saves a draft for capture, write and reopened-draft sessions', async () => {
+    const { result } = await started();
+    await act(async () => {
+      expect(await result.current.save('draft')).toBe(true);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    const hook = await renderHook(() => useDreamSession());
+    await act(async () => hook.result.current.startWriting());
+    await act(async () => hook.result.current.setTranscript('typed'));
+    await act(async () => {
+      expect(await hook.result.current.save('draft')).toBe(true);
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+
+    const reopened = await renderHook(() => useDreamSession());
+    await act(async () =>
+      reopened.result.current.openDraft({
+        id: '3',
+        createdAt: 'c0',
+        durationMs: 0,
+        title: '',
+        tags: [],
+        status: 'draft',
+      }),
+    );
+    await act(async () => {
+      expect(await reopened.result.current.save('draft')).toBe(true);
+    });
+    expect(save).toHaveBeenCalledTimes(3);
+  });
+
   it('does not save as finished without a title', async () => {
     const { result } = await started();
     let ok = true;

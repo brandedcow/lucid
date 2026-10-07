@@ -4,6 +4,7 @@ import {
   formatEntryDateTime,
   formatShortDate,
   formatToday,
+  plainSpaces,
 } from './format';
 
 describe('formatDuration', () => {
@@ -42,6 +43,35 @@ describe('formatEntryDateTime', () => {
   });
   it('gives an empty string for an invalid date', () => {
     expect(formatEntryDateTime(new Date('nope'))).toBe('');
+  });
+});
+
+describe('plain spaces', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const NNBSP = ' ';
+  const NBSP = ' ';
+  const noOddSpaces = (s: string) => expect(s).not.toMatch(/[  ]/);
+
+  it('plainSpaces swaps U+202F and U+00A0 for plain spaces', () => {
+    expect(plainSpaces(`a${NNBSP}b${NBSP}c`)).toBe('a b c');
+  });
+  it('formatEntryDateTime uses plain spaces even when the engine does not', () => {
+    jest
+      .spyOn(Date.prototype, 'toLocaleDateString')
+      .mockReturnValue(`Sunday,${NBSP}October${NBSP}4`);
+    jest.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue(`6:42${NNBSP}AM`);
+    const out = formatEntryDateTime(new Date(2026, 9, 4, 6, 42));
+    expect(out).toBe('Sunday, October 4 · 6:42 AM');
+    noOddSpaces(out);
+  });
+  it('formatShortDate and formatToday use plain spaces', () => {
+    jest.spyOn(Date.prototype, 'toLocaleDateString').mockReturnValue(`Sep${NNBSP}23,${NBSP}2025`);
+    const short = formatShortDate(new Date(2025, 8, 23), new Date(2026, 9, 6));
+    const today = formatToday(new Date(2026, 9, 4));
+    expect(short).toBe('Sep 23, 2025');
+    expect(today).toBe('Sep 23, 2025');
+    noOddSpaces(short);
+    noOddSpaces(today);
   });
 });
 

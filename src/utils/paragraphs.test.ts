@@ -18,6 +18,11 @@ describe('splitParagraphs', () => {
     expect(splitParagraphs('  \n\n ')).toEqual([]);
     expect(splitParagraphs(undefined)).toEqual([]);
   });
+  it('returns [] for non-string input', () => {
+    expect(splitParagraphs(null as unknown as string)).toEqual([]);
+    expect(splitParagraphs(42 as unknown as string)).toEqual([]);
+    expect(splitParagraphs({} as unknown as string)).toEqual([]);
+  });
   it('returns one paragraph for plain text', () => {
     expect(splitParagraphs('just one')).toEqual(['just one']);
   });

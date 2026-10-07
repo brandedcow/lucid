@@ -170,15 +170,14 @@ describe('search and filter', () => {
     expect(ids('naive resume')).toEqual([cafe.id]);
   });
   it('still works when normalize is unavailable or throws', () => {
-    const original = String.prototype.normalize;
-    String.prototype.normalize = function () {
+    const spy = jest.spyOn(String.prototype, 'normalize').mockImplementation(() => {
       throw new Error('no normalize');
-    };
+    });
     try {
       const idx = buildSearchIndex([water]);
       expect(filterDreams(idx, { query: 'Water', tags: [] })).toHaveLength(1);
     } finally {
-      String.prototype.normalize = original;
+      spy.mockRestore();
     }
   });
   it('tag filter needs ALL selected tags', () => {
@@ -211,6 +210,21 @@ describe('transcriptPreview', () => {
   it('never splits an emoji at the boundary', () => {
     const text = `${'x'.repeat(159)}😀😀`;
     expect(transcriptPreview(text)).toBe(`${'x'.repeat(159)}😀…`);
+  });
+  it('truncates a very long transcript correctly', () => {
+    const text = `${'word '.repeat(100_000)}end`;
+    const out = transcriptPreview(text);
+    expect(out).toBe(`${'word '.repeat(32).trimEnd()}…`);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.startsWith('word word')).toBe(true);
+  });
+  it('leaves no lone surrogate when an emoji straddles the work bound', () => {
+    // With max 2 the bound is 8 units: 7 letters then an emoji whose high surrogate is unit 8.
+    const out = transcriptPreview(`${'x'.repeat(7)}😀 tail`, 2);
+    expect(out).toBe('xx…');
+    expect(out).not.toMatch(/[\uD800-\uDFFF]/);
+    // A whole emoji at the cut is kept.
+    expect(transcriptPreview('😀😀😀', 2)).toBe('😀😀…');
   });
 });
 

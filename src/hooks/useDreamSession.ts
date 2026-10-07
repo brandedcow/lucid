@@ -113,6 +113,8 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
  */
 export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Session {
   const uri = dreamAudioUri(dream);
+  // Stored dreams can predate the tags field.
+  const tags = Array.isArray(dream.tags) ? dream.tags : [];
   const session: Session = {
     origin,
     id: dream.id,
@@ -121,7 +123,7 @@ export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Sessio
     transcript: dream.transcript ?? '',
     title: dream.title,
     emotion: dream.emotion ?? '',
-    tags: dream.tags,
+    tags,
     tagDraft: '',
     // A stored dream already went through Read it back once.
     passedThroughReadItBack: true,
@@ -130,7 +132,7 @@ export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Sessio
     session.baseline = {
       title: session.title,
       emotion: session.emotion,
-      tags: [...session.tags],
+      tags: [...tags],
       transcript: session.transcript,
     };
   }
@@ -192,6 +194,8 @@ export function useDreamSession() {
     const current = sessionRef.current;
     if (!current || savingRef.current) return false;
     if (status === 'saved' && current.title.trim().length === 0) return false;
+    // An edit must never turn a finished dream into a draft. Return false so the session is kept.
+    if (status === 'draft' && current.origin === 'edit') return false;
     // Do not create an empty draft. A reopened draft already exists, so it is saved as it is.
     if (status === 'draft' && !current.id && !hasSomethingToKeep(current)) return true;
 
