@@ -2,7 +2,7 @@
 
 > **Superseded (2026-10-06).** Live transcription is now part of the app: the transcript is saved with the dream and edited on Read it back (see `docs/status.md`). This file is kept as the **device checklist** for it. Lines below that say the transcript is not stored, or that only the capture screen shows it, are out of date and marked as such. Android has been partly verified (live text, audio quality, long dreams, airplane mode, no beeps); iOS is untested.
 
-Branch `spike/live-transcription`. Supported: iPhone iOS 17+ and Android 13+ (API 33+); on older versions live text is off with a quiet note and recording continues. On-device recognition only. Pause/resume is built (see "Pause and resume design"); not yet device-verified. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. _(Out of date: the transcript is now saved with the dream. Device verification is partial, see the note above.)_
+Branch `spike/live-transcription`. Live text needs iPhone iOS 17+ or Android 13+ (API 33+); older phones can still install the app, live text is off with a quiet note and recording continues (user decision 2026-10-06, no install-time block). On-device recognition only. Pause/resume is built (see "Pause and resume design"); not yet device-verified. Throwaway spike to find out whether on-device live speech-to-text (`expo-speech-recognition`) can run **while** the existing `expo-audio` recording is running. _(Out of date: the transcript is now saved with the dream. Device verification is partial, see the note above.)_
 
 Code: `src/hooks/useLiveTranscription.ts`, wired in `src/screens/CaptureScreen.tsx`, shown by `src/screens/capture/ListeningView.tsx`. Watch the Metro / device logs for lines starting with `[transcription]`.
 
@@ -30,7 +30,7 @@ The spike never falls back to the cloud. On Android 13+, install the offline Eng
 
 Record a few dreams on each platform and write down results.
 
-1. **Recording still works.** Save a dream after live text ran. Does the `.m4a` exist, is it the right length, does it play back with audible voice (review screen and dream list)? Compare with a recording made on the `feat/dream-capture-scaffold` branch.
+1. **Recording still works.** Save a dream after live text ran. Does the `.m4a` exist, is it the right length, does it play back with audible voice (Review, Read it back and the Dream entry)? Compare with a recording made on the `feat/dream-capture-scaffold` branch.
 2. **Waveform still moves.** Does the level meter react to your voice the whole time, and not freeze or go flat after live text starts?
 3. **Live text appears.** Does text show within a couple of seconds of speaking? Interim words should change, then settle.
 4. **Long dream (3 to 5 minutes).** Keep talking with natural pauses. Does text keep arriving to the end? Does the view stay scrolled to the newest words? Note any point where it stops. In the log, count `end` / `restarting` lines: restarts are expected, and the earlier text must stay on screen.

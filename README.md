@@ -12,7 +12,7 @@ Start here:
 
 ```bash
 npm install
-npm start          # scan the QR code with Expo Go on your phone
+npm start          # start Metro, then open the installed development build (Expo Go cannot load this app; see docs/ios-dev-build.md)
 ```
 
 Recording needs a real device microphone, so test on a phone rather than a simulator.
@@ -31,18 +31,18 @@ npm run format       # apply Prettier
 ## Structure
 
 ```
-App.tsx              entry; switches between capture, review and list screens
+App.tsx              entry; switches between the capture, read-it-back, review, Dream log and Dream entry screens
 src/
-  screens/           CaptureScreen (+ capture/IdleView, ListeningView), ReviewScreen, DreamListScreen
-  components/        MicIcon, Waveform, RecordingPlayer, TagInput
-  hooks/             useDreamRecorder (audio recording), useDreamPlayback (list playback)
+  screens/           CaptureScreen (+ capture/IdleView, ListeningView), ReadItBackScreen, ReviewScreen, DreamLogScreen, DreamDetailScreen
+  components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionChips, DreamChips
+  hooks/             useDreamRecorder, useLiveTranscription, useDreamSession, useDreamLibrary, useLogView
   services/          dreamStorage (local audio files + dreams.json)
-  utils/             format, tags
+  utils/             format, tags, emotions, dreamLog, paragraphs, sessionNavigation
   types/             dream (Dream, DreamDetails), entry (EntryType)
   theme/             colors, spacing, fonts
   test/              fakeFileSystem (in-memory expo-file-system for Jest)
 docs/                product.md, status.md
-assets/              icons and splash images (still Expo placeholders)
+assets/              app icon, adaptive icon and splash images (moon mark; sources in assets/icon-source/)
 ```
 
 Tests live next to the code as `*.test.ts` / `*.test.tsx`.

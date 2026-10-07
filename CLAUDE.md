@@ -21,15 +21,15 @@ npm run format      # apply Prettier
 
 ## Layout
 
-- `src/screens/` screens, `src/components/` shared UI, `src/hooks/`, `src/services/`, `src/utils/`, `src/types/`, `src/theme/`, `src/test/` (test helpers). Also `src/components/EmotionChips.tsx`, `src/hooks/useLiveTranscription.ts`, `src/utils/{emotions,capitalizeFirst,fadeTail,sessionNavigation}.ts`. See the file map in `docs/status.md`.
-- Navigation is a state switch in `App.tsx` (`capture | readItBack | review | list`) with the in-progress dream in `src/hooks/useDreamSession.ts` and back rules in `src/utils/sessionNavigation.ts`. `AGENTS.md` calls for Expo Router (`src/app/`); it is not adopted, so do not add routes or another navigation library without asking.
+- `src/screens/` screens, `src/components/` shared UI, `src/hooks/`, `src/services/`, `src/utils/`, `src/types/`, `src/theme/`, `src/test/` (test helpers). Also `src/components/{EmotionChips,DreamChips}.tsx`, `src/hooks/{useLiveTranscription,useDreamLibrary,useLogView}.ts`, `src/utils/{emotions,capitalizeFirst,fadeTail,sessionNavigation,dreamLog,paragraphs}.ts`. See the file map in `docs/status.md`.
+- Navigation is a state switch in `App.tsx` (`capture | readItBack | review | log | detail`) with the in-progress dream (including editing a finished dream, origin `edit`) in `src/hooks/useDreamSession.ts`, the stored dreams in `useDreamLibrary`, the Dream log's filter, search and scroll in `useLogView` (both kept in `App.tsx`), and back rules in `src/utils/sessionNavigation.ts`. `AGENTS.md` calls for Expo Router (`src/app/`); it is not adopted, so do not add routes or another navigation library without asking.
 
 ## Working rules
 
 - Run `npm run check` before calling any task done, and report failures instead of hiding them.
 - Tests are Jest files next to the code (`*.test.ts` / `*.test.tsx`). Add or update tests with behavior changes. Native modules are mocked in tests; `src/test/fakeFileSystem.ts` is a faithful in-memory `expo-file-system` (async copy/move, no overwrite, failure injection); storage changes need careful tests with it.
 - Add dependencies with `npx expo install <package>`, and prefer Expo modules over third-party libraries.
-- Use the vocabulary in `docs/product.md` (Journal entry, Dream, Title, Emotion, Tag, No dream, Draft, Transcript) in UI copy, code and data models.
+- Use the vocabulary in `docs/product.md` (Journal entry, Dream, Title, Emotion, Tag, No dream, Draft, Transcript, Dream log, Dream entry) in UI copy, code and data models.
 - Use `SafeAreaView` from `react-native-safe-area-context`, not `react-native`.
 - UI copy is plain language. No psychological or Jungian terms, no interpretation of entries, no streaks, scores or gamification.
 - Do not build anything under "Not in scope yet" in `docs/product.md` (AI features, tasks, threads, roundups, explore view, desktop) unless asked.
@@ -38,6 +38,7 @@ npm run format      # apply Prettier
   - Resolve audio through `dream.audioFileName` / `dreamAudioUri`, never by building `<id>.m4a`.
   - When updating a dream always pass full `details` (emotion and transcript strings): `undefined` keeps the stored value, `''` clears it.
   - A zero-length `dreams.json` counts as missing, so a future delete feature must write `[]`, never an empty file.
-- Back (arrow and Android hardware back) is blocked while a save is in flight, and Review's fields and buttons are locked then.
+- Back (arrow and Android hardware back) is blocked while a save is in flight (an edit's save too), and Review's fields and buttons are locked then.
+- Editing a finished dream never calls `save('draft')` and never discards its persisted audio.
 - Keep changes small and on a feature branch. Never commit to `master`, and never push to a remote unless the user explicitly asks.
 - Never create or edit `ios/` or `android/` by hand; configure native behavior in `app.json`.
