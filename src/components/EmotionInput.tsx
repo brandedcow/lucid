@@ -90,6 +90,7 @@ export function EmotionInput({
             <Pressable
               key={word}
               accessibilityRole="button"
+              accessibilityLabel={`Add emotion ${word}`}
               onPress={() => {
                 onEmotionsChange(addEmotions(emotions, word));
                 onDraftChange('');

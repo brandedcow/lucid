@@ -73,6 +73,28 @@ async function setup({ dreams = DREAMS, status = 'ok' }: SetupOpts = {}) {
   return { ...handlers, view, update };
 }
 
+// The rows format dates against the real clock, so pin only Date (timers stay real for RNTL).
+beforeAll(() => {
+  jest.useFakeTimers({
+    now: new Date(2026, 9, 6, 12, 0),
+    doNotFake: [
+      'nextTick',
+      'setImmediate',
+      'clearImmediate',
+      'setInterval',
+      'clearInterval',
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'requestIdleCallback',
+      'cancelIdleCallback',
+      'performance',
+      'queueMicrotask',
+    ],
+  });
+});
+afterAll(() => jest.useRealTimers());
 afterEach(() => jest.restoreAllMocks());
 
 describe('DreamLogScreen list', () => {
@@ -174,6 +196,17 @@ describe('DreamLogScreen search field style', () => {
     expect(wrap.minHeight).toBeGreaterThanOrEqual(
       (input.lineHeight as number) + 2 * (input.paddingVertical as number),
     );
+  });
+
+  it('keeps the pill height constant when the clear button appears', async () => {
+    const { update } = await setup();
+    await update((v) => v.openSearch());
+    await update((v) => v.setQuery('x'));
+    const field = screen.getByPlaceholderText('Search dreams');
+    const wrap = StyleSheet.flatten(field.parent?.props.style);
+    const clear = StyleSheet.flatten(screen.getByLabelText('Clear search').props.style);
+    const inner = (wrap.minHeight as number) - 2 * (wrap.borderWidth as number);
+    expect(clear.height).toBeLessThanOrEqual(inner);
   });
 });
 

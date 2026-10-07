@@ -73,7 +73,8 @@ describe('EmotionInput', () => {
   it('offers earlier emotions as "+ word" chips, minus the ones added', async () => {
     await render(<Harness suggestions={['calm', 'Uneasy', 'uneasy']} initial={['calm']} />);
     expect(screen.queryByText('+ calm')).toBeNull();
-    await fireEvent.press(screen.getByText('+ uneasy'));
+    expect(screen.getByLabelText('Add emotion uneasy')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add emotion uneasy'));
     expect(list()).toBe('calm|uneasy');
     expect(screen.queryByText('+ uneasy')).toBeNull();
   });

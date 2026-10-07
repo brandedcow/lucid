@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     includeFontPadding: false,
   },
-  clearX: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  clearX: { width: 40, height: 42, alignItems: 'center', justifyContent: 'center' },
   clearXGlyph: { color: colors.muted, fontSize: 22 },
   cancel: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
   cancelLabel: { color: colors.accent, fontSize: 16 },
