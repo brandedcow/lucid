@@ -34,7 +34,7 @@ npm run format       # apply Prettier
 App.tsx              entry; switches between the capture, read-it-back, review, Dream log and Dream entry screens
 src/
   screens/           CaptureScreen (+ capture/IdleView, ListeningView), ReadItBackScreen, ReviewScreen, DreamLogScreen, DreamDetailScreen
-  components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionChips, DreamChips
+  components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionInput, DreamChips
   hooks/             useDreamRecorder, useLiveTranscription, useDreamSession, useDreamLibrary, useLogView
   services/          dreamStorage (local audio files + dreams.json)
   utils/             format, tags, emotions, capitalizeFirst, fadeTail, dreamLog, paragraphs, sessionNavigation

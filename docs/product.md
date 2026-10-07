@@ -29,7 +29,7 @@ Use these terms consistently in UI copy, code and data models.
 | Journal entry | A free-form daily writing entry.                                                                                                                                      |
 | Dream         | A dream capture, usually made right after waking.                                                                                                                     |
 | Title         | A short name the user gives a dream so it can be found later. Required to finish a dream (a Draft needs no title).                                                    |
-| Emotion       | Free text about how a dream felt. Optional, never a fixed list or rating.                                                                                             |
+| Emotion       | Free text about how a dream felt, entered like tags. Optional, never a fixed list or rating.                                                                          |
 | Tag           | A label the user applies to journal entries and dreams.                                                                                                               |
 | No dream      | The one-tap option on dream capture for a morning with nothing to record. Intended to count as done for the day (not built yet: today it only opens the Dream log).   |
 | Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                     |
@@ -53,12 +53,12 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 #### After recording: Read it back, then Review
 
 - When recording ends, the user sees **Read it back**: the transcript in an editable text box, with the original recording kept and playable below the text box (hidden while the keyboard is up). The user can fix anything that came out wrong.
-- **Continue** goes to **Review**: a title (required to finish), how it felt (optional free text) and tags (optional). The transcript shows there as a short preview with an Edit link back to Read it back.
+- **Continue** goes to **Review**: a title (required to finish), how it felt (optional; emotions the user types in, like tags) and tags (optional). The transcript shows there as a short preview with an Edit link back to Read it back.
 - Nothing is permanently saved until the user taps **Done** or **Finish later**.
 - **Done** finishes the dream and needs a title. **Finish later** saves a draft and needs nothing. A draft appears in the Dream log as "Draft", and tapping it reopens Review.
 - The back arrow on Read it back discards an unsaved recording, after a confirmation ("Discard this dream?"). There is no "Delete and record again".
 - **Write instead** (on dream capture) opens Read it back with an empty text box and creates a dream with no audio.
-- Emotion stays a free-text field, never a fixed list or rating. Quick-pick chips are made from words the user has used before (shown with a capital first letter). Tag suggestions come from tags the user has used before. Nothing is derived from the content of a dream.
+- Emotion stays free text, never a fixed list or rating: the user creates each emotion by typing it in an input, the way tags work, and added emotions show as chips (with a capital first letter). Quick-pick suggestions are made from emotions the user has used before. Tag suggestions come from tags the user has used before. Nothing is derived from the content of a dream.
 - Once finished, the user sees the Dream log.
 
 ### Dream log

@@ -21,7 +21,7 @@ npm run format      # apply Prettier
 
 ## Layout
 
-- `src/screens/` screens, `src/components/` shared UI, `src/hooks/`, `src/services/`, `src/utils/`, `src/types/`, `src/theme/`, `src/test/` (test helpers). Also `src/components/{EmotionChips,DreamChips}.tsx`, `src/hooks/{useLiveTranscription,useDreamLibrary,useLogView}.ts`, `src/utils/{emotions,capitalizeFirst,fadeTail,sessionNavigation,dreamLog,paragraphs}.ts`. See the file map in `docs/status.md`.
+- `src/screens/` screens, `src/components/` shared UI, `src/hooks/`, `src/services/`, `src/utils/`, `src/types/`, `src/theme/`, `src/test/` (test helpers). Also `src/components/{EmotionInput,DreamChips}.tsx`, `src/hooks/{useLiveTranscription,useDreamLibrary,useLogView}.ts`, `src/utils/{emotions,capitalizeFirst,fadeTail,sessionNavigation,dreamLog,paragraphs}.ts`. See the file map in `docs/status.md`.
 - Navigation is a state switch in `App.tsx` (`capture | readItBack | review | log | detail`) with the in-progress dream (including editing a finished dream, origin `edit`) in `src/hooks/useDreamSession.ts`, the stored dreams in `useDreamLibrary`, the Dream log's filter, search and scroll in `useLogView` (both kept in `App.tsx`), and back rules in `src/utils/sessionNavigation.ts`. `AGENTS.md` calls for Expo Router (`src/app/`); it is not adopted, so do not add routes or another navigation library without asking.
 
 ## Working rules
