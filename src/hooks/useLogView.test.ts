@@ -49,6 +49,23 @@ describe('useLogView', () => {
     expect(result.current.tags).toEqual(['water']);
   });
 
+  it('clearTags clears the tags, keeps query and search mode, resets the offset, and is idempotent', async () => {
+    const { result } = await renderHook(() => useLogView());
+    await act(async () => result.current.toggleTag('water'));
+    await act(async () => result.current.toggleTag('stairs'));
+    await act(async () => result.current.openSearch());
+    await act(async () => result.current.setQuery('train'));
+    result.current.offsetRef.current = 50;
+    await act(async () => {
+      result.current.clearTags();
+      result.current.clearTags();
+    });
+    expect(result.current.tags).toEqual([]);
+    expect(result.current.query).toBe('train');
+    expect(result.current.searching).toBe(true);
+    expect(result.current.offsetRef.current).toBe(0);
+  });
+
   it('clearFilters clears tags and query and closes search', async () => {
     const { result } = await renderHook(() => useLogView());
     await act(async () => result.current.toggleTag('water'));

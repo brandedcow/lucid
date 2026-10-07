@@ -241,7 +241,7 @@ export function DreamLogScreen({
           <TagChipButton
             label={`All · ${chipData.all}`}
             selected={tags.length === 0}
-            onPress={() => tags.forEach((t) => view.toggleTag(t))}
+            onPress={view.clearTags}
           />
           {chipData.chips.map((chip) => (
             <TagChipButton
@@ -351,9 +351,14 @@ const LogRow = memo(function LogRow({
         style={[styles.card, styles.draftCard]}
       >
         <View style={styles.cardMain}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {row.title + row.draftSuffix}
-          </Text>
+          <View style={styles.draftTitleRow}>
+            <Text style={[styles.cardTitle, styles.draftTitle]} numberOfLines={1}>
+              {row.title}
+            </Text>
+            {row.draftSuffix !== '' && (
+              <Text style={[styles.cardTitle, styles.draftSuffix]}>{row.draftSuffix}</Text>
+            )}
+          </View>
           <Text style={styles.draftHint}>
             <Text style={styles.draftLabel}>{row.draftLabel}</Text>
             {` · ${row.draftHint}`}
@@ -485,6 +490,9 @@ const styles = StyleSheet.create({
   day: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
   cardMain: { flex: 1, gap: spacing.xs },
   cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 18 },
+  draftTitleRow: { flexDirection: 'row', alignItems: 'baseline' },
+  draftTitle: { flexShrink: 1 },
+  draftSuffix: { flexShrink: 0 },
   preview: { color: colors.muted, fontSize: 14, lineHeight: 19 },
   draftHint: { color: colors.muted, fontSize: 13 },
   draftLabel: { color: colors.draft },

@@ -10,6 +10,8 @@ export type LogView = {
   /** Last scroll offset of the Dream log list. Reset to 0 whenever the tags or query change. */
   offsetRef: MutableRefObject<number>;
   toggleTag: (tag: string) => void;
+  /** Clears the selected tags; keeps the query and search mode. */
+  clearTags: () => void;
   setQuery: (query: string) => void;
   openSearch: () => void;
   /** Clears the query and closes the search field. */
@@ -46,6 +48,11 @@ export function useLogView(): LogView {
     setSearching(false);
   }, []);
 
+  const clearTags = useCallback(() => {
+    offsetRef.current = 0;
+    setTags([]);
+  }, []);
+
   const clearFilters = useCallback(() => {
     offsetRef.current = 0;
     setTags([]);
@@ -59,6 +66,7 @@ export function useLogView(): LogView {
     searching,
     offsetRef,
     toggleTag,
+    clearTags,
     setQuery,
     openSearch,
     closeSearch,

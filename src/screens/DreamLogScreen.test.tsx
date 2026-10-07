@@ -105,15 +105,27 @@ describe('DreamLogScreen list', () => {
 
   it('shows a draft with a red Draft label and a chevron, and opens it', async () => {
     const { onOpenDream, onOpenDraft } = await setup();
-    expect(screen.getByText('Untitled dream · 1:05')).toBeTruthy();
+    expect(screen.getByText('Untitled dream')).toBeTruthy();
+    expect(screen.getByText(' · 1:05')).toBeTruthy();
     const label = screen.getByText('Draft');
     expect(StyleSheet.flatten(label.props.style).color).toBe(colors.draft);
     const hint = screen.getByText('Draft · Not reviewed yet · Finish now');
     expect(StyleSheet.flatten(hint.props.style).color).toBe(colors.muted);
     expect(screen.getByText('›')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Untitled dream · 1:05'));
+    await fireEvent.press(screen.getByText('Untitled dream'));
     expect(onOpenDraft).toHaveBeenCalledWith(DREAMS[0]);
     expect(onOpenDream).not.toHaveBeenCalled();
+  });
+
+  it('keeps the duration visible when a draft title is long', async () => {
+    const long = 'A very long draft title that will not fit on one line of the card at all';
+    await setup({ dreams: [dream({ id: 'ld', status: 'draft', title: long })] });
+    const title = screen.getByText(long);
+    expect(title.props.numberOfLines).toBe(1);
+    expect(StyleSheet.flatten(title.props.style).flexShrink).toBe(1);
+    const suffix = screen.getByText(' · 1:05');
+    expect(suffix.props.numberOfLines).toBeUndefined();
+    expect(StyleSheet.flatten(suffix.props.style).flexShrink).toBe(0);
   });
 
   it('labels rows for screen readers', async () => {
@@ -159,6 +171,16 @@ describe('DreamLogScreen tags', () => {
     expect(view.current.tags).toEqual(['water', 'stairs']);
     await fireEvent.press(screen.getByLabelText('All · 5'));
     expect(view.current.tags).toEqual([]);
+  });
+
+  it('pressing All twice quickly stays on All and does not reselect', async () => {
+    const { view } = await setup();
+    await fireEvent.press(screen.getByLabelText('water · 2'));
+    await fireEvent.press(screen.getByLabelText('stairs · 1'));
+    await fireEvent.press(screen.getByLabelText('All · 5'));
+    await fireEvent.press(screen.getByLabelText('All · 5'));
+    expect(view.current.tags).toEqual([]);
+    expect(screen.getByLabelText('All · 5').props.accessibilityState.selected).toBe(true);
   });
 
   it('hides the tag row when the index is unreadable or there are no dreams', async () => {
