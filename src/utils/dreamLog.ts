@@ -8,6 +8,8 @@ export const MAX_TAG_CHIPS = 20;
 export const MAX_ROW_CHIPS = 4;
 export const MAX_ROW_EMOTIONS = 2;
 export const EARLIER_LABEL = 'EARLIER';
+const DRAFT_LABEL = 'Draft';
+const DRAFT_HINT = 'Not reviewed yet · Finish now';
 
 // Stored dreams can predate fields (title, tags, transcript, status...), so every read is defensive.
 const tagsOf = (d: Dream): string[] =>
@@ -209,6 +211,10 @@ export type DreamRow = {
   /** Up to 160 characters of transcript; "" for drafts and dreams without a transcript. */
   preview: string;
   /** "Draft" for drafts (the UI colors it with `colors.draft`), else "". */
+  draftLabel: string;
+  /** "Not reviewed yet · Finish now" for drafts (muted text after the label), else "". */
+  draftHint: string;
+  /** The full sub-line, "Draft · Not reviewed yet · Finish now", for drafts, else "". */
   subline: string;
   /** Capitalized emotions and tags as stored. Use `limitChips` for rows. */
   chips: { emotions: string[]; tags: string[] };
@@ -234,7 +240,9 @@ export function dreamRow(dream: Dream, now: Date = new Date()): DreamRow {
     day: date ? date.getDate() : null,
     dateLabel,
     preview: draft ? '' : transcriptPreview(dream.transcript),
-    subline: draft ? 'Draft' : '',
+    draftLabel: draft ? DRAFT_LABEL : '',
+    draftHint: draft ? DRAFT_HINT : '',
+    subline: draft ? `${DRAFT_LABEL} · ${DRAFT_HINT}` : '',
     chips: {
       emotions: splitEmotions(textOf(dream.emotion)).map(capitalizeFirst),
       tags: tagsOf(dream),

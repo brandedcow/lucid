@@ -269,6 +269,8 @@ describe('dreamRow', () => {
       dateLabel: 'Oct 4',
       preview: 'I was back at the house',
       subline: '',
+      draftLabel: '',
+      draftHint: '',
       draftSuffix: '',
       chips: { emotions: ['Uneasy', 'Curious'], tags: ['water', 'stairs'] },
     });
@@ -286,7 +288,9 @@ describe('dreamRow', () => {
     expect(bare).toMatchObject({
       title: 'Untitled dream',
       draftSuffix: '',
-      subline: 'Draft',
+      subline: 'Draft · Not reviewed yet · Finish now',
+      draftLabel: 'Draft',
+      draftHint: 'Not reviewed yet · Finish now',
       isDraft: true,
       hasAudio: false,
       preview: '',
@@ -304,7 +308,7 @@ describe('dreamRow', () => {
       dream({ title: 'Hall', status: 'draft', audioFileName: 'a.m4a', durationMs: 65_000 }),
       NOW,
     );
-    expect(titled).toMatchObject({ title: 'Hall', draftSuffix: ' · 1:05', subline: 'Draft' });
+    expect(titled).toMatchObject({ title: 'Hall', draftSuffix: ' · 1:05', draftLabel: 'Draft' });
   });
 
   it('never throws on legacy shapes', () => {

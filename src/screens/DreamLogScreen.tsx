@@ -319,7 +319,9 @@ function SearchIcon() {
 function accessibleLabel(row: DreamRow, dream: Dream): string {
   const date = formatEntryDateTime(new Date(dream.createdAt));
   if (row.isDraft) {
-    return [`Draft: ${row.title}`, date, 'Finish now'].filter(Boolean).join('. ');
+    return [`Draft: ${row.title}`, date, 'Not reviewed yet', 'Finish now']
+      .filter(Boolean)
+      .join('. ');
   }
   const parts = [row.title, date];
   if (row.chips.emotions.length > 0) parts.push(`Feelings: ${row.chips.emotions.join(', ')}`);
@@ -352,7 +354,10 @@ const LogRow = memo(function LogRow({
           <Text style={styles.cardTitle} numberOfLines={1}>
             {row.title + row.draftSuffix}
           </Text>
-          <Text style={styles.draftLabel}>{row.subline}</Text>
+          <Text style={styles.draftHint}>
+            <Text style={styles.draftLabel}>{row.draftLabel}</Text>
+            {` · ${row.draftHint}`}
+          </Text>
         </View>
         <Text style={styles.chevron} importantForAccessibility="no">
           ›
@@ -481,7 +486,8 @@ const styles = StyleSheet.create({
   cardMain: { flex: 1, gap: spacing.xs },
   cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 18 },
   preview: { color: colors.muted, fontSize: 14, lineHeight: 19 },
-  draftLabel: { color: colors.draft, fontSize: 13 },
+  draftHint: { color: colors.muted, fontSize: 13 },
+  draftLabel: { color: colors.draft },
   chevron: { color: colors.muted, fontSize: 24 },
   empty: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.sm },
   emptyTitle: { color: colors.text, fontSize: 18 },

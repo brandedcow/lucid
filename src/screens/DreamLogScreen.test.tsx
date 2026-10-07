@@ -108,6 +108,8 @@ describe('DreamLogScreen list', () => {
     expect(screen.getByText('Untitled dream · 1:05')).toBeTruthy();
     const label = screen.getByText('Draft');
     expect(StyleSheet.flatten(label.props.style).color).toBe(colors.draft);
+    const hint = screen.getByText('Draft · Not reviewed yet · Finish now');
+    expect(StyleSheet.flatten(hint.props.style).color).toBe(colors.muted);
     expect(screen.getByText('›')).toBeTruthy();
     await fireEvent.press(screen.getByText('Untitled dream · 1:05'));
     expect(onOpenDraft).toHaveBeenCalledWith(DREAMS[0]);
@@ -122,7 +124,9 @@ describe('DreamLogScreen list', () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByLabelText('Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Finish now'),
+      screen.getByLabelText(
+        'Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Not reviewed yet. Finish now',
+      ),
     ).toBeTruthy();
   });
 });
