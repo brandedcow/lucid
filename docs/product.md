@@ -35,7 +35,7 @@ Use these terms consistently in UI copy, code and data models.
 | Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                     |
 | Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.                                                                           |
 | Dream log     | The screen that lists the user's dreams and drafts by month, with a tag filter and search. It is not the journal home; the journal's structure is a separate feature. |
-| Dream entry   | One finished dream shown for reading: date, title, feelings, tags, the recording and the transcript. Opened from the Dream log.                                       |
+| Dream entry   | One finished dream shown for reading: date, title, emotion, tags, the recording and the transcript. Opened from the Dream log.                                        |
 
 Tags cover anything the user wants to track over time, such as a recurring dream image ("water"), strong emotional reactions, or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up, and it is now possible through the Dream log's tag filter and search. There is no separate "tracker" concept; tags fill that role.
 
@@ -66,14 +66,14 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - The Dream log lists the user's dreams, newest first, grouped by month, under the header "Dreams". It is not the journal home: the journal's structure is a separate feature and is still undecided.
 - Each dream is a row with its day, title, a two-line preview of the transcript, and chips for how it felt and its tags. Rows have no play button; the recording is played from the Dream entry.
 - Drafts appear in the same list, by date, as an outlined card: the title (or "Untitled dream", followed by the recording length when there is audio), then "Draft · Not reviewed yet · Finish now" with "Draft" in red. Tapping a draft reopens Review.
-- A row of tag chips ("All" and each tag with its count) filters the list. The user can select several tags, and a dream must have all of the selected tags to be shown. The row shows the 20 most-used tags; other tags can still be found through search.
-- Search looks for the typed words in a dream's title, transcript, feelings and tags. It is plain text matching on the device, not analysis or interpretation of dreams.
+- A row of tag chips ("All" and each tag with its count) filters the list. The user can select several tags, and a dream must have all of the selected tags to be shown. The row shows the most-used tags (up to 20); other tags can still be found through search.
+- Search looks for the typed words in a dream's title, transcript, emotion and tags. It is plain text matching on the device, not analysis or interpretation of dreams.
 - A "New dream" button opens dream capture. When there are no dreams, or nothing matches, the screen says so.
 - The filter, the search and the scroll position are kept when the user opens a dream and comes back.
 
 ### Dream entry
 
-- Tapping a finished dream opens its Dream entry: the date and time (for example "Sunday, October 4 · 6:42 AM"), the title, all of its feelings and tags as chips, a compact player when the dream has audio, and the transcript in paragraphs ("No text yet" when there is none).
+- Tapping a finished dream opens its Dream entry: the date and time (for example "Sunday, October 4 · 6:42 AM"), the title, all of its emotion and tags as chips, a compact player when the dream has audio, and the transcript in paragraphs ("No text yet" when there is none).
 - **Edit** reopens Review for that dream (title, how it felt, tags, and the transcript through Read it back). A finished dream has no "Finish later". **Done** saves the changes and returns to the entry; with no changes it just returns. Going back with unsaved changes asks "Discard changes?".
 - Not built: deleting a dream.
 

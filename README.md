@@ -37,11 +37,11 @@ src/
   components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionChips, DreamChips
   hooks/             useDreamRecorder, useLiveTranscription, useDreamSession, useDreamLibrary, useLogView
   services/          dreamStorage (local audio files + dreams.json)
-  utils/             format, tags, emotions, dreamLog, paragraphs, sessionNavigation
+  utils/             format, tags, emotions, capitalizeFirst, fadeTail, dreamLog, paragraphs, sessionNavigation
   types/             dream (Dream, DreamDetails), entry (EntryType)
   theme/             colors, spacing, fonts
   test/              fakeFileSystem (in-memory expo-file-system for Jest)
-docs/                product.md, status.md
+docs/                product.md, status.md, ios-dev-build.md, spike-live-transcription.md
 assets/              app icon, adaptive icon and splash images (moon mark; sources in assets/icon-source/)
 ```
 
