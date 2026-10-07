@@ -447,13 +447,20 @@ describe('App back rules', () => {
 });
 
 describe('App Android hardware back', () => {
-  it('is not handled on capture or the log (default behavior)', async () => {
+  it('is not handled on capture (default behavior, exits)', async () => {
     await render(<App />);
     expect(await hardwareBack()).toBe(false);
+  });
+
+  it('after saving to the log goes to capture, and capture then exits', async () => {
+    await render(<App />);
     await press('stub-save-recording');
     await press('Continue');
     await press('stub-set-title');
     await press('stub-done');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('capture-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(false);
   });
 
@@ -553,17 +560,29 @@ describe('App Dream log and detail', () => {
     expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
-  it('hardware back on the log closes an open search, then falls through to the default', async () => {
+  it('hardware back on the log closes an open search first, then goes to capture', async () => {
     await render(<App />);
     await press('stub-no-dream');
-    expect(await hardwareBack()).toBe(false);
     await press('stub-open-search');
     await press('stub-set-query');
     expect(await hardwareBack()).toBe(true);
     expect(screen.getByText('searching:false')).toBeTruthy();
     expect(screen.getByText('query:')).toBeTruthy();
     expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('capture-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(false);
+  });
+
+  it('hardware back on the log with search closed goes to capture and keeps the view state', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-set-query');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('capture-screen')).toBeTruthy();
+    await press('stub-no-dream');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.getByText('query:hall')).toBeTruthy();
   });
 
   it('falls back to the log when the detail dream is missing or a draft', async () => {

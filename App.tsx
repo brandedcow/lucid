@@ -154,16 +154,18 @@ export default function App() {
   // A reopened draft or edited dream shows when it was first stored; a new dream shows today.
   const dreamDate = formatToday(session?.createdAt ? new Date(session.createdAt) : new Date());
 
-  // Android hardware back mirrors the on-screen back arrows. Capture keeps the default, and so
-  // does the log unless its search field is open.
+  // Android hardware back mirrors the on-screen back arrows. Capture keeps the default (exit).
+  // The log closes an open search first, otherwise goes to capture.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (current === 'detail') {
         setScreen('log');
         return true;
       }
-      if (current === 'log' && view.searching) {
-        view.closeSearch();
+      if (current === 'log') {
+        // Same transition as the New dream button: the log view state is kept.
+        if (view.searching) view.closeSearch();
+        else setScreen('capture');
         return true;
       }
       if (current === 'readItBack' && session) {
