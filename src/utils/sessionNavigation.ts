@@ -5,12 +5,13 @@ export function hasAtStake(session: Session): boolean {
   return !!session.audio || session.transcript.trim().length > 0;
 }
 
-/** True when saving a draft would keep something: audio, text, a title, an emotion or any tag. */
+/** True when saving a draft would keep something: audio, text, a title, an emotion (or emotion text being typed) or any tag. */
 export function hasSomethingToKeep(session: Session): boolean {
   return (
     hasAtStake(session) ||
     session.title.trim().length > 0 ||
     session.emotion.trim().length > 0 ||
+    session.emotionDraft.trim().length > 0 ||
     session.tags.length > 0 ||
     session.tagDraft.trim().length > 0
   );
@@ -18,13 +19,13 @@ export function hasSomethingToKeep(session: Session): boolean {
 
 /**
  * True when an 'edit' session differs from the dream as it was opened: title, transcript and
- * emotion (each trimmed, case kept), tags (an ordered array, so reordering counts), or tag text
- * typed but not confirmed. False when there is no baseline.
+ * emotion (each trimmed, case kept), tags (an ordered array, so reordering counts), or emotion or
+ * tag text typed but not confirmed. False when there is no baseline.
  */
 export function hasEdits(session: Session): boolean {
   const { baseline } = session;
   if (!baseline) return false;
-  if (session.tagDraft.trim().length > 0) return true;
+  if (session.tagDraft.trim().length > 0 || session.emotionDraft.trim().length > 0) return true;
   return (
     session.title.trim() !== baseline.title.trim() ||
     session.transcript.trim() !== baseline.transcript.trim() ||

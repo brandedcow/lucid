@@ -34,6 +34,7 @@ describe('useDreamSession save', () => {
     await act(async () => {
       result.current.setTitle('T');
       result.current.setEmotion('calm');
+      result.current.setEmotionDraft('Uneasy');
       result.current.setTagDraft('Falling');
     });
     let ok = false;
@@ -44,7 +45,7 @@ describe('useDreamSession save', () => {
     expect(save).toHaveBeenCalledWith({
       recordingUri: recording.uri,
       durationMs: 5000,
-      details: { title: 'T', emotion: 'calm', tags: ['falling'], transcript: 'text' },
+      details: { title: 'T', emotion: 'calm, uneasy', tags: ['falling'], transcript: 'text' },
       status: 'draft',
     });
     expect(result.current.session).toMatchObject({

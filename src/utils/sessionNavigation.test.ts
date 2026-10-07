@@ -18,6 +18,7 @@ const base: Session = {
   transcript: '',
   title: '',
   emotion: '',
+  emotionDraft: '',
   tags: [],
   tagDraft: '',
   passedThroughReadItBack: false,
@@ -39,7 +40,14 @@ describe('hasSomethingToKeep', () => {
   it('is false for an empty or blank session', () => {
     expect(hasSomethingToKeep({ ...base, origin: 'write' })).toBe(false);
     expect(
-      hasSomethingToKeep({ ...base, transcript: ' ', title: ' ', emotion: ' ', tagDraft: ' ' }),
+      hasSomethingToKeep({
+        ...base,
+        transcript: ' ',
+        title: ' ',
+        emotion: ' ',
+        tagDraft: ' ',
+        emotionDraft: ' ',
+      }),
     ).toBe(false);
   });
   it('is true for audio, text, a title, an emotion, a tag or pending tag text', () => {
@@ -49,6 +57,7 @@ describe('hasSomethingToKeep', () => {
     expect(hasSomethingToKeep({ ...base, emotion: 'x' })).toBe(true);
     expect(hasSomethingToKeep({ ...base, tags: ['x'] })).toBe(true);
     expect(hasSomethingToKeep({ ...base, tagDraft: 'x' })).toBe(true);
+    expect(hasSomethingToKeep({ ...base, emotionDraft: 'x' })).toBe(true);
   });
 });
 
@@ -120,6 +129,10 @@ describe('hasEdits', () => {
   it('counts pending tag text but not blank tag text', () => {
     expect(hasEdits({ ...edit, tagDraft: 'x' })).toBe(true);
     expect(hasEdits({ ...edit, tagDraft: '  ' })).toBe(false);
+  });
+  it('counts pending emotion text but not blank emotion text', () => {
+    expect(hasEdits({ ...edit, emotionDraft: 'x' })).toBe(true);
+    expect(hasEdits({ ...edit, emotionDraft: '  ' })).toBe(false);
   });
 });
 

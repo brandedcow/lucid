@@ -23,6 +23,7 @@ describe('sessionReducer', () => {
       transcript: 'hello',
       title: '',
       emotion: '',
+      emotionDraft: '',
       tags: [],
       tagDraft: '',
       passedThroughReadItBack: false,
@@ -45,6 +46,7 @@ describe('sessionReducer', () => {
       transcript: '',
       title: '',
       emotion: '',
+      emotionDraft: '',
       tags: [],
       tagDraft: '',
       passedThroughReadItBack: false,
@@ -77,6 +79,12 @@ describe('sessionReducer', () => {
     const s = sessionReducer(fresh(), { type: 'setTagDraft', value: 'fall' });
     expect(s?.tagDraft).toBe('fall');
     expect(sessionReducer(null, { type: 'setTagDraft', value: 'x' })).toBeNull();
+  });
+
+  it('setEmotionDraft keeps pending emotion text in the session', () => {
+    const s = sessionReducer(fresh(), { type: 'setEmotionDraft', value: 'calm' });
+    expect(s?.emotionDraft).toBe('calm');
+    expect(sessionReducer(null, { type: 'setEmotionDraft', value: 'x' })).toBeNull();
   });
 
   it('markSaved records the new id and moves a cache recording to its permanent file', () => {
@@ -143,6 +151,7 @@ describe('sessionFromDraft', () => {
       transcript: 'it filled up',
       title: 'Flooded hall',
       emotion: 'uneasy',
+      emotionDraft: '',
       tags: ['water'],
       tagDraft: '',
       passedThroughReadItBack: true,
@@ -181,6 +190,7 @@ describe('sessionFromDream (edit)', () => {
       transcript: 'it filled up',
       title: 'Flooded hall',
       emotion: 'uneasy',
+      emotionDraft: '',
       tags: ['water', 'hall'],
       tagDraft: '',
       passedThroughReadItBack: true,

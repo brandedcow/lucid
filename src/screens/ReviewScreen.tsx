@@ -10,20 +10,20 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { EmotionChips } from '../components/EmotionChips';
+import { EmotionInput } from '../components/EmotionInput';
 import { MicIcon } from '../components/MicIcon';
 import { TagInput } from '../components/TagInput';
 import { listEmotions, listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
-import { displayEmotions, storeEmotionInput } from '../utils/emotions';
+import { joinEmotions, splitEmotions } from '../utils/emotions';
 import { countWords, formatDuration } from '../utils/format';
 
 /**
  * Prop contract:
  * - transcript: the final edited text from the session; shown as a 3-line preview.
  * - audio / durationMs: the recording, if any. durationMs is 0 and audio absent for a written dream.
- * - title / emotion / tags / tagDraft and their setters: session state, so edits (including tag text
- *   typed but not yet confirmed) survive Review -> Edit -> Review.
+ * - title / emotion / emotionDraft / tags / tagDraft and their setters: session state, so edits
+ *   (including emotion or tag text typed but not yet confirmed) survive Review -> Edit -> Review.
  * - onEditTranscript: go back to Read it back to edit the text (the whole preview card is the button).
  * - onDone / onFinishLater: the parent saves the session (as 'saved' / as a draft) and leaves.
  *   Done is disabled until there is a title; Finish later is available unless a save is in flight.
@@ -42,6 +42,8 @@ export type ReviewScreenProps = {
   onTitleChange: (title: string) => void;
   emotion: string;
   onEmotionChange: (emotion: string) => void;
+  emotionDraft: string;
+  onEmotionDraftChange: (text: string) => void;
   tags: string[];
   onTagsChange: (tags: string[]) => void;
   tagDraft: string;
@@ -63,6 +65,8 @@ export function ReviewScreen({
   onTitleChange,
   emotion,
   onEmotionChange,
+  emotionDraft,
+  onEmotionDraftChange,
   tags,
   onTagsChange,
   tagDraft,
@@ -167,18 +171,14 @@ export function ReviewScreen({
               <Text style={styles.label}>How did it feel?</Text>
               <Text style={styles.optional}>Optional</Text>
             </View>
-            <TextInput
-              value={displayEmotions(emotion)}
-              onChangeText={(text) => onEmotionChange(storeEmotionInput(text))}
-              editable={!saving}
-              placeholder="Your own word..."
-              placeholderTextColor={colors.faint}
-              accessibilityLabel="How did it feel?"
-              maxLength={120}
-              returnKeyType="done"
-              style={styles.input}
+            <EmotionInput
+              emotions={splitEmotions(emotion)}
+              onEmotionsChange={(list) => onEmotionChange(joinEmotions(list))}
+              draft={emotionDraft}
+              onDraftChange={onEmotionDraftChange}
+              suggestions={knownEmotions}
+              disabled={saving}
             />
-            <EmotionChips known={knownEmotions} value={emotion} onChange={onEmotionChange} />
           </View>
 
           <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>

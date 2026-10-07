@@ -29,6 +29,8 @@ type Extra = Partial<ComponentProps<typeof ReviewScreen>> & {
   transcript?: string;
   /** Start as a reopened draft with this id. */
   draftId?: string;
+  /** The reopened draft's stored emotion. */
+  draftEmotion?: string;
   noAudio?: boolean;
 };
 
@@ -42,7 +44,13 @@ const callbacks = {
  * Wires the screen to the real session hook the way App does: Done and Finish later save, and
  * leave only if the save worked.
  */
-function Harness({ transcript = 'I was in a hallway', draftId, noAudio, showFinishLater }: Extra) {
+function Harness({
+  transcript = 'I was in a hallway',
+  draftId,
+  draftEmotion,
+  noAudio,
+  showFinishLater,
+}: Extra) {
   const dream = useDreamSession();
   const { session } = dream;
   useEffect(() => {
@@ -53,6 +61,7 @@ function Harness({ transcript = 'I was in a hallway', draftId, noAudio, showFini
         durationMs: noAudio ? 0 : 42_000,
         ...(noAudio ? {} : { audioFileName: `${draftId}.m4a` }),
         title: '',
+        ...(draftEmotion ? { emotion: draftEmotion } : {}),
         tags: [],
         transcript,
         status: 'draft',
@@ -79,6 +88,8 @@ function Harness({ transcript = 'I was in a hallway', draftId, noAudio, showFini
       onTitleChange={dream.setTitle}
       emotion={session.emotion}
       onEmotionChange={dream.setEmotion}
+      emotionDraft={session.emotionDraft}
+      onEmotionDraftChange={dream.setEmotionDraft}
       tags={session.tags}
       onTagsChange={dream.setTags}
       tagDraft={session.tagDraft}
@@ -101,6 +112,12 @@ async function renderReview(props: Extra = {}) {
 }
 
 const press = (label: string) => fireEvent.press(screen.getByText(label));
+const emotionInput = () => screen.getByPlaceholderText('Add an emotion...');
+const typeEmotion = (text: string) => fireEvent.changeText(emotionInput(), text);
+const submitEmotion = async (text: string) => {
+  await fireEvent.changeText(emotionInput(), text);
+  await fireEvent(emotionInput(), 'submitEditing');
+};
 const typeTitle = (text: string) => fireEvent.changeText(screen.getByLabelText('Title'), text);
 
 beforeEach(() => {
@@ -121,7 +138,8 @@ describe('ReviewScreen layout', () => {
     expect(screen.getByText('Tags')).toBeTruthy();
     expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
     expect(screen.getByText('+ water')).toBeTruthy();
-    expect(screen.getByText('Calm')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Add an emotion...')).toBeTruthy();
+    expect(screen.getByText('+ calm')).toBeTruthy();
     expect(screen.getByText('Edit ›')).toBeTruthy();
     expect(screen.getByText('Done')).toBeTruthy();
     expect(screen.getByText('Finish later')).toBeTruthy();
@@ -189,48 +207,90 @@ describe('ReviewScreen layout', () => {
 });
 
 describe('ReviewScreen emotion and tags', () => {
-  it('appends a tapped chip in lowercase, and removes it on a second tap', async () => {
+  it('creates an emotion with Enter, shows it as a chip below the field and clears the field', async () => {
     await renderReview();
-    await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm');
-    await press('Uneasy');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm, Uneasy');
-    await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Uneasy');
+    await submitEmotion('  Wistful ');
+    expect(screen.getByText('Wistful')).toBeTruthy();
+    expect(emotionInput().props.value).toBe('');
+    expect(emotionInput().props.blurOnSubmit).toBe(false);
+    const tree = JSON.stringify(screen.toJSON());
+    const inputAt = tree.indexOf('Add an emotion...');
+    const chipAt = tree.indexOf('Remove emotion wistful');
+    expect(inputAt).toBeGreaterThan(-1);
+    expect(chipAt).toBeGreaterThan(inputAt);
   });
 
-  it('accepts free text and offers no preset feelings', async () => {
+  it('keeps a multi-word emotion as one chip', async () => {
+    await renderReview();
+    await submitEmotion('a bit wistful');
+    expect(screen.getByText('A bit wistful')).toBeTruthy();
+  });
+
+  it('creates several emotions from comma or semicolon separated text', async () => {
+    await renderReview();
+    await typeEmotion('Wistful, a bit odd; tired');
+    expect(screen.getByText('Wistful')).toBeTruthy();
+    expect(screen.getByText('A bit odd')).toBeTruthy();
+    expect(screen.getByText('Tired')).toBeTruthy();
+    expect(emotionInput().props.value).toBe('');
+  });
+
+  it('finishes an emotion when a comma is typed', async () => {
+    await renderReview();
+    await typeEmotion('wistful,');
+    expect(screen.getByText('Wistful')).toBeTruthy();
+    expect(emotionInput().props.value).toBe('');
+  });
+
+  it('ignores empty text and duplicates', async () => {
+    await renderReview();
+    await submitEmotion('   ');
+    expect(screen.queryByLabelText(/^Remove emotion/)).toBeNull();
+    await submitEmotion('Odd');
+    await submitEmotion('odd');
+    await submitEmotion('ODD, odd');
+    expect(screen.getAllByLabelText(/^Remove emotion/)).toHaveLength(1);
+  });
+
+  it('adds a suggested emotion with one tap, hides it from the suggestions and lets it be removed', async () => {
     await renderReview();
     expect(screen.queryByText('Afraid')).toBeNull();
-    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'a bit wistful');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('A bit wistful');
+    await press('+ calm');
+    expect(screen.getByText('Calm')).toBeTruthy();
+    expect(screen.queryByText('+ calm')).toBeNull();
+    expect(screen.getByText('+ uneasy')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Remove emotion calm'));
+    expect(screen.queryByLabelText('Remove emotion calm')).toBeNull();
+    expect(screen.getByText('+ calm')).toBeTruthy();
   });
 
-  it('replaces a partly typed word when its chip is tapped, and saves only the chip word', async () => {
+  it('narrows the suggestions to what is being typed', async () => {
     await renderReview();
-    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'Ca');
-    await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('Calm');
+    await typeEmotion('un');
+    expect(screen.getByText('+ uneasy')).toBeTruthy();
+    expect(screen.queryByText('+ calm')).toBeNull();
+  });
+
+  it('shows a stored free-text emotion as chips, one per comma or semicolon part', async () => {
+    await renderReview({ draftId: '12', draftEmotion: 'a bit uneasy, calm' });
+    expect(screen.getByText('A bit uneasy')).toBeTruthy();
+    expect(screen.getByText('Calm')).toBeTruthy();
+  });
+
+  it('keeps the other stored emotions when one is removed or added', async () => {
+    await renderReview({ draftId: '12', draftEmotion: 'a bit uneasy, calm' });
+    await fireEvent.press(screen.getByLabelText('Remove emotion calm'));
+    await submitEmotion('Joy');
     await typeTitle('Hallway');
     await press('Done');
     await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
-    expect(save.mock.calls[0][0].details.emotion).toBe('calm');
+    expect(save.mock.calls[0][0].details.emotion).toBe('a bit uneasy, joy');
   });
 
-  it('shows each entry capitalized while the stored text stays lowercase', async () => {
+  it('saves the emotions lowercase and joined with a comma and a space', async () => {
     await renderReview();
-    const input = () => screen.getByLabelText('How did it feel?');
-    // Typing character by character: same length every step, so the cursor has nothing to jump over.
-    for (const ch of 'calm, a bit uneasy') {
-      const typed = `${input().props.value}${ch}`;
-      await fireEvent.changeText(input(), typed);
-      expect(input().props.value).toHaveLength(typed.length);
-    }
-    expect(input().props.value).toBe('Calm, A bit uneasy');
-    // Backspacing works the same way.
-    await fireEvent.changeText(input(), 'Calm, A bit uneas');
-    expect(input().props.value).toBe('Calm, A bit uneas');
-    await fireEvent.changeText(input(), 'Calm, A bit uneasy');
+    await submitEmotion('Calm');
+    await submitEmotion('A bit Uneasy');
     await typeTitle('Hallway');
     await press('Done');
     await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalled());
@@ -266,7 +326,7 @@ describe('ReviewScreen saving', () => {
   it('Done saves everything, including a pending tag, as a finished dream', async () => {
     await renderReview();
     await typeTitle('Flooded hallway');
-    await fireEvent.changeText(screen.getByLabelText('How did it feel?'), 'uneasy');
+    await typeEmotion('Uneasy');
     await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'Falling');
     await press('Done');
 
@@ -307,6 +367,32 @@ describe('ReviewScreen saving', () => {
     expect(arg.id).toBe('12');
     expect(arg).not.toHaveProperty('recordingUri');
     expect(arg.status).toBe('saved');
+  });
+
+  it('Done saves a pending emotion together with the chips already added', async () => {
+    await renderReview();
+    await submitEmotion('calm');
+    await typeEmotion('Wistful');
+    await typeTitle('Hallway');
+    await press('Done');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('saved'));
+    expect(save.mock.calls[0][0].details.emotion).toBe('calm, wistful');
+  });
+
+  it('Finish later saves a pending emotion in the draft', async () => {
+    await renderReview();
+    await typeEmotion('Wistful');
+    await press('Finish later');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('draft'));
+    expect(save.mock.calls[0][0].details.emotion).toBe('wistful');
+  });
+
+  it('Finish later keeps a pending emotion even in an otherwise empty written dream', async () => {
+    await renderReview({ transcript: '', noAudio: true });
+    await typeEmotion('Wistful');
+    await press('Finish later');
+    await waitFor(() => expect(callbacks.onLeft).toHaveBeenCalledWith('draft'));
+    expect(save.mock.calls[0][0].details.emotion).toBe('wistful');
   });
 
   it('Finish later saves a draft without a title', async () => {
@@ -365,8 +451,8 @@ describe('ReviewScreen saving', () => {
     await fireEvent.press(screen.getByRole('button', { name: /^Edit text/ }));
     expect(callbacks.onEdit).not.toHaveBeenCalled();
     // Chips and tag controls ignore touches too.
-    await press('Calm');
-    expect(screen.getByLabelText('How did it feel?').props.value).toBe('');
+    await press('+ calm');
+    expect(screen.queryByLabelText('Remove emotion calm')).toBeNull();
     await press('+ water');
     expect(screen.queryByLabelText('Remove tag water')).toBeNull();
     await act(async () => resolve({ id: '77', createdAt: 'c' }));
@@ -408,5 +494,18 @@ describe('ReviewScreen pending tag text', () => {
     // Review -> Edit -> Review remounts the screen but keeps the session above it.
     await view.rerender(<Harness />);
     expect(screen.getByPlaceholderText('Add a tag...').props.value).toBe('fall');
+  });
+});
+
+describe('ReviewScreen pending emotion text', () => {
+  it('lives in the session, so text and chips are still there after the screen is shown again', async () => {
+    const view = await render(<Harness />);
+    await screen.findByText('+ water');
+    await submitEmotion('Calm');
+    await typeEmotion('wist');
+    // Review -> Edit -> Review remounts the screen but keeps the session above it.
+    await view.rerender(<Harness />);
+    expect(emotionInput().props.value).toBe('wist');
+    expect(screen.getByLabelText('Remove emotion calm')).toBeTruthy();
   });
 });

@@ -114,4 +114,21 @@ describe('saving an edited dream (real saveDream, fake file system)', () => {
     });
     expect((await listDreams())[0].tags).toEqual(['water', 'hall']);
   });
+
+  it('confirms a pending emotion into the saved emotion, lowercase and joined', async () => {
+    const { result } = await open(finished);
+    await act(async () => result.current.setEmotionDraft('Calm'));
+    await act(async () => {
+      await result.current.save('saved');
+    });
+    expect((await listDreams())[0].emotion).toBe('uneasy, calm');
+  });
+
+  it('leaves an old free-text emotion as it was when nothing is pending', async () => {
+    const { result } = await open({ ...finished, emotion: 'A bit uneasy;Calm' });
+    await act(async () => {
+      await result.current.save('saved');
+    });
+    expect((await listDreams())[0].emotion).toBe('A bit uneasy;Calm');
+  });
 });

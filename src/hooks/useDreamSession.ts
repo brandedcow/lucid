@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { Alert } from 'react-native';
 import { dreamAudioUri, isIndexUnreadableError, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
+import { withPendingEmotion } from '../utils/emotions';
 import { addTag } from '../utils/tags';
 import { hasSomethingToKeep } from '../utils/sessionNavigation';
 
@@ -19,6 +20,8 @@ export type Session = {
   transcript: string;
   title: string;
   emotion: string;
+  /** Emotion text typed on Review but not yet turned into an emotion; kept so it survives Review -> Edit. */
+  emotionDraft: string;
   tags: string[];
   /** Tag text typed on Review but not yet turned into a tag; kept so it survives Review -> Edit. */
   tagDraft: string;
@@ -36,6 +39,7 @@ export type SessionAction =
   | { type: 'setTranscript'; value: string }
   | { type: 'setTitle'; value: string }
   | { type: 'setEmotion'; value: string }
+  | { type: 'setEmotionDraft'; value: string }
   | { type: 'setTags'; value: string[] }
   | { type: 'setTagDraft'; value: string }
   | { type: 'markSaved'; id: string; createdAt: string; audioUri: string | null }
@@ -56,6 +60,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
         transcript: action.transcript,
         title: '',
         emotion: '',
+        emotionDraft: '',
         tags: [],
         tagDraft: '',
         passedThroughReadItBack: false,
@@ -66,6 +71,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
         transcript: '',
         title: '',
         emotion: '',
+        emotionDraft: '',
         tags: [],
         tagDraft: '',
         passedThroughReadItBack: false,
@@ -85,6 +91,8 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
       return { ...state, title: action.value };
     case 'setEmotion':
       return { ...state, emotion: action.value };
+    case 'setEmotionDraft':
+      return { ...state, emotionDraft: action.value };
     case 'setTags':
       return { ...state, tags: action.value };
     case 'setTagDraft':
@@ -123,6 +131,7 @@ export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Sessio
     transcript: dream.transcript ?? '',
     title: dream.title,
     emotion: dream.emotion ?? '',
+    emotionDraft: '',
     tags,
     tagDraft: '',
     // A stored dream already went through Read it back once.
@@ -174,6 +183,7 @@ export function useDreamSession() {
       setTranscript: (value: string) => dispatch({ type: 'setTranscript', value }),
       setTitle: (value: string) => dispatch({ type: 'setTitle', value }),
       setEmotion: (value: string) => dispatch({ type: 'setEmotion', value }),
+      setEmotionDraft: (value: string) => dispatch({ type: 'setEmotionDraft', value }),
       setTags: (value: string[]) => dispatch({ type: 'setTags', value }),
       setTagDraft: (value: string) => dispatch({ type: 'setTagDraft', value }),
       markPassedThroughReadItBack: () => dispatch({ type: 'markPassedThroughReadItBack' }),
@@ -211,7 +221,8 @@ export function useDreamSession() {
         // Always strings: undefined would keep the stored value instead of clearing it.
         details: {
           title: current.title,
-          emotion: current.emotion,
+          // Include an emotion that was typed but not yet confirmed.
+          emotion: withPendingEmotion(current.emotion, current.emotionDraft),
           // Include a tag that was typed but not yet confirmed.
           tags: addTag(current.tags, current.tagDraft),
           transcript: current.transcript,

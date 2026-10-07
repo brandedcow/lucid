@@ -224,6 +224,8 @@ export default function App() {
           onTitleChange={dream.setTitle}
           emotion={session.emotion}
           onEmotionChange={dream.setEmotion}
+          emotionDraft={session.emotionDraft}
+          onEmotionDraftChange={dream.setEmotionDraft}
           tags={session.tags}
           onTagsChange={dream.setTags}
           tagDraft={session.tagDraft}
