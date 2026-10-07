@@ -46,7 +46,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - When the user opens the app on waking, it opens to the dream capture screen.
 - Dream capture can always be dismissed with one tap via "No dream".
 - Once a dream is saved or "No dream" is chosen for the day, the app opens to the journal instead. (Not built yet: today "No dream" only opens the Dream log, and the app always opens to capture.)
-- Audio recordings are kept alongside transcripts (a dream written with "Write instead" has no audio).
+- Audio recordings are kept alongside transcripts (a dream written with "Write instead" or "Type instead" has no audio).
 - Dream capture must be fast: the user should be able to start capturing immediately, since dreams fade within minutes.
 - The screen should be calm and low-glare (dark), suitable for use right after waking.
 
@@ -58,6 +58,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - **Done** finishes the dream and needs a title. **Finish later** saves a draft and needs nothing. A draft appears in the Dream log as "Draft", and tapping it reopens Review.
 - The back arrow on Read it back discards an unsaved recording, after a confirmation ("Discard this dream?"). There is no "Delete and record again".
 - **Write instead** (on dream capture) opens Read it back with an empty text box and creates a dream with no audio.
+- **Type instead** (on the listening screen, while recording or paused) lets a dream that started as a recording become a written dream. After a confirmation ("Your recording will be deleted. The text so far is kept."), the recording is deleted and Read it back opens with the text captured so far, ready to edit, and no audio.
 - Emotion stays free text, never a fixed list or rating: the user creates each emotion by typing it in an input, the way tags work, and added emotions show as chips (with a capital first letter). Quick-pick suggestions are made from emotions the user has used before. Tag suggestions come from tags the user has used before. Nothing is derived from the content of a dream.
 - Once finished, the user sees the Dream log.
 
