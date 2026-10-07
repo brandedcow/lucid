@@ -118,6 +118,11 @@ const submitEmotion = async (text: string) => {
   await fireEvent.changeText(emotionInput(), text);
   await fireEvent(emotionInput(), 'submitEditing');
 };
+const tagInput = () => screen.getByPlaceholderText('Add a tag...');
+const submitTag = async (text: string) => {
+  await fireEvent.changeText(tagInput(), text);
+  await fireEvent(tagInput(), 'submitEditing');
+};
 const typeTitle = (text: string) => fireEvent.changeText(screen.getByLabelText('Title'), text);
 
 beforeEach(() => {
@@ -212,7 +217,7 @@ describe('ReviewScreen emotion and tags', () => {
     await submitEmotion('  Wistful ');
     expect(screen.getByText('Wistful')).toBeTruthy();
     expect(emotionInput().props.value).toBe('');
-    expect(emotionInput().props.blurOnSubmit).toBe(false);
+    expect(emotionInput().props.submitBehavior).toBe('submit');
     const tree = JSON.stringify(screen.toJSON());
     const inputAt = tree.indexOf('Add an emotion...');
     const chipAt = tree.indexOf('Remove emotion wistful');
@@ -297,12 +302,43 @@ describe('ReviewScreen emotion and tags', () => {
     expect(save.mock.calls[0][0].details.emotion).toBe('calm, a bit uneasy');
   });
 
+  it('creates a tag with Enter, keeps the keyboard open and clears the field, with the input above the chips above the suggestions', async () => {
+    await renderReview();
+    await submitTag('  #Falling ');
+    expect(screen.getByLabelText('Remove tag falling')).toBeTruthy();
+    expect(tagInput().props.value).toBe('');
+    expect(tagInput().props.submitBehavior).toBe('submit');
+    expect(tagInput().props.returnKeyType).toBe('done');
+    expect(tagInput().props.autoCapitalize).toBe('none');
+    expect(tagInput().props.autoCorrect).toBe(false);
+    const tree = JSON.stringify(screen.toJSON());
+    const inputAt = tree.indexOf('Add a tag...');
+    const chipAt = tree.indexOf('Remove tag falling');
+    const suggestionAt = tree.indexOf('Add tag water');
+    expect(inputAt).toBeGreaterThan(-1);
+    expect(chipAt).toBeGreaterThan(inputAt);
+    expect(suggestionAt).toBeGreaterThan(chipAt);
+  });
+
+  it('finishes a tag when a comma is typed and ignores empty text and duplicates', async () => {
+    await renderReview();
+    await fireEvent.changeText(tagInput(), 'flying home,');
+    expect(screen.getByLabelText('Remove tag flying home')).toBeTruthy();
+    expect(tagInput().props.value).toBe('');
+    await submitTag('   ');
+    await submitTag('Flying Home');
+    expect(screen.getAllByLabelText(/^Remove tag/)).toHaveLength(1);
+  });
+
   it('adds a suggested tag with one tap and lets it be removed', async () => {
     await renderReview();
+    expect(screen.getByLabelText('Add tag water')).toBeTruthy();
     await press('+ water');
+    expect(screen.queryByText('+ water')).toBeNull();
     expect(screen.getByLabelText('Remove tag water')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Remove tag water'));
     expect(screen.queryByLabelText('Remove tag water')).toBeNull();
+    expect(screen.getByText('+ water')).toBeTruthy();
   });
 });
 
@@ -448,6 +484,7 @@ describe('ReviewScreen saving', () => {
     await press('Done');
     expect(screen.getByLabelText('Title').props.editable).toBe(false);
     expect(screen.getByLabelText('How did it feel?').props.editable).toBe(false);
+    expect(tagInput().props.editable).toBe(false);
     await fireEvent.press(screen.getByRole('button', { name: /^Edit text/ }));
     expect(callbacks.onEdit).not.toHaveBeenCalled();
     // Chips and tag controls ignore touches too.

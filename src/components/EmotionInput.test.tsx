@@ -40,7 +40,7 @@ describe('EmotionInput', () => {
   it('has the placeholder, a return key that says done and keeps the keyboard on submit', async () => {
     await render(<Harness />);
     expect(input().props.returnKeyType).toBe('done');
-    expect(input().props.blurOnSubmit).toBe(false);
+    expect(input().props.submitBehavior).toBe('submit');
   });
 
   it('adds a lowercase emotion on submit, shows it capitalized and clears the field', async () => {

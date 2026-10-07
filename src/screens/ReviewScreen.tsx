@@ -192,6 +192,7 @@ export function ReviewScreen({
               draft={tagDraft}
               onDraftChange={onTagDraftChange}
               suggestions={knownTags}
+              disabled={saving}
             />
           </View>
 

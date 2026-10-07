@@ -12,9 +12,18 @@ type Props = {
   onDraftChange: (draft: string) => void;
   /** Tags already used elsewhere, offered as one-tap options. */
   suggestions: string[];
+  /** Locks the input while a save is in flight. */
+  disabled?: boolean;
 };
 
-export function TagInput({ tags, onTagsChange, draft, onDraftChange, suggestions }: Props) {
+export function TagInput({
+  tags,
+  onTagsChange,
+  draft,
+  onDraftChange,
+  suggestions,
+  disabled = false,
+}: Props) {
   const commit = () => {
     onTagsChange(addTag(tags, draft));
     onDraftChange('');
@@ -27,6 +36,28 @@ export function TagInput({ tags, onTagsChange, draft, onDraftChange, suggestions
 
   return (
     <View style={styles.wrap}>
+      <TextInput
+        value={draft}
+        onChangeText={(text) => {
+          // A comma finishes the tag, so multi-word tags like "flying home" still work.
+          if (text.endsWith(',')) {
+            onTagsChange(addTag(tags, text.slice(0, -1)));
+            onDraftChange('');
+          } else {
+            onDraftChange(text);
+          }
+        }}
+        onSubmitEditing={commit}
+        editable={!disabled}
+        placeholder="Add a tag..."
+        placeholderTextColor={colors.faint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="done"
+        submitBehavior="submit"
+        style={styles.input}
+      />
+
       {tags.length > 0 && (
         <View style={styles.row}>
           {tags.map((tag) => (
@@ -44,32 +75,13 @@ export function TagInput({ tags, onTagsChange, draft, onDraftChange, suggestions
         </View>
       )}
 
-      <TextInput
-        value={draft}
-        onChangeText={(text) => {
-          // A comma finishes the tag, so multi-word tags like "flying home" still work.
-          if (text.endsWith(',')) {
-            onTagsChange(addTag(tags, text.slice(0, -1)));
-            onDraftChange('');
-          } else {
-            onDraftChange(text);
-          }
-        }}
-        onSubmitEditing={commit}
-        placeholder="Add a tag..."
-        placeholderTextColor={colors.faint}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="done"
-        style={styles.input}
-      />
-
       {shown.length > 0 && (
         <View style={styles.row}>
           {shown.map((tag) => (
             <Pressable
               key={tag}
               accessibilityRole="button"
+              accessibilityLabel={`Add tag ${tag}`}
               onPress={() => {
                 onTagsChange(addTag(tags, tag));
                 onDraftChange('');
@@ -98,10 +110,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipSelected: { backgroundColor: colors.tagChipBg, borderColor: colors.tagChipBg },
   chipLabel: { color: colors.muted, fontSize: 14 },
-  chipSelectedLabel: { color: colors.accentDark, fontSize: 14, fontWeight: '600' },
-  remove: { color: colors.accentDark, fontSize: 11 },
+  chipSelectedLabel: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  remove: { color: colors.muted, fontSize: 11 },
   input: {
     color: colors.text,
     fontSize: 16,

@@ -63,7 +63,7 @@ export function EmotionInput({
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="done"
-        blurOnSubmit={false}
+        submitBehavior="submit"
         style={styles.input}
       />
 
