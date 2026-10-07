@@ -55,9 +55,7 @@ export function ListeningView({
 
       <View style={styles.transcript}>
         {tail.length === 0 ? (
-          paused ? null : (
-            <Text style={styles.transcriptEmpty}>Listening...</Text>
-          )
+          <Text style={styles.transcriptEmpty}>{paused ? 'Paused' : 'Listening...'}</Text>
         ) : (
           <Text
             style={styles.transcriptText}

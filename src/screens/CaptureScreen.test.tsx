@@ -98,7 +98,7 @@ describe('CaptureScreen pause and resume', () => {
     await setup();
     await tapPause();
     expect(mockCalls).toEqual(['recorder.pause', 'transcription.pause']);
-    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
     expect(screen.getByLabelText('Resume')).toBeTruthy();
   });
 
@@ -133,7 +133,7 @@ describe('CaptureScreen pause and resume', () => {
     });
     await tapResume();
     expect(mockTx.resume).not.toHaveBeenCalled();
-    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
     expect(screen.getByLabelText('Resume')).toBeTruthy();
   });
 
@@ -154,7 +154,7 @@ describe('CaptureScreen pause and resume', () => {
     await advance(100);
     await tapResume();
     expect(mockRec.resume).not.toHaveBeenCalled();
-    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
     await advance(250);
     await tapResume();
     expect(mockRec.resume).toHaveBeenCalledTimes(1);
@@ -249,13 +249,13 @@ describe('CaptureScreen reconcile stay-true', () => {
     await advance(500);
     expect(mockRec.pause).toHaveBeenCalledTimes(3);
     expect(mockRec.resume).not.toHaveBeenCalled();
-    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
     await advance(500);
     expect(mockRec.pause).toHaveBeenCalledTimes(3);
     expect(mockRec.resume).toHaveBeenCalledTimes(1);
     expect(mockTx.resume).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/^Listening ·/)).toBeTruthy();
-    expect(screen.queryByText(/^Paused/)).toBeNull();
+    expect(screen.queryByText(/^Paused ·/)).toBeNull();
     await advance(2000);
     expect(mockRec.pause).toHaveBeenCalledTimes(3);
     expect(mockRec.resume).toHaveBeenCalledTimes(1);
@@ -281,7 +281,7 @@ describe('CaptureScreen reconcile stay-true', () => {
     mockRec.pause.mockClear();
     await advance(2000);
     expect(mockRec.pause).not.toHaveBeenCalled();
-    expect(screen.getByText(/^Paused/)).toBeTruthy();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
   });
 
   it('does nothing and warns about nothing when unmounted mid-wait', async () => {
