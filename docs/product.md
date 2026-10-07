@@ -65,7 +65,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 - The Dream log lists the user's dreams, newest first, grouped by month, under the header "Dreams". It is not the journal home: the journal's structure is a separate feature and is still undecided.
 - Each dream is a row with its day, title, a two-line preview of the transcript, and chips for how it felt and its tags. Rows have no play button; the recording is played from the Dream entry.
-- Drafts appear in the same list, by date, as an outlined card: the title (or "Untitled dream", followed by the recording length when there is audio), then "Draft · Not reviewed yet · Finish now" with "Draft" in red. Tapping a draft reopens Review.
+- Drafts appear in the same list, by date, as an outlined card: the title (or "Untitled dream", followed by the recording length when there is audio), then "Draft · <date>" (for example "Draft · Oct 4") with "Draft" in red. Tapping a draft reopens Review.
 - A row of tag chips ("All" and each tag with its count) filters the list. The user can select several tags, and a dream must have all of the selected tags to be shown. The row shows the most-used tags (up to 20); other tags can still be found through search.
 - Search looks for the typed words in a dream's title, transcript, emotion and tags. It is plain text matching on the device, not analysis or interpretation of dreams.
 - A "New dream" button opens dream capture. When there are no dreams, or nothing matches, the screen says so.
