@@ -109,12 +109,27 @@ describe('DreamLogScreen list', () => {
     expect(screen.getByText(' · 1:05')).toBeTruthy();
     const label = screen.getByText('Draft');
     expect(StyleSheet.flatten(label.props.style).color).toBe(colors.draft);
-    const hint = screen.getByText('Draft · Not reviewed yet · Finish now');
-    expect(StyleSheet.flatten(hint.props.style).color).toBe(colors.muted);
+    const subline = screen.getByText('Draft · Oct 4');
+    expect(StyleSheet.flatten(subline.props.style).color).toBe(colors.muted);
+    expect(screen.queryByText(/Not reviewed yet|Finish now/)).toBeNull();
     expect(screen.getByText('›')).toBeTruthy();
     await fireEvent.press(screen.getByText('Untitled dream'));
     expect(onOpenDraft).toHaveBeenCalledWith(DREAMS[0]);
     expect(onOpenDream).not.toHaveBeenCalled();
+  });
+
+  it('shows only "Draft" when a draft has no valid date, and leaves finished rows alone', async () => {
+    await setup({
+      dreams: [
+        dream({ id: 'nd', status: 'draft', createdAt: 'garbage', title: 'No date' }),
+        dream({ id: 'f' }),
+      ],
+    });
+    expect(screen.getByText('Draft')).toBeTruthy();
+    expect(screen.queryByText(/Draft ·/)).toBeNull();
+    expect(screen.getByLabelText('Draft: No date. Tap to finish')).toBeTruthy();
+    expect(screen.getByText('The endless hallway')).toBeTruthy();
+    expect(screen.getAllByText(/Draft/)).toHaveLength(1);
   });
 
   it('keeps the duration visible when a draft title is long', async () => {
@@ -136,10 +151,29 @@ describe('DreamLogScreen list', () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByLabelText(
-        'Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Not reviewed yet. Finish now',
-      ),
+      screen.getByLabelText('Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Tap to finish'),
     ).toBeTruthy();
+  });
+});
+
+describe('DreamLogScreen search field style', () => {
+  // Jest cannot render layout, so check the invariants that keep the placeholder from clipping.
+  it('gives the search input room for its line, with no fixed height', async () => {
+    const { update } = await setup();
+    await update((v) => v.openSearch());
+    const field = screen.getByPlaceholderText('Search dreams');
+    const input = StyleSheet.flatten(field.props.style);
+    expect(input.height).toBeUndefined();
+    expect(input.lineHeight).toBeGreaterThanOrEqual(input.fontSize as number);
+    expect(input.paddingVertical).toBeGreaterThan(0);
+    expect(input.textAlignVertical).toBe('center');
+    expect(input.includeFontPadding).toBe(false);
+    const wrap = StyleSheet.flatten(field.parent?.props.style);
+    expect(wrap.height).toBeUndefined();
+    expect(wrap.minHeight).toBe(44);
+    expect(wrap.minHeight).toBeGreaterThanOrEqual(
+      (input.lineHeight as number) + 2 * (input.paddingVertical as number),
+    );
   });
 });
 

@@ -270,7 +270,7 @@ describe('dreamRow', () => {
       preview: 'I was back at the house',
       subline: '',
       draftLabel: '',
-      draftHint: '',
+      draftDate: '',
       draftSuffix: '',
       chips: { emotions: ['Uneasy', 'Curious'], tags: ['water', 'stairs'] },
     });
@@ -288,9 +288,9 @@ describe('dreamRow', () => {
     expect(bare).toMatchObject({
       title: 'Untitled dream',
       draftSuffix: '',
-      subline: 'Draft · Not reviewed yet · Finish now',
+      subline: 'Draft · Oct 1',
       draftLabel: 'Draft',
-      draftHint: 'Not reviewed yet · Finish now',
+      draftDate: 'Oct 1',
       isDraft: true,
       hasAudio: false,
       preview: '',
@@ -309,6 +309,20 @@ describe('dreamRow', () => {
       NOW,
     );
     expect(titled).toMatchObject({ title: 'Hall', draftSuffix: ' · 1:05', draftLabel: 'Draft' });
+  });
+
+  it('puts the draft date after the label, with the year when not current', () => {
+    const now = dreamRow(dream({ status: 'draft', at: new Date(2026, 9, 6) }), NOW);
+    expect(now).toMatchObject({ draftDate: 'Oct 6', subline: 'Draft · Oct 6' });
+    const old = dreamRow(dream({ status: 'draft', at: new Date(2025, 9, 6) }), NOW);
+    expect(old).toMatchObject({ draftDate: 'Oct 6, 2025', subline: 'Draft · Oct 6, 2025' });
+  });
+
+  it('shows just "Draft" when the draft date is missing or invalid', () => {
+    for (const createdAt of [undefined, '', 'garbage']) {
+      const row = dreamRow(legacy({ status: 'draft', createdAt }), NOW);
+      expect(row).toMatchObject({ draftLabel: 'Draft', draftDate: '', subline: 'Draft' });
+    }
   });
 
   it('never throws on legacy shapes', () => {

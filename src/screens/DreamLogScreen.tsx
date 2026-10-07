@@ -319,9 +319,7 @@ function SearchIcon() {
 function accessibleLabel(row: DreamRow, dream: Dream): string {
   const date = formatEntryDateTime(new Date(dream.createdAt));
   if (row.isDraft) {
-    return [`Draft: ${row.title}`, date, 'Not reviewed yet', 'Finish now']
-      .filter(Boolean)
-      .join('. ');
+    return [`Draft: ${row.title}`, date, 'Tap to finish'].filter(Boolean).join('. ');
   }
   const parts = [row.title, date];
   if (row.chips.emotions.length > 0) parts.push(`Feelings: ${row.chips.emotions.join(', ')}`);
@@ -361,7 +359,7 @@ const LogRow = memo(function LogRow({
           </View>
           <Text style={styles.draftHint}>
             <Text style={styles.draftLabel}>{row.draftLabel}</Text>
-            {` · ${row.draftHint}`}
+            {row.draftDate !== '' && ` · ${row.draftDate}`}
           </Text>
         </View>
         <Text style={styles.chevron} importantForAccessibility="no">
@@ -432,14 +430,22 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    height: 44,
+    minHeight: 44,
     borderRadius: 22,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     paddingLeft: spacing.md,
   },
-  searchInput: { flex: 1, color: colors.text, fontSize: 16, paddingVertical: 0 },
+  searchInput: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    paddingVertical: 10,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+  },
   clearX: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   clearXGlyph: { color: colors.muted, fontSize: 22 },
   cancel: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
