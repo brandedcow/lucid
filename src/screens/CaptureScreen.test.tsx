@@ -1,9 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, AlertButton } from 'react-native';
 import { CaptureScreen } from './CaptureScreen';
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 jest.mock('../components/Waveform', () => ({ Waveform: () => null }));
+const mockDiscard = jest.fn();
+jest.mock('../services/dreamStorage', () => ({
+  discardRecording: (uri: string) => mockDiscard(uri),
+}));
 
 const mockCalls: string[] = [];
 const mockRec = {
@@ -435,5 +439,134 @@ describe('CaptureScreen Write instead', () => {
     await fireEvent.press(screen.getByText('Write instead'));
     expect(mockRec.start).not.toHaveBeenCalled();
     expect(mockTx.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('CaptureScreen Type instead', () => {
+  const tapTypeInstead = async () => {
+    await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+    await act(async () => {});
+  };
+  const confirmButtons = () =>
+    (jest.mocked(Alert.alert).mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
+  const confirm = async () => {
+    await act(async () => {
+      confirmButtons()
+        .find((b) => b.text === 'Type instead')
+        ?.onPress?.();
+    });
+  };
+  const setupTyping = async () => {
+    const onTypeInstead = jest.fn();
+    const view = await render(
+      <CaptureScreen onRecorded={jest.fn()} onTypeInstead={onTypeInstead} />,
+    );
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    mockRec.isRecording = true;
+    await view.rerender(<CaptureScreen onRecorded={jest.fn()} onTypeInstead={onTypeInstead} />);
+    return onTypeInstead;
+  };
+
+  it('asks first, and Keep recording changes nothing', async () => {
+    const onTypeInstead = await setupTyping();
+    await tapTypeInstead();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Type instead?',
+      'Your recording will be deleted. The text so far is kept.',
+      expect.any(Array),
+    );
+    const keep = confirmButtons().find((b) => b.text === 'Keep recording');
+    expect(keep?.style).toBe('cancel');
+    expect(keep?.onPress).toBeUndefined();
+    expect(mockRec.stop).not.toHaveBeenCalled();
+    expect(mockTx.stop).not.toHaveBeenCalled();
+    expect(mockDiscard).not.toHaveBeenCalled();
+    expect(onTypeInstead).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Listening ·/)).toBeTruthy();
+  });
+
+  it('stops text, stops the recorder, discards the cache file, then hands off the text', async () => {
+    const onTypeInstead = await setupTyping();
+    mockTx.stop.mockImplementation(() => {
+      mockCalls.push('transcription.stop');
+      return Promise.resolve('I was flying');
+    });
+    mockRec.stop.mockImplementation(() => {
+      mockCalls.push('recorder.stop');
+      return Promise.resolve(recording);
+    });
+    mockDiscard.mockImplementation(() => void mockCalls.push('discard'));
+    onTypeInstead.mockImplementation(() => void mockCalls.push('onTypeInstead'));
+    await tapTypeInstead();
+    await confirm();
+    expect(mockCalls).toEqual(['transcription.stop', 'recorder.stop', 'discard', 'onTypeInstead']);
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    expect(onTypeInstead).toHaveBeenCalledWith('I was flying');
+  });
+
+  it('passes an empty string when live text is unsupported or empty', async () => {
+    const onTypeInstead = await setupTyping();
+    mockTx.stop.mockResolvedValue(undefined);
+    await tapTypeInstead();
+    await confirm();
+    expect(onTypeInstead).toHaveBeenCalledWith('');
+  });
+
+  it('ignores a failed delete', async () => {
+    const onTypeInstead = await setupTyping();
+    mockDiscard.mockImplementation(() => {
+      throw new Error('nope');
+    });
+    await tapTypeInstead();
+    await confirm();
+    expect(onTypeInstead).toHaveBeenCalledWith('');
+  });
+
+  it('discards nothing, does not leave and shows the failure when the recorder will not stop', async () => {
+    const onTypeInstead = await setupTyping();
+    mockRec.stop.mockRejectedValue(new Error('boom'));
+    await tapTypeInstead();
+    await confirm();
+    expect(mockDiscard).not.toHaveBeenCalled();
+    expect(onTypeInstead).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not finish recording', 'Please try again.');
+    expect(screen.getByRole('button', { name: 'Save dream' })).toBeTruthy();
+    expect(screen.getByText(/^Listening ·/)).toBeTruthy();
+  });
+
+  it('is guarded against a double confirm', async () => {
+    let release: (r: typeof recording) => void = () => {};
+    mockRec.stop.mockReturnValue(new Promise((r) => (release = r)));
+    const onTypeInstead = await setupTyping();
+    await tapTypeInstead();
+    const button = confirmButtons().find((b) => b.text === 'Type instead');
+    await act(async () => {
+      button?.onPress?.();
+      button?.onPress?.();
+    });
+    await act(async () => release(recording));
+    expect(mockRec.stop).toHaveBeenCalledTimes(1);
+    expect(mockDiscard).toHaveBeenCalledTimes(1);
+    expect(onTypeInstead).toHaveBeenCalledTimes(1);
+  });
+
+  it('works while paused', async () => {
+    mockTx.stop.mockResolvedValue('so far');
+    const onTypeInstead = await setupTyping();
+    await tapPause();
+    await advance(400);
+    await tapTypeInstead();
+    await confirm();
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    expect(onTypeInstead).toHaveBeenCalledWith('so far');
+  });
+
+  it('leaves the normal Save dream path alone', async () => {
+    const { onRecorded } = await setup();
+    await fireEvent.press(screen.getByText('Save dream'));
+    await act(async () => {});
+    expect(onRecorded).toHaveBeenCalledWith(recording, '');
+    expect(mockDiscard).not.toHaveBeenCalled();
   });
 });

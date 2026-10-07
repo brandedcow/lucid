@@ -31,7 +31,7 @@ jest.mock('./src/services/dreamStorage', () => ({
 jest.mock('./src/screens/CaptureScreen', () => {
   const { Pressable, Text, View } = require('react-native');
   return {
-    CaptureScreen: ({ onRecorded, onWrite, onNoDream }: any) => (
+    CaptureScreen: ({ onRecorded, onWrite, onNoDream, onTypeInstead }: any) => (
       <View>
         <Text>capture-screen</Text>
         <Pressable onPress={onNoDream}>
@@ -47,6 +47,12 @@ jest.mock('./src/screens/CaptureScreen', () => {
         </Pressable>
         <Pressable onPress={onWrite}>
           <Text>stub-write</Text>
+        </Pressable>
+        <Pressable onPress={() => onTypeInstead('so far')}>
+          <Text>stub-type-instead</Text>
+        </Pressable>
+        <Pressable onPress={() => onTypeInstead('')}>
+          <Text>stub-type-instead-empty</Text>
         </Pressable>
       </View>
     ),
@@ -219,6 +225,43 @@ describe('App flow', () => {
     expect(screen.getByText('Read it back')).toBeTruthy();
     expect(screen.getByLabelText('Dream text').props.autoFocus).toBe(true);
     expect(screen.queryByLabelText('Play recording')).toBeNull();
+  });
+
+  it('Type instead opens Read it back with the text so far, focused, with no player', async () => {
+    await render(<App />);
+    await press('stub-type-instead');
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    expect(screen.getByLabelText('Dream text').props.value).toBe('so far');
+    expect(screen.getByLabelText('Dream text').props.autoFocus).toBe(true);
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    await press('Continue');
+    expect(screen.getByText('transcript:so far')).toBeTruthy();
+    expect(screen.getByText('audio:none')).toBeTruthy();
+  });
+
+  it('Type instead with no text opens an empty, focused box', async () => {
+    await render(<App />);
+    await press('stub-type-instead-empty');
+    expect(screen.getByLabelText('Dream text').props.value).toBe('');
+    expect(screen.getByLabelText('Dream text').props.autoFocus).toBe(true);
+  });
+
+  it('back from a Type instead dream asks to discard, and never deletes persisted audio', async () => {
+    await render(<App />);
+    await press('stub-type-instead');
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Discard this dream?',
+      'Your recording and text will be deleted.',
+      expect.any(Array),
+    );
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Discard')
+        ?.onPress?.(),
+    );
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(screen.getByText('capture-screen')).toBeTruthy();
   });
 
   it('a recording with no live text does not autofocus and starts empty', async () => {

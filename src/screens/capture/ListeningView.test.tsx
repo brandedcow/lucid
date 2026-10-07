@@ -173,4 +173,20 @@ describe('ListeningView', () => {
     expect(screen.queryByText('model missing')).toBeNull();
     expect(screen.queryByText(/missing|error/i)).toBeNull();
   });
+
+  it('shows Type instead while listening and paused, and calls its handler', async () => {
+    const onTypeInstead = jest.fn();
+    const view = await render(<ListeningView {...props} onTypeInstead={onTypeInstead} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+    expect(onTypeInstead).toHaveBeenCalledTimes(1);
+    await view.rerender(<ListeningView {...props} paused onTypeInstead={onTypeInstead} />);
+    expect(screen.getByRole('button', { name: 'Type instead' })).toBeTruthy();
+  });
+
+  it('disables Type instead while saving or stopping', async () => {
+    const onTypeInstead = jest.fn();
+    await render(<ListeningView {...props} saving onTypeInstead={onTypeInstead} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Type instead' }));
+    expect(onTypeInstead).not.toHaveBeenCalled();
+  });
 });

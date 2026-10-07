@@ -4,6 +4,7 @@ import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
 import { useLiveTranscription } from '../hooks/useLiveTranscription';
+import { discardRecording } from '../services/dreamStorage';
 import { colors } from '../theme';
 import { IdleView } from './capture/IdleView';
 import { ListeningView } from './capture/ListeningView';
@@ -48,9 +49,11 @@ type Props = {
   onNoDream?: () => void;
   /** Write instead: start a dream with no recording. Never touches the microphone. */
   onWrite?: () => void;
+  /** Type instead while recording: the recording is deleted, `text` is the live text so far. */
+  onTypeInstead?: (text: string) => void;
 };
 
-export function CaptureScreen({ onRecorded, onNoDream, onWrite }: Props) {
+export function CaptureScreen({ onRecorded, onNoDream, onWrite, onTypeInstead }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [stopping, setStopping] = useState(false);
   const recorder = useDreamRecorder();
@@ -177,6 +180,38 @@ export function CaptureScreen({ onRecorded, onNoDream, onWrite }: Props) {
     }
   };
 
+  const confirmTypeInstead = () => {
+    if (finishingRef.current || stopping) return;
+    Alert.alert('Type instead?', 'Your recording will be deleted. The text so far is kept.', [
+      { text: 'Keep recording', style: 'cancel' },
+      { text: 'Type instead', style: 'destructive', onPress: () => void typeInstead() },
+    ]);
+  };
+
+  // Stops recording, deletes the cache file and opens Read it back with the live text. If the
+  // recorder cannot be stopped nothing is deleted and the screen stays.
+  const typeInstead = async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setStopping(true);
+    try {
+      const finalText = await transcription.stop();
+      const recording = await recorder.stop();
+      if (recording) {
+        try {
+          discardRecording(recording.uri);
+        } catch {
+          // A leftover cache file is harmless.
+        }
+      }
+      onTypeInstead?.(typeof finalText === 'string' ? finalText : '');
+    } catch {
+      Alert.alert('Could not finish recording', 'Please try again.');
+      finishingRef.current = false;
+      setStopping(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {phase === 'idle' ? (
@@ -191,6 +226,7 @@ export function CaptureScreen({ onRecorded, onNoDream, onWrite }: Props) {
           transcript={transcription.transcript}
           transcriptNote={transcription.error}
           onSave={finish}
+          onTypeInstead={confirmTypeInstead}
         />
       )}
     </SafeAreaView>

@@ -17,6 +17,8 @@ type Props = {
   /** Small debug line for the device test; omitted when there is no problem. */
   transcriptNote?: string | null;
   onSave: () => void;
+  /** Stop recording, delete it and keep the text so far; the screen confirms first. */
+  onTypeInstead?: () => void;
 };
 
 function PauseGlyph({ paused }: { paused: boolean }) {
@@ -38,6 +40,7 @@ export function ListeningView({
   transcript = '',
   transcriptNote = null,
   onSave,
+  onTypeInstead,
 }: Props) {
   const time = formatDuration(Math.floor(durationMs / 1000));
   const tail = useMemo(() => fadeTail(transcript), [transcript]);
@@ -99,6 +102,15 @@ export function ListeningView({
         </Pressable>
       </View>
       <Text style={styles.caption}>Audio and transcript are both kept</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Type instead"
+        disabled={saving}
+        onPress={() => onTypeInstead?.()}
+        style={[styles.typeInstead, saving && styles.disabled]}
+      >
+        <Text style={styles.typeInsteadLabel}>Type instead</Text>
+      </Pressable>
     </>
   );
 }
@@ -178,7 +190,15 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontSize: 12,
     textAlign: 'center',
-    paddingVertical: spacing.md,
-    marginBottom: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
+  typeInstead: {
+    alignSelf: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  typeInsteadLabel: { color: colors.muted, fontSize: 14 },
 });

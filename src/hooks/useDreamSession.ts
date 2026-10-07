@@ -34,7 +34,7 @@ type Recording = { uri: string; durationMs: number };
 
 export type SessionAction =
   | { type: 'startFromRecording'; recording: Recording; transcript: string }
-  | { type: 'startWriting' }
+  | { type: 'startWriting'; transcript?: string }
   | { type: 'openDraft'; session: Session }
   | { type: 'setTranscript'; value: string }
   | { type: 'setTitle'; value: string }
@@ -68,7 +68,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
     case 'startWriting':
       return {
         origin: 'write',
-        transcript: '',
+        transcript: action.transcript ?? '',
         title: '',
         emotion: '',
         emotionDraft: '',
@@ -175,7 +175,7 @@ export function useDreamSession() {
     () => ({
       startFromRecording: (recording: Recording, transcript: string) =>
         dispatch({ type: 'startFromRecording', recording, transcript }),
-      startWriting: () => dispatch({ type: 'startWriting' }),
+      startWriting: (transcript = '') => dispatch({ type: 'startWriting', transcript }),
       openDraft: (dream: Dream) =>
         dispatch({ type: 'openDraft', session: sessionFromDraft(dream) }),
       openDream: (dream: Dream) =>

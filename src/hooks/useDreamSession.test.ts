@@ -289,3 +289,29 @@ describe('useDreamSession', () => {
     expect(result.current.session).toMatchObject({ origin: 'draft', id: '5', title: 't' });
   });
 });
+
+describe('startWriting with text', () => {
+  it('prefills the transcript with no audio and empty drafts', () => {
+    const s = sessionReducer(null, { type: 'startWriting', transcript: 'I was flying' });
+    expect(s).toEqual({
+      origin: 'write',
+      transcript: 'I was flying',
+      title: '',
+      emotion: '',
+      emotionDraft: '',
+      tags: [],
+      tagDraft: '',
+      passedThroughReadItBack: false,
+    });
+    expect(s?.audio).toBeUndefined();
+  });
+
+  it('the hook action sets the transcript, and defaults to empty', async () => {
+    const { result } = await renderHook(() => useDreamSession());
+    await act(async () => result.current.startWriting('some text'));
+    expect(result.current.session).toMatchObject({ origin: 'write', transcript: 'some text' });
+    expect(result.current.session?.audio).toBeUndefined();
+    await act(async () => result.current.startWriting());
+    expect(result.current.session?.transcript).toBe('');
+  });
+});

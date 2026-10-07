@@ -197,6 +197,11 @@ export default function App() {
             setFromReview(false);
             setScreen('readItBack');
           }}
+          onTypeInstead={(text) => {
+            dream.startWriting(text);
+            setFromReview(false);
+            setScreen('readItBack');
+          }}
           onNoDream={() => setScreen('log')}
         />
       )}
@@ -205,7 +210,7 @@ export default function App() {
           text={session.transcript}
           onChangeText={dream.setTranscript}
           audio={session.audio}
-          autoFocus={session.origin === 'write' && session.transcript.trim().length === 0}
+          autoFocus={session.origin === 'write'}
           onContinue={() => {
             dream.markPassedThroughReadItBack();
             setFromReview(false);
