@@ -77,6 +77,8 @@ export function DreamDetailScreen({
   }, [deleting]);
 
   const row = dreamRow(dream, new Date(), copy.untitled);
+  // An untitled Life entry has no heading: its date is already in the log, and the body leads.
+  const untitledLife = journal.kind === 'journal' && row.ownTitle === '';
   const date = formatEntryDateTime(new Date(dream.createdAt));
   // Show every chip: no limit on the count and no "+N".
   const { visible } = limitChips(row.chips, Infinity, Infinity);
@@ -113,10 +115,12 @@ export function DreamDetailScreen({
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
-          {date !== '' && <Text style={styles.date}>{date}</Text>}
-          <Text accessibilityRole="header" style={styles.title}>
-            {row.title}
-          </Text>
+          {!untitledLife && date !== '' && <Text style={styles.date}>{date}</Text>}
+          {!untitledLife && (
+            <Text accessibilityRole="header" style={styles.title}>
+              {row.title}
+            </Text>
+          )}
           {visible.length > 0 && (
             <View style={styles.section}>
               <DreamChips chips={visible} />

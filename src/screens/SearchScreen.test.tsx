@@ -96,8 +96,8 @@ describe('SearchScreen results', () => {
     await setup();
     const labels = rowLabels();
     expect(labels).toHaveLength(5);
-    // Untitled life has no title, so its row starts with the short date.
-    const starts = ['Beach walk', 'Oct 3', 'Quiet day', 'Legacy flight', 'Old river'];
+    // Untitled life has no title and no body, so its row starts with the untitled copy.
+    const starts = ['Beach walk', 'Untitled entry', 'Quiet day', 'Legacy flight', 'Old river'];
     starts.forEach((s, i) => expect(labels[i].startsWith(s)).toBe(true));
     expect(screen.getByText('OCTOBER')).toBeTruthy();
     expect(screen.getByText('SEPTEMBER')).toBeTruthy();

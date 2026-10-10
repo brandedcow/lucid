@@ -444,8 +444,29 @@ describe('DreamDetailScreen for the Life journal', () => {
     expect(alertSpy.mock.calls[0][0]).toBe('Delete this entry?');
   });
 
-  it('shows an untitled finished entry by its short date', async () => {
+  it('shows no date or heading for an untitled finished Life entry, but body and chips', async () => {
     await render(ui({ ...life, title: '' }));
+    expect(screen.queryByRole('header', { name: 'Oct 4' })).toBeNull();
+    expect(screen.queryByRole('header')).toBeNull();
+    expect(screen.queryByText('Untitled entry')).toBeNull();
+    expect(screen.queryByText(/2026|Oct/)).toBeNull();
+    if (base.transcript) expect(screen.getByText(base.transcript.split('\n')[0])).toBeTruthy();
+  });
+
+  it('still shows date and heading for a titled Life entry', async () => {
+    await render(ui(life));
+    expect(screen.getByRole('header', { name: 'A slow Sunday' })).toBeTruthy();
+  });
+
+  it('keeps the date heading for an untitled Dream', async () => {
+    await render(
+      <DreamDetailScreen
+        dream={{ ...base, title: '' }}
+        onBack={jest.fn()}
+        onEdit={jest.fn()}
+        onDelete={jest.fn().mockResolvedValue(undefined)}
+      />,
+    );
     expect(screen.getByRole('header', { name: 'Oct 4' })).toBeTruthy();
   });
 });

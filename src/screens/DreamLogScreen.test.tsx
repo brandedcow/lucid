@@ -613,6 +613,13 @@ describe('DreamLogScreen for the Life journal', () => {
     expect(screen.getByLabelText('Delete entry: Oct 4', HIDDEN)).toBeTruthy();
   });
 
+  it('shows an untitled Life entry by its body, not the date', async () => {
+    await setup({ dreams: ENTRIES, journal: LIFE });
+    expect(screen.getByText('Walked home.').props.numberOfLines).toBe(2);
+    expect(screen.queryByText('Oct 4')).toBeNull();
+    expect(screen.getByText('A slow Sunday')).toBeTruthy();
+  });
+
   it('confirms deletion with the entry wording', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await setup({ dreams: ENTRIES, journal: LIFE });

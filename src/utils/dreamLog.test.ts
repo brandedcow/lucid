@@ -383,3 +383,14 @@ describe('dreamRow untitled label', () => {
     expect(dreamRow(finished, NOW, 'Untitled entry').title).toBe('Oct 4');
   });
 });
+
+describe('dreamRow ownTitle', () => {
+  it('is the trimmed own title, or empty when there is none', () => {
+    expect(dreamRow(dream({ title: '  Hallway ' }), NOW).ownTitle).toBe('Hallway');
+    expect(dreamRow(dream({ title: '   ' }), NOW).ownTitle).toBe('');
+    const finished = dream({ title: '', at: new Date(2026, 9, 4, 6, 42) });
+    const row = dreamRow(finished, NOW);
+    expect(row.ownTitle).toBe('');
+    expect(row.title).toBe('Oct 4');
+  });
+});

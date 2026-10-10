@@ -137,13 +137,67 @@ describe('EntryRow', () => {
     expect(screen.getByRole('button').props.accessibilityLabel).not.toMatch(/Dreams|Life/);
   });
 
-  it('shows the date as the title of an untitled Life row', async () => {
+  it('shows the body, not the date, as the title of an untitled Life row', async () => {
     await setup({
       dream: dream({ title: '', journalId: 'life', tags: [], emotion: '' }),
       untitled: 'Untitled entry',
       journalLabel: 'Life',
     });
-    expect(screen.getAllByText(/Oct 4/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Oct 4')).toBeNull();
+    expect(screen.getByText('I was back at my grandmother’s house.')).toBeTruthy();
     expect(screen.queryByText('Untitled entry')).toBeNull();
+  });
+
+  describe('untitled Life entries', () => {
+    const life = (over: Partial<Dream> = {}) =>
+      dream({ journalId: 'life', title: '', transcript: 'Made soup and walked home.', ...over });
+
+    it('shows the body as the title, with no date title, and keeps chips', async () => {
+      await setup({ dream: life(), untitled: 'Untitled entry' });
+      expect(screen.getByText('Made soup and walked home.')).toBeTruthy();
+      expect(screen.queryByText('Oct 4')).toBeNull();
+      expect(screen.getByText('SUN')).toBeTruthy();
+      expect(screen.getByText('water')).toBeTruthy();
+      const body = StyleSheet.flatten(screen.getByText('Made soup and walked home.').props.style);
+      expect(body).toMatchObject({ fontSize: 18, lineHeight: 24 });
+      expect(screen.getByText('Made soup and walked home.').props.numberOfLines).toBe(2);
+      const label = screen.getByRole('button').props.accessibilityLabel as string;
+      expect(label).toMatch(/^Made soup and walked home\.\. /);
+      expect(label).not.toContain('Oct 4. ');
+      expect(label).toContain('Sunday');
+    });
+
+    it('falls back to the untitled copy with no body', async () => {
+      await setup({ dream: life({ transcript: undefined }), untitled: 'Untitled entry' });
+      expect(screen.getByText('Untitled entry')).toBeTruthy();
+      expect(screen.queryByText('Oct 4')).toBeNull();
+      const label = screen.getByRole('button').props.accessibilityLabel as string;
+      expect(label).toMatch(/^Untitled entry\. /);
+    });
+
+    it('keeps a titled Life entry as title plus preview', async () => {
+      await setup({ dream: life({ title: 'A slow Sunday' }), untitled: 'Untitled entry' });
+      expect(screen.getByText('A slow Sunday')).toBeTruthy();
+      expect(screen.getByText('Made soup and walked home.').props.numberOfLines).toBe(2);
+      const label = screen.getByRole('button').props.accessibilityLabel as string;
+      expect(label).toMatch(/^A slow Sunday\. /);
+    });
+
+    it('keeps the date title for an untitled Dream', async () => {
+      await setup({ dream: dream({ title: '' }) });
+      expect(screen.getByText('Oct 4')).toBeTruthy();
+      expect(screen.getByText('I was back at my grandmother’s house.')).toBeTruthy();
+    });
+
+    it('leaves an untitled Life draft unchanged', async () => {
+      await setup({
+        dream: life({ status: 'draft', transcript: undefined }),
+        untitled: 'Untitled entry',
+      });
+      expect(screen.getByText('Untitled entry')).toBeTruthy();
+      expect(screen.getByRole('button').props.accessibilityLabel).toMatch(
+        /^Draft: Untitled entry\. /,
+      );
+    });
   });
 });

@@ -4,6 +4,7 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { DreamRow, dreamRow, limitChips } from '../utils/dreamLog';
 import { formatEntryDateTime } from '../utils/format';
+import { journalOf, kindOf } from '../utils/journals';
 import { DreamChips } from './DreamChips';
 
 /**
@@ -30,12 +31,19 @@ type Props = {
 
 const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
-function accessibleLabel(row: DreamRow, dream: Dream, journalLabel?: string): string {
+function accessibleLabel(
+  row: DreamRow,
+  dream: Dream,
+  bodyAsTitle: boolean,
+  untitled: string,
+  journalLabel?: string,
+): string {
   const date = formatEntryDateTime(new Date(dream.createdAt));
   if (row.isDraft) {
     return [`Draft: ${row.title}`, date, 'Tap to finish', journalLabel].filter(Boolean).join('. ');
   }
-  const parts = [row.title, date];
+  const lead = bodyAsTitle ? row.preview || untitled : row.title;
+  const parts = [lead, date];
   if (row.chips.emotions.length > 0) parts.push(`Feelings: ${row.chips.emotions.join(', ')}`);
   if (row.chips.tags.length > 0) parts.push(`Tags: ${row.chips.tags.join(', ')}`);
   if (journalLabel) parts.push(journalLabel);
@@ -53,9 +61,11 @@ export const EntryRow = memo(function EntryRow({
   journalLabel,
 }: Props) {
   const row = useMemo(() => dreamRow(dream, new Date(), untitled), [dream, untitled]);
+  // An untitled finished Life entry shows its body as the title (the date is in the date column).
+  const bodyAsTitle = !row.isDraft && row.ownTitle === '' && kindOf(journalOf(dream)) === 'journal';
   const label = useMemo(
-    () => accessibleLabel(row, dream, journalLabel),
-    [row, dream, journalLabel],
+    () => accessibleLabel(row, dream, bodyAsTitle, untitled, journalLabel),
+    [row, dream, bodyAsTitle, untitled, journalLabel],
   );
   const chips = useMemo(() => limitChips(row.chips), [row]);
 
@@ -118,11 +128,17 @@ export const EntryRow = memo(function EntryRow({
         <Text style={styles.day}>{row.day ?? ''}</Text>
       </View>
       <View style={styles.cardMain}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {row.title}
-        </Text>
+        {bodyAsTitle ? (
+          <Text style={styles.bodyTitle} numberOfLines={2}>
+            {row.preview || untitled}
+          </Text>
+        ) : (
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {row.title}
+          </Text>
+        )}
         {journalLabel ? <Text style={styles.meta}>{journalLabel}</Text> : null}
-        {row.preview !== '' && (
+        {!bodyAsTitle && row.preview !== '' && (
           <Text style={styles.preview} numberOfLines={2}>
             {row.preview}
           </Text>
@@ -154,6 +170,12 @@ const styles = StyleSheet.create({
   day: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
   cardMain: { flex: 1, gap: spacing.xs },
   cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 18 },
+  bodyTitle: {
+    color: colors.text,
+    fontFamily: fonts.serif,
+    fontSize: 18,
+    lineHeight: 24,
+  },
   draftTitleRow: { flexDirection: 'row', alignItems: 'baseline' },
   draftTitle: { flexShrink: 1 },
   draftSuffix: { flexShrink: 0 },

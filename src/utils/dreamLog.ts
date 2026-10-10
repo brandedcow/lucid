@@ -197,6 +197,8 @@ export type DreamRow = {
   id: string;
   /** The title, or "Sep 23" (finished, untitled) or "Untitled dream" (draft, or no usable date). */
   title: string;
+  /** The entry's own title, trimmed; "" when it has none (whatever `title` falls back to). */
+  ownTitle: string;
   isDraft: boolean;
   hasAudio: boolean;
   /** " · 0:34" for a draft with audio, else "". Shown after the title. */
@@ -234,6 +236,7 @@ export function dreamRow(
   return {
     id: dream.id,
     title: own || untitled,
+    ownTitle: own,
     isDraft: draft,
     hasAudio: audio,
     draftSuffix: draft && audio ? ` · ${formatDuration(Math.max(0, seconds))}` : '',
