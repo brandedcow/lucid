@@ -2,7 +2,7 @@
 
 Where the project stands, so anyone (human or agent) can pick it up. `docs/product.md` says what the app is; this file says what exists, what doesn't, and what to watch out for. Update it when you change the state of the project.
 
-_Last updated: 2026-10-10 (Delete UX rework: "..." menu on the entry and swipe-to-delete on the log; before that Delete for finished dreams, Dream log, Dream entry, emotion input, Type instead), branch `feat/delete-dream` (cut from `spike/live-transcription`). Jest: 29 suites, 734 tests, all green._
+_Last updated: 2026-10-10 (Delete UX rework: "..." menu on the entry and swipe-to-delete on the log; before that Delete for finished dreams, Dream log, Dream entry, emotion input, Type instead), branch `feat/delete-dream` (cut from `main`). Jest: 29 suites, 734 tests, all green._
 
 ## What works today
 
@@ -128,14 +128,14 @@ The dream flow, Dream log and Dream entry are built and covered by tests, but **
 
 ## Repo and workflow state
 
-- Git: work is on `spike/live-transcription` (many commits). `master` holds only the template's initial commit and is untouched. `origin` is set to `git@github.com:brandedcow/lucid.git`. The default branch is `main`; all work happens on feature branches (never commit directly to `main`), which may be pushed to `origin`; changes reach `main` only through a pull request that the user reviews and merges. Never push to `main`, merge a PR, force-push, or delete remote branches.
+- Git: the work history lives on `main` (the live-transcription spike was merged into it). `origin` is set to `git@github.com:brandedcow/lucid.git`. The default branch is `main`; all work happens on feature branches (never commit directly to `main`), which may be pushed to `origin`; changes reach `main` only through a pull request that the user reviews and merges. Never push to `main`, merge a PR, force-push, or delete remote branches.
 - Identifiers: bundle ID / Android package `com.chrisvkang.lucid`; EAS `projectId` is in `app.json`; `ITSAppUsesNonExemptEncryption` is false. License is proprietary (all rights reserved), copyright Christopher Kang.
 - `eas.json` has `development` (dev client, internal) and `preview` profiles. `app.json` declares the iOS permission strings (`ios.infoPlist`), the Android permissions, and the `expo-audio`, `expo-speech-recognition`, `expo-asset` and `expo-splash-screen` plugins.
 - **Running the app needs a development build** (Expo Go cannot load it). Android: after `expo-dev-client` was added, rebuild once locally (`npm run android`), then start Metro with `npm start`. iOS: build in the cloud with EAS as described in `docs/ios-dev-build.md`; it needs a paid Apple Developer account, which is pending (iOS untested).
 - **New dependency `react-native-gesture-handler` (~2.32.0) is native: a dev-client rebuild is required** (Android `npm run android`; iOS a new EAS build) before the swipe works on a device. `ios/` and `android/` are generated output; never hand-edit them.
 - The user keeps an uncommitted edit to the `android` / `ios` scripts in `package.json` (`expo run:android` / `expo run:ios`); it stays local and must not be committed or reverted.
 - The app icon and moon splash are in `assets/` but appear only after a native rebuild: Android needs `npx expo prebuild --platform android --clean` then `npm run android`; iOS needs a new EAS build. Not set up yet: CI and any secrets/`.env` handling.
-- A project hook (`.claude/hooks/format.js`) runs Prettier on files after Claude edits them, and `.claude/settings.json` denies `git push` and reading `.env*` files.
+- A project hook (`.claude/hooks/format.js`) runs Prettier on files after Claude edits them, and `.claude/settings.json` denies force-pushes, remote-branch deletion, pushes to `main`, and reading `.env*` files; other `git push` calls still prompt. This is a best-effort guard (pattern matches can be bypassed); GitHub branch protection is the robust control.
 
 ## Gotchas
 
