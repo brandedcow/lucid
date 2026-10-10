@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert, AlertButton } from 'react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Dream } from '../types/dream';
 import { DreamDetailScreen } from './DreamDetailScreen';
 
@@ -163,14 +164,248 @@ describe('DreamDetailScreen', () => {
   it('calls onBack and onEdit from labeled buttons', async () => {
     const { onBack, onEdit } = await setup();
     await fireEvent.press(screen.getByLabelText('Back'));
+    await fireEvent.press(screen.getByLabelText('More options'));
     await fireEvent.press(screen.getByLabelText('Edit dream'));
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Edit')).toBeTruthy();
+    expect(screen.queryByLabelText('Edit dream')).toBeNull();
   });
 
-  it('has no delete, "Also tagged" or "See all"', async () => {
+  it('has one "..." button and no standalone Edit or Delete control', async () => {
     await setup();
-    expect(screen.queryByText(/delete|also tagged|see all/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'More options' })).toBeTruthy();
+    expect(screen.queryByLabelText('Edit dream')).toBeNull();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+    expect(screen.queryByText('Delete dream')).toBeNull();
+  });
+
+  it('has no "Also tagged" or "See all"', async () => {
+    await setup();
+    expect(screen.queryByText(/also tagged|see all/i)).toBeNull();
+  });
+});
+
+describe('DreamDetailScreen delete', () => {
+  const noAudio: Dream = { ...base, audioFileName: undefined, durationMs: 0 };
+  const buttons = () => (jest.mocked(Alert.alert).mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
+  const press = (text: string) =>
+    act(async () => {
+      buttons()
+        .find((b) => b.text === text)
+        ?.onPress?.();
+    });
+  const ui = (
+    dream: Dream,
+    onDelete?: () => Promise<void>,
+    deleting?: boolean,
+    deleteBlocked?: boolean,
+  ) => (
+    <DreamDetailScreen
+      dream={dream}
+      onBack={jest.fn()}
+      onEdit={jest.fn()}
+      onDelete={onDelete}
+      deleting={deleting}
+      deleteBlocked={deleteBlocked}
+    />
+  );
+
+  const openMenu = () => fireEvent.press(screen.getByLabelText('More options'));
+  const pickDelete = async () => {
+    await openMenu();
+    await fireEvent.press(screen.getByLabelText('Delete dream'));
+  };
+
+  let alertSpy: jest.SpyInstance;
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alertSpy.mockRestore());
+
+  it('has no Delete item without onDelete, only Edit', async () => {
+    await render(ui(base));
+    await openMenu();
+    expect(screen.getByLabelText('Edit dream')).toBeTruthy();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+  });
+
+  it('shows Delete in the menu with the Edit item, closed until opened', async () => {
+    await render(ui(base, jest.fn().mockResolvedValue(undefined)));
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+    await openMenu();
+    expect(screen.getByRole('menuitem', { name: 'Delete dream' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Edit dream' })).toBeTruthy();
+    expect(screen.getByText('Delete')).toBeTruthy();
+  });
+
+  it('asks first with the audio copy, and Keep deletes nothing', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    await render(ui(base, onDelete));
+    await pickDelete();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Delete this dream?',
+      "The recording and text will be permanently deleted. This can't be undone.",
+      expect.any(Array),
+      expect.anything(),
+    );
+    const keep = buttons().find((b) => b.text === 'Keep');
+    expect(keep?.style).toBe('cancel');
+    expect(buttons().find((b) => b.text === 'Delete')?.style).toBe('destructive');
+    await press('Keep');
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+  });
+
+  it('uses the text-only copy without audio', async () => {
+    await render(ui(noAudio, jest.fn().mockResolvedValue(undefined)));
+    await pickDelete();
+    expect(jest.mocked(Alert.alert).mock.calls[0][1]).toBe(
+      "The text will be permanently deleted. This can't be undone.",
+    );
+  });
+
+  it('dismissing the alert deletes nothing and allows another try', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    await render(ui(base, onDelete));
+    await pickDelete();
+    const options = jest.mocked(Alert.alert).mock.calls[0][3];
+    await act(async () => options?.onDismiss?.());
+    expect(onDelete).not.toHaveBeenCalled();
+    await pickDelete();
+    expect(Alert.alert).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a second pick while the alert is open', async () => {
+    await render(ui(base, jest.fn().mockResolvedValue(undefined)));
+    await pickDelete();
+    await pickDelete();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the player, then calls onDelete exactly once', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    await render(ui(base, onDelete));
+    await pickDelete();
+    await press('Delete');
+    await press('Delete');
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('is disabled, menu closed, and ignores presses while deleting', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    await render(ui(base, onDelete, true));
+    expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    await openMenu();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('closes an open menu when the parent starts deleting', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    const view = await render(ui(base, onDelete, false));
+    await openMenu();
+    expect(screen.getByLabelText('Delete dream')).toBeTruthy();
+    await view.rerender(ui(base, onDelete, true));
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+    await view.rerender(ui(base, onDelete, false));
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+  });
+
+  it('re-enables the menu and player when onDelete rejects', async () => {
+    const onDelete = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('nope'))
+      .mockResolvedValue(undefined);
+    await render(ui(base, onDelete));
+    await pickDelete();
+    await press('Delete');
+    await act(async () => {});
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+    await pickDelete();
+    await press('Delete');
+    expect(onDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it('resets when the parent sets deleting back to false', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+    const view = await render(ui(base, onDelete, false));
+    await pickDelete();
+    await press('Delete');
+    await view.rerender(ui(base, onDelete, true));
+    await view.rerender(ui(base, onDelete, false));
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  describe('deleteBlocked', () => {
+    it('disables Delete and never shows the confirmation', async () => {
+      const onDelete = jest.fn().mockResolvedValue(undefined);
+      await render(ui(base, onDelete, false, true));
+      await openMenu();
+      expect(screen.getByLabelText('Delete dream').props.accessibilityState).toMatchObject({
+        disabled: true,
+      });
+      await fireEvent.press(screen.getByLabelText('Delete dream'));
+      expect(Alert.alert).not.toHaveBeenCalled();
+      expect(onDelete).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('Edit dream').props.accessibilityState).toMatchObject({
+        disabled: false,
+      });
+      expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    });
+
+    it('ignores a confirm on an Alert opened before the block', async () => {
+      const onDelete = jest.fn().mockResolvedValue(undefined);
+      const view = await render(ui(base, onDelete, false, false));
+      await pickDelete();
+      await view.rerender(ui(base, onDelete, false, true));
+      await press('Delete');
+      expect(onDelete).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('Play recording')).toBeTruthy();
+      expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+        disabled: false,
+      });
+    });
+
+    it('restores the screen when onDelete rejects, and allows another attempt', async () => {
+      const onDelete = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('delete in progress'))
+        .mockResolvedValue(undefined);
+      await render(ui(base, onDelete));
+      await pickDelete();
+      await press('Delete');
+      await act(async () => {});
+      expect(screen.getByLabelText('Play recording')).toBeTruthy();
+      expect(screen.getByLabelText('More options').props.accessibilityState).toMatchObject({
+        disabled: false,
+      });
+      await pickDelete();
+      await press('Delete');
+      expect(onDelete).toHaveBeenCalledTimes(2);
+    });
+
+    it('works again once unblocked', async () => {
+      const onDelete = jest.fn().mockResolvedValue(undefined);
+      const view = await render(ui(base, onDelete, false, true));
+      await view.rerender(ui(base, onDelete, false, false));
+      await pickDelete();
+      expect(Alert.alert).toHaveBeenCalledTimes(1);
+      await press('Delete');
+      expect(onDelete).toHaveBeenCalledTimes(1);
+    });
   });
 });
