@@ -49,6 +49,7 @@
         }
       ],
       "expo-asset",
+      "./plugins/with-ios-scene-delegate",
       [
         "expo-splash-screen",
         {
