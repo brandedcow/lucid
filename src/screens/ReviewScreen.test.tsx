@@ -631,14 +631,18 @@ describe('ReviewScreen for the Life journal', () => {
     expect(screen.queryByText(/Dream ·/)).toBeNull();
   });
 
-  it('shows the title above the date line when there is one', async () => {
+  it('shows only the date in the header even when there is a title', async () => {
     await renderStatic({ journal: LIFE, title: 'A long walk' });
-    const date = screen.getByText('Sunday, October 4');
-    const title = screen.getByText('A long walk');
-    // Same header column, title first.
-    expect(title.parent).toBe(date.parent);
-    expect(date.parent!.children.indexOf(title)).toBeLessThan(date.parent!.children.indexOf(date));
-    expect(screen.queryByText(/dream/i)).toBeNull();
+    expect(screen.getByText('Sunday, October 4')).toBeTruthy();
+    expect(screen.queryByText('A long walk')).toBeNull();
+  });
+
+  it('does not autofocus the title for Life, but does for Dreams while empty', async () => {
+    await renderStatic({ journal: LIFE });
+    expect(screen.getByLabelText('Title').props.autoFocus).toBe(false);
+    await screen.unmount();
+    await renderStatic();
+    expect(screen.getByLabelText('Title').props.autoFocus).toBe(true);
   });
 
   it('shows no date line at all for Life when there is no date', async () => {

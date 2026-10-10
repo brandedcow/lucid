@@ -41,8 +41,7 @@ import {
  * - onBack: the back arrow; the parent decides where it goes.
  * - date: label shown in the header ("Dream · <date>" for Dreams, just the date for Life).
  * - journal: optional, defaults to Dreams. Sets the date line, title placeholder, whether Done needs
- *   a title (Dreams yes, Life no) and whether the emotion field shows. For Life the title is also
- *   shown above the date line when there is one.
+ *   a title (Dreams yes, Life no) and whether the emotion field shows.
  */
 export type ReviewScreenProps = {
   transcript: string;
@@ -93,7 +92,6 @@ export function ReviewScreen({
 }: ReviewScreenProps) {
   const copy = journalCopy(journal.kind);
   const needsTitle = titleRequired(journal.kind);
-  const headerTitle = copy.datePrefix === '' ? title.trim() : '';
   const dateLine = date ? `${copy.datePrefix}${date}` : copy.dateFallback;
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [knownEmotions, setKnownEmotions] = useState<string[]>([]);
@@ -137,14 +135,7 @@ export function ReviewScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <View style={styles.dateColumn}>
-            {headerTitle.length > 0 && (
-              <Text numberOfLines={1} style={styles.headerTitle}>
-                {headerTitle}
-              </Text>
-            )}
-            {dateLine.length > 0 && <Text style={styles.date}>{dateLine}</Text>}
-          </View>
+          {dateLine.length > 0 && <Text style={styles.date}>{dateLine}</Text>}
           <View style={styles.backButton} />
         </View>
 
@@ -162,7 +153,7 @@ export function ReviewScreen({
               placeholder={copy.titlePlaceholder}
               placeholderTextColor={colors.faint}
               accessibilityLabel="Title"
-              autoFocus={title.length === 0}
+              autoFocus={needsTitle && title.length === 0}
               maxLength={80}
               returnKeyType="done"
               style={styles.titleInput}
@@ -262,8 +253,6 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 32 },
   back: { color: colors.text, fontSize: 24 },
-  dateColumn: { alignItems: 'center', flexShrink: 1 },
-  headerTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 16 },
   date: { color: colors.muted, fontSize: 13 },
   content: { padding: spacing.lg, gap: spacing.lg },
   field: { gap: spacing.sm },
