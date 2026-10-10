@@ -153,6 +153,18 @@ describe('journalCounts', () => {
     expect(counts).toEqual({ dreams: 2, life: 1 });
   });
 
+  it('ignores journal ids that name Object.prototype members', () => {
+    const counts = journalCounts([
+      rec({ id: '1', journalId: 'toString' }),
+      rec({ id: '2', journalId: 'constructor' }),
+      rec({ id: '3', journalId: '__proto__' }),
+      rec({ id: '4', journalId: 'hasOwnProperty' }),
+      rec({ id: '5', journalId: 'life' }),
+    ]);
+    expect(counts).toEqual({ dreams: 0, life: 1 });
+    expect(Object.keys(counts)).toEqual(['dreams', 'life']);
+  });
+
   it('has a zero for every built-in journal when empty', () => {
     expect(journalCounts([])).toEqual({ dreams: 0, life: 0 });
   });

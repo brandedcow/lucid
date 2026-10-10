@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SearchIcon } from '../components/SearchIcon';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
@@ -77,16 +78,6 @@ export function JournalsScreen({ counts, unreadable = false, onOpenJournal, onSe
   );
 }
 
-/** Magnifier drawn with Views (no icon library). Same drawing as the Dream log's. */
-function SearchIcon() {
-  return (
-    <View style={styles.iconBox} importantForAccessibility="no-hide-descendants">
-      <View style={styles.lens} />
-      <View style={styles.handle} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
@@ -100,24 +91,6 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 34 },
   searchButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  iconBox: { width: 22, height: 22 },
-  lens: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.muted,
-  },
-  handle: {
-    position: 'absolute',
-    right: 1,
-    bottom: 3,
-    width: 8,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.muted,
-    transform: [{ rotate: '45deg' }],
-  },
   unreadable: {
     color: colors.muted,
     fontSize: 16,

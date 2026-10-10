@@ -47,7 +47,8 @@ export function journalCounts(records: Entry[]): Record<JournalId, number> {
   for (const r of records) {
     if (isDraft(r)) continue;
     const id = journalOf(r);
-    if (id in counts) counts[id] += 1;
+    // hasOwn, not `in`: an id like "toString" or "__proto__" must not match the prototype chain.
+    if (Object.hasOwn(counts, id)) counts[id] += 1;
   }
   return counts;
 }

@@ -14,6 +14,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EntryRow } from '../components/EntryRow';
 import { MicIcon } from '../components/MicIcon';
+import { SearchIcon } from '../components/SearchIcon';
 import { IndexStatus } from '../hooks/useDreamLibrary';
 import { LogView } from '../hooks/useLogView';
 import { colors, fonts, spacing } from '../theme';
@@ -388,16 +389,6 @@ function TagChipButton({
   );
 }
 
-/** Magnifier drawn with Views (no icon library). */
-function SearchIcon() {
-  return (
-    <View style={styles.iconBox} importantForAccessibility="no-hide-descendants">
-      <View style={styles.lens} />
-      <View style={styles.handle} />
-    </View>
-  );
-}
-
 const LogRow = memo(function LogRow({
   dream,
   copy,
@@ -509,24 +500,6 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 34 },
   searchButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  iconBox: { width: 22, height: 22 },
-  lens: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.muted,
-  },
-  handle: {
-    position: 'absolute',
-    right: 1,
-    bottom: 3,
-    width: 8,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.muted,
-    transform: [{ rotate: '45deg' }],
-  },
   searchField: {
     flex: 1,
     flexDirection: 'row',
