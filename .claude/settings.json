@@ -14,7 +14,14 @@
       "Bash(git diff:*)",
       "Bash(git log:*)"
     ],
-    "deny": ["Bash(git push:*)", "Read(./.env*)"]
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push origin main:*)",
+      "Read(./.env*)"
+    ]
   },
   "hooks": {
     "PostToolUse": [
