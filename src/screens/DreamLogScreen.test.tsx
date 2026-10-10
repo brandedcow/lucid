@@ -54,6 +54,7 @@ const DREAMS: Dream[] = [
 ];
 
 type SetupOpts = {
+  onBack?: () => void;
   dreams?: Dream[] | null;
   status?: 'ok' | 'unreadable';
   deletingId?: string | null;
@@ -65,6 +66,7 @@ async function setup({
   status = 'ok',
   deletingId = null,
   journal,
+  onBack,
 }: SetupOpts = {}) {
   const handlers = {
     onOpenDream: jest.fn(),
@@ -85,6 +87,7 @@ async function setup({
           view={logView}
           deletingId={deletingId}
           journal={journal}
+          onBack={onBack}
           onDeleteDream={onDeleteDream}
           {...rest}
         />
@@ -586,5 +589,21 @@ describe('DreamLogScreen for the Life journal', () => {
       journal: LIFE,
     });
     expect(screen.getByText('Untitled entry')).toBeTruthy();
+  });
+});
+
+describe('DreamLogScreen back arrow', () => {
+  it('shows no back arrow without onBack', async () => {
+    await setup();
+    expect(screen.queryByLabelText('Back')).toBeNull();
+  });
+
+  it('shows a Back button that calls onBack, hidden while searching', async () => {
+    const onBack = jest.fn();
+    const { update } = await setup({ onBack });
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    await update((v) => v.openSearch());
+    expect(screen.queryByLabelText('Back')).toBeNull();
   });
 });

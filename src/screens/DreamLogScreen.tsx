@@ -45,6 +45,8 @@ import { BUILT_IN_JOURNALS, Journal, JournalCopy, journalCopy } from '../utils/j
  *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
  * - `journal`: optional, defaults to Dreams. Sets the header and all wording (empty state, search,
  *   New button, delete confirmation and labels, untitled).
+ * - `onBack`: optional. When given, a back arrow (top left, "Back") is shown in the title row and
+ *   calls it (App goes to the Journals home). Hidden while the search field is open.
  * - `deletingId`: the dream being deleted. Its row is dimmed and cannot be opened, and swiping is
  *   off on every row until the delete ends. Everything else on the screen stays usable.
  */
@@ -58,6 +60,7 @@ type Props = {
   onDeleteDream: (dream: Dream) => void;
   deletingId?: string | null;
   journal?: Journal;
+  onBack?: () => void;
 };
 
 const FAB_CLEARANCE = 120;
@@ -72,6 +75,7 @@ export function DreamLogScreen({
   onDeleteDream,
   deletingId = null,
   journal = BUILT_IN_JOURNALS[0],
+  onBack,
 }: Props) {
   const kind = journal.kind;
   const copy = journalCopy(kind);
@@ -299,9 +303,22 @@ export function DreamLogScreen({
         </View>
       ) : (
         <View style={styles.header}>
-          <Text style={styles.title} accessibilityRole="header">
-            {copy.logHeader}
-          </Text>
+          <View style={styles.titleGroup}>
+            {onBack && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                onPress={onBack}
+                hitSlop={12}
+                style={styles.backButton}
+              >
+                <Text style={styles.back}>←</Text>
+              </Pressable>
+            )}
+            <Text style={styles.title} accessibilityRole="header">
+              {copy.logHeader}
+            </Text>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={copy.searchLabel}
@@ -498,6 +515,15 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
     paddingTop: spacing.sm,
   },
+  titleGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  backButton: {
+    width: 44,
+    height: 44,
+    marginLeft: -spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  back: { color: colors.text, fontSize: 24 },
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 34 },
   searchButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   searchField: {

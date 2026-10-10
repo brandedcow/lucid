@@ -54,6 +54,13 @@ type Props = {
   onTypeInstead?: (text: string) => void;
   /** Optional, defaults to Dreams. Sets the wording (headline, tips, "No dream", Save, microphone message). */
   journal?: Journal;
+  /**
+   * Optional. When given, the idle screen shows a back arrow that calls it (Life capture; Dreams
+   * capture passes none). It is not shown while recording.
+   */
+  onBack?: () => void;
+  /** Optional. Called with true when recording starts and false when the screen is idle again, so the parent can hold Android back while recording. */
+  onActiveChange?: (active: boolean) => void;
 };
 
 export function CaptureScreen({
@@ -62,9 +69,19 @@ export function CaptureScreen({
   onWrite,
   onTypeInstead,
   journal = BUILT_IN_JOURNALS[0],
+  onBack,
+  onActiveChange,
 }: Props) {
   const copy = journalCopy(journal.kind);
   const [phase, setPhase] = useState<Phase>('idle');
+  const activeRef = useRef(onActiveChange);
+  useEffect(() => {
+    activeRef.current = onActiveChange;
+  });
+  useEffect(() => {
+    activeRef.current?.(phase !== 'idle');
+    return () => activeRef.current?.(false);
+  }, [phase]);
   const [stopping, setStopping] = useState(false);
   const recorder = useDreamRecorder();
   const transcription = useLiveTranscription();
@@ -229,6 +246,7 @@ export function CaptureScreen({
           headline={copy.captureHeadline}
           tips={copy.tips}
           skipLabel={copy.skipLabel}
+          onBack={onBack}
         />
       ) : (
         <ListeningView

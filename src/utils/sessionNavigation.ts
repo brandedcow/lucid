@@ -1,5 +1,5 @@
 import type { Session } from '../hooks/useDreamSession';
-import type { EntryType } from '../types/entry';
+import { DREAMS_JOURNAL, type EntryType, type JournalId } from '../types/entry';
 import { journalCopy } from './journals';
 
 /** True when leaving would lose a recording or text the user has not saved anywhere. */
@@ -70,4 +70,62 @@ export function reviewBack(
   if (saving) return 'blocked';
   if (session.origin === 'edit') return 'editBack';
   return session.origin === 'draft' ? 'draftToList' : 'readItBack';
+}
+
+export type BackInput = {
+  screen: 'capture' | 'readItBack' | 'review' | 'log' | 'detail' | 'journals' | 'search';
+  /**
+   * capture: the journal being captured. log: the open log's journal. detail: the journal of the
+   * open entry (read with `journalOf`).
+   */
+  journalId: JournalId;
+  /** log only: the log's search field is open. */
+  searchOpen?: boolean;
+  /** capture only: a recording is running (or being finished). */
+  captureBusy?: boolean;
+  /** detail only: where the entry was opened from. */
+  detailFrom?: 'log' | 'search';
+  /** detail only: a delete started from this entry is in flight. */
+  detailDeleting?: boolean;
+};
+
+/**
+ * Where Back (the on-screen arrow and Android hardware back) goes from a screen.
+ * - `exit`: leave the app (Android only; Dreams capture and Journals home have no arrow).
+ * - `none`: Back does nothing (a recording is running on Life capture, or an entry's delete runs).
+ * - `closeSearch`: close the log's search field first.
+ * - `journals`: Journals home (a log, or Search, whose view App also resets).
+ * - `search`: the Search results, state kept.
+ * - `log`: that journal's log.
+ * - `chain`: Read it back and Review keep their own rules (`readItBackBack`, `reviewBack`).
+ */
+export type BackTarget =
+  | { to: 'exit' }
+  | { to: 'none' }
+  | { to: 'closeSearch' }
+  | { to: 'journals' }
+  | { to: 'search' }
+  | { to: 'log'; journalId: JournalId }
+  | { to: 'chain' };
+
+export function backTarget(input: BackInput): BackTarget {
+  switch (input.screen) {
+    case 'capture':
+      if (input.journalId === DREAMS_JOURNAL) return { to: 'exit' };
+      return input.captureBusy ? { to: 'none' } : { to: 'log', journalId: input.journalId };
+    case 'journals':
+      return { to: 'exit' };
+    case 'log':
+      return input.searchOpen ? { to: 'closeSearch' } : { to: 'journals' };
+    case 'search':
+      return { to: 'journals' };
+    case 'detail':
+      if (input.detailDeleting) return { to: 'none' };
+      return input.detailFrom === 'search'
+        ? { to: 'search' }
+        : { to: 'log', journalId: input.journalId };
+    case 'readItBack':
+    case 'review':
+      return { to: 'chain' };
+  }
 }

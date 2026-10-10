@@ -630,3 +630,35 @@ describe('CaptureScreen for the Life journal', () => {
     );
   });
 });
+
+describe('CaptureScreen back arrow', () => {
+  it('shows no back arrow without onBack', async () => {
+    await render(<CaptureScreen onRecorded={onRecordedStub} />);
+    expect(screen.queryByLabelText('Back')).toBeNull();
+  });
+
+  it('shows Back on the idle screen when onBack is given and calls it', async () => {
+    const onBack = jest.fn();
+    await render(
+      <CaptureScreen onRecorded={onRecordedStub} onBack={onBack} journal={BUILT_IN_JOURNALS[1]} />,
+    );
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Back while recording and reports the active state', async () => {
+    const onActiveChange = jest.fn();
+    await render(
+      <CaptureScreen
+        onRecorded={onRecordedStub}
+        onBack={jest.fn()}
+        onActiveChange={onActiveChange}
+      />,
+    );
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
+  });
+});

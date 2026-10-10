@@ -16,6 +16,8 @@ type Props = {
   tips?: readonly string[];
   /** The skip pill's label; null hides the pill. Defaults to "No dream". */
   skipLabel?: string | null;
+  /** Shows a back arrow (top left) that calls it. Omitted for Dreams capture. */
+  onBack?: () => void;
 };
 
 export function IdleView({
@@ -25,10 +27,22 @@ export function IdleView({
   headline = DREAM_COPY.captureHeadline,
   tips = DREAM_COPY.tips,
   skipLabel = DREAM_COPY.skipLabel,
+  onBack,
 }: Props) {
   return (
     <>
-      <View style={styles.header}>
+      <View style={[styles.header, onBack && styles.headerWithBack]}>
+        {onBack && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={onBack}
+            hitSlop={12}
+            style={styles.backButton}
+          >
+            <Text style={styles.back}>←</Text>
+          </Pressable>
+        )}
         <Text style={styles.small}>{formatToday()}</Text>
       </View>
 
@@ -83,6 +97,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+  headerWithBack: { alignItems: 'center', paddingLeft: spacing.sm, paddingTop: spacing.sm },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  back: { color: colors.text, fontSize: 24 },
   small: { color: colors.muted, fontSize: 13 },
   hero: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
   headline: {
