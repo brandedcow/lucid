@@ -12,7 +12,7 @@
 const files = new Map<string, string>();
 const dirs = new Set<string>();
 
-type Op = 'move' | 'copy' | 'write' | 'create' | 'delete' | 'json';
+type Op = 'move' | 'copy' | 'write' | 'create' | 'delete' | 'json' | 'text' | 'list';
 /**
  * What a failed write or copy leaves behind. Without it the file is left unchanged.
  * 'empty' (write only) truncates the file; 'partial' leaves half the content; 'missing' (copy only)
@@ -62,6 +62,16 @@ export class Directory {
   get exists() {
     return dirExists(this.uri);
   }
+  /** Direct children only, files and directories, like the real list(); throws if missing. */
+  list(): (File | Directory)[] {
+    const failure = injected('list', this.uri);
+    if (failure) throw failure.error;
+    if (!this.exists) throw new Error('Directory does not exist');
+    return [
+      ...[...files.keys()].filter((uri) => parentOf(uri) === this.uri).map((uri) => new File(uri)),
+      ...[...dirs].filter((uri) => parentOf(uri) === this.uri).map((uri) => new Directory(uri)),
+    ];
+  }
   create(opts?: { intermediates?: boolean; idempotent?: boolean }) {
     if (this.exists) {
       if (opts?.idempotent) return;
@@ -108,6 +118,12 @@ export class File {
     const failure = injected('json', this.uri);
     if (failure) throw failure.error;
     return JSON.parse(files.get(this.uri) ?? '');
+  }
+  async text(): Promise<string> {
+    const failure = injected('text', this.uri);
+    if (failure) throw failure.error;
+    if (!files.has(this.uri)) throw new Error('File does not exist');
+    return files.get(this.uri) ?? '';
   }
   // move and copy are async in the real library; the leading await lets tests observe races.
   async move(destination: File, opts?: { overwrite?: boolean }) {
