@@ -1,6 +1,7 @@
 import { Alert, AlertButton } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { DreamDetailScreen } from './DreamDetailScreen';
 
 const mockPlayer = { play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() };
@@ -407,5 +408,44 @@ describe('DreamDetailScreen delete', () => {
       await press('Delete');
       expect(onDelete).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('DreamDetailScreen for the Life journal', () => {
+  let alertSpy: jest.SpyInstance;
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alertSpy.mockRestore());
+
+  const life: Dream = { ...base, title: 'A slow Sunday', journalId: 'life' };
+  const ui = (dream: Dream) => (
+    <DreamDetailScreen
+      dream={dream}
+      journal={BUILT_IN_JOURNALS[1]}
+      onBack={jest.fn()}
+      onEdit={jest.fn()}
+      onDelete={jest.fn().mockResolvedValue(undefined)}
+    />
+  );
+
+  it('labels the menu items Edit entry and Delete entry', async () => {
+    await render(ui(life));
+    await fireEvent.press(screen.getByLabelText('More options'));
+    expect(screen.getByRole('menuitem', { name: 'Edit entry' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Delete entry' })).toBeTruthy();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+  });
+
+  it('confirms deletion with the entry wording', async () => {
+    await render(ui(life));
+    await fireEvent.press(screen.getByLabelText('More options'));
+    await fireEvent.press(screen.getByLabelText('Delete entry'));
+    expect(alertSpy.mock.calls[0][0]).toBe('Delete this entry?');
+  });
+
+  it('shows an untitled finished entry by its short date', async () => {
+    await render(ui({ ...life, title: '' }));
+    expect(screen.getByRole('header', { name: 'Oct 4' })).toBeTruthy();
   });
 });

@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogView, useLogView } from '../hooks/useLogView';
 import { colors } from '../theme';
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
 import { DreamLogScreen } from './DreamLogScreen';
 
 const METRICS = {
@@ -56,9 +57,15 @@ type SetupOpts = {
   dreams?: Dream[] | null;
   status?: 'ok' | 'unreadable';
   deletingId?: string | null;
+  journal?: Journal;
 };
 
-async function setup({ dreams = DREAMS, status = 'ok', deletingId = null }: SetupOpts = {}) {
+async function setup({
+  dreams = DREAMS,
+  status = 'ok',
+  deletingId = null,
+  journal,
+}: SetupOpts = {}) {
   const handlers = {
     onOpenDream: jest.fn(),
     onOpenDraft: jest.fn(),
@@ -77,6 +84,7 @@ async function setup({ dreams = DREAMS, status = 'ok', deletingId = null }: Setu
           indexStatus={status}
           view={logView}
           deletingId={deletingId}
+          journal={journal}
           onDeleteDream={onDeleteDream}
           {...rest}
         />
@@ -511,5 +519,72 @@ describe('DreamLogScreen delete', () => {
     expect(screen.getByLabelText(/^The endless hallway\./).props.accessibilityState).toMatchObject({
       disabled: true,
     });
+  });
+});
+
+describe('DreamLogScreen for the Life journal', () => {
+  const HIDDEN = { includeHiddenElements: true };
+  const LIFE = BUILT_IN_JOURNALS[1];
+  const ENTRIES: Dream[] = [
+    dream({ id: 'l1', title: 'A slow Sunday', transcript: 'Made soup.', journalId: 'life' }),
+    dream({ id: 'l2', title: '', transcript: 'Walked home.', journalId: 'life' }),
+  ];
+
+  it('uses the Life header, search labels and New entry button', async () => {
+    await setup({ dreams: ENTRIES, journal: LIFE });
+    expect(screen.getByRole('header', { name: 'Life' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Search entries' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New entry' })).toBeTruthy();
+    expect(screen.getByText('New entry')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+    expect(screen.queryByLabelText(/dream/i, HIDDEN)).toBeNull();
+  });
+
+  it('uses the search placeholder and label while searching', async () => {
+    const { update } = await setup({ dreams: ENTRIES, journal: LIFE });
+    await update((v) => v.openSearch());
+    expect(screen.getByPlaceholderText('Search entries')).toBeTruthy();
+    expect(screen.getByLabelText('Search entries')).toBeTruthy();
+  });
+
+  it('has Life empty, no-match and unreadable copy', async () => {
+    await setup({ dreams: [], journal: LIFE });
+    expect(screen.getByText('No entries yet.')).toBeTruthy();
+    expect(screen.getByText('Tap New entry to record one.')).toBeTruthy();
+  });
+
+  it('shows the Life no-match title', async () => {
+    const { update } = await setup({ dreams: ENTRIES, journal: LIFE });
+    await update((v) => v.setQuery('zzzz'));
+    expect(screen.getByText('No entries match')).toBeTruthy();
+  });
+
+  it('shows the Life unreadable message', async () => {
+    await setup({ dreams: [], status: 'unreadable', journal: LIFE });
+    expect(
+      screen.getByText('Your saved entries could not be read. Your recordings are safe.'),
+    ).toBeTruthy();
+  });
+
+  it('labels the swipe action Delete entry and shows an untitled entry by its date', async () => {
+    await setup({ dreams: ENTRIES, journal: LIFE });
+    expect(screen.getByLabelText('Delete entry: A slow Sunday', HIDDEN)).toBeTruthy();
+    expect(screen.getByLabelText('Delete entry: Oct 4', HIDDEN)).toBeTruthy();
+  });
+
+  it('confirms deletion with the entry wording', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await setup({ dreams: ENTRIES, journal: LIFE });
+    await fireEvent.press(screen.getByLabelText('Delete entry: A slow Sunday', HIDDEN));
+    expect(alertSpy.mock.calls[0][0]).toBe('Delete this entry?');
+    alertSpy.mockRestore();
+  });
+
+  it('shows an untitled Life draft as Untitled entry', async () => {
+    await setup({
+      dreams: [dream({ id: 'ld', status: 'draft', title: '', journalId: 'life' })],
+      journal: LIFE,
+    });
+    expect(screen.getByText('Untitled entry')).toBeTruthy();
   });
 });

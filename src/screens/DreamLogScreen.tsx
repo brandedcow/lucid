@@ -31,6 +31,7 @@ import {
   tagChipLabel,
 } from '../utils/dreamLog';
 import { formatEntryDateTime } from '../utils/format';
+import { BUILT_IN_JOURNALS, Journal, JournalCopy, journalCopy } from '../utils/journals';
 
 /**
  * Props:
@@ -44,6 +45,8 @@ import { formatEntryDateTime } from '../utils/format';
  * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a finished row (or
  *   the VoiceOver/TalkBack "Delete" action) and chose Delete in the confirmation shown here. The
  *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
+ * - `journal`: optional, defaults to Dreams. Sets the header and all wording (empty state, search,
+ *   New button, delete confirmation and labels, untitled).
  * - `deletingId`: the dream being deleted. Its row is dimmed and cannot be opened, and swiping is
  *   off on every row until the delete ends. Everything else on the screen stays usable.
  */
@@ -56,9 +59,9 @@ type Props = {
   onNewDream: () => void;
   onDeleteDream: (dream: Dream) => void;
   deletingId?: string | null;
+  journal?: Journal;
 };
 
-const UNREADABLE_MESSAGE = 'Your saved dreams could not be read. Your recordings are safe.';
 const FAB_CLEARANCE = 120;
 
 export function DreamLogScreen({
@@ -70,7 +73,10 @@ export function DreamLogScreen({
   onNewDream,
   onDeleteDream,
   deletingId = null,
+  journal = BUILT_IN_JOURNALS[0],
 }: Props) {
+  const kind = journal.kind;
+  const copy = journalCopy(kind);
   const insets = useSafeAreaInsets();
   const { tags, query, searching, offsetRef } = view;
   const listRef = useRef<FlatList<LogItem>>(null);
@@ -132,18 +138,22 @@ export function DreamLogScreen({
     },
     [closeOpenRow],
   );
-  const handleDelete = useCallback((dream: Dream, closeRow: () => void) => {
-    if (confirmOpen.current) return;
-    confirmOpen.current = true;
-    confirmDeleteDream({
-      hasAudio: hasAudio(dream),
-      onClose: () => {
-        confirmOpen.current = false;
-        closeRow();
-      },
-      onConfirm: () => deleteDreamRef.current(dream),
-    });
-  }, []);
+  const handleDelete = useCallback(
+    (dream: Dream, closeRow: () => void) => {
+      if (confirmOpen.current) return;
+      confirmOpen.current = true;
+      confirmDeleteDream({
+        hasAudio: hasAudio(dream),
+        kind,
+        onClose: () => {
+          confirmOpen.current = false;
+          closeRow();
+        },
+        onConfirm: () => deleteDreamRef.current(dream),
+      });
+    },
+    [kind],
+  );
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -170,6 +180,7 @@ export function DreamLogScreen({
       ) : (
         <LogRow
           dream={item.dream}
+          copy={copy}
           onOpenDream={handleOpenDream}
           onOpenDraft={handleOpenDraft}
           onDelete={handleDelete}
@@ -186,6 +197,7 @@ export function DreamLogScreen({
       handleRowWillOpen,
       handleRowClosed,
       deletingId,
+      copy,
     ],
   );
   const keyExtractor = useCallback(
@@ -223,18 +235,18 @@ export function DreamLogScreen({
     body =
       indexStatus === 'unreadable' ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyBody}>{UNREADABLE_MESSAGE}</Text>
+          <Text style={styles.emptyBody}>{copy.unreadableLog}</Text>
         </View>
       ) : (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No dreams yet.</Text>
-          <Text style={styles.emptyBody}>Tap New dream to record one.</Text>
+          <Text style={styles.emptyTitle}>{copy.emptyTitle}</Text>
+          <Text style={styles.emptyBody}>{copy.emptyBody}</Text>
         </View>
       );
   } else {
     body = (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No dreams match</Text>
+        <Text style={styles.emptyTitle}>{copy.noMatchTitle}</Text>
         <Text style={styles.emptyBody}>{describeFilter(tags, query)}</Text>
         {filtering && (
           <Pressable
@@ -259,9 +271,9 @@ export function DreamLogScreen({
               autoFocus
               value={query}
               onChangeText={view.setQuery}
-              placeholder="Search dreams"
+              placeholder={copy.searchLabel}
               placeholderTextColor={colors.muted}
-              accessibilityLabel="Search dreams"
+              accessibilityLabel={copy.searchLabel}
               returnKeyType="search"
               autoCorrect={false}
               style={styles.searchInput}
@@ -290,11 +302,11 @@ export function DreamLogScreen({
       ) : (
         <View style={styles.header}>
           <Text style={styles.title} accessibilityRole="header">
-            Dreams
+            {copy.logHeader}
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Search dreams"
+            accessibilityLabel={copy.searchLabel}
             onPress={view.openSearch}
             style={styles.searchButton}
           >
@@ -336,12 +348,12 @@ export function DreamLogScreen({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="New dream"
+            accessibilityLabel={copy.newButton}
             onPress={onNewDream}
             style={styles.fab}
           >
             <MicIcon color={colors.accentDark} size={20} />
-            <Text style={styles.fabLabel}>New dream</Text>
+            <Text style={styles.fabLabel}>{copy.newButton}</Text>
           </Pressable>
         </View>
       )}
@@ -402,6 +414,7 @@ function accessibleLabel(row: DreamRow, dream: Dream): string {
 
 const LogRow = memo(function LogRow({
   dream,
+  copy,
   onOpenDream,
   onOpenDraft,
   onDelete,
@@ -411,6 +424,7 @@ const LogRow = memo(function LogRow({
   swipeLocked,
 }: {
   dream: Dream;
+  copy: JournalCopy;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
   onDelete: (dream: Dream, closeRow: () => void) => void;
@@ -430,7 +444,7 @@ const LogRow = memo(function LogRow({
       if (row) onRowClosed(row);
     };
   }, [onRowClosed]);
-  const row = useMemo(() => dreamRow(dream), [dream]);
+  const row = useMemo(() => dreamRow(dream, new Date(), copy.untitled), [dream, copy]);
   const label = useMemo(() => accessibleLabel(row, dream), [row, dream]);
   const chips = useMemo(() => limitChips(row.chips), [row]);
 
@@ -525,7 +539,7 @@ const LogRow = memo(function LogRow({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Delete dream: ${row.title}`}
+            accessibilityLabel={copy.deleteRowLabel(row.title)}
             onPress={deleteDream}
             style={styles.deleteAction}
           >

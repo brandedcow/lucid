@@ -219,14 +219,18 @@ export type DreamRow = {
   chips: { emotions: string[]; tags: string[] };
 };
 
-export function dreamRow(dream: Dream, now: Date = new Date()): DreamRow {
+export function dreamRow(
+  dream: Dream,
+  now: Date = new Date(),
+  untitledLabel: string = 'Untitled dream',
+): DreamRow {
   const draft = isDraft(dream);
   const audio = hasAudio(dream);
   const date = dateOf(dream);
   const dateLabel = date ? formatShortDate(date, now) : '';
   const own = textOf(dream.title).trim();
   const seconds = Number.isFinite(dream.durationMs) ? Math.round(dream.durationMs / 1000) : 0;
-  const untitled = draft ? 'Untitled dream' : dateLabel || 'Untitled dream';
+  const untitled = draft ? untitledLabel : dateLabel || untitledLabel;
   return {
     id: dream.id,
     title: own || untitled,

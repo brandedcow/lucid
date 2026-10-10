@@ -64,3 +64,17 @@ describe('confirmDeleteDream', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+describe('confirmDeleteDream for a journal entry', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    [true, "The recording and text will be permanently deleted. This can't be undone."],
+    [false, "The text will be permanently deleted. This can't be undone."],
+  ])('uses the entry title with the same body (audio %s)', (hasAudio, body) => {
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    confirmDeleteDream({ hasAudio, kind: 'journal', onConfirm: jest.fn(), onClose: jest.fn() });
+    expect(spy.mock.calls[0][0]).toBe('Delete this entry?');
+    expect(spy.mock.calls[0][1]).toBe(body);
+  });
+});

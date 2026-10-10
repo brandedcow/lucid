@@ -9,6 +9,7 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream, hasAudio } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { dreamRow, limitChips } from '../utils/dreamLog';
+import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { formatEntryDateTime } from '../utils/format';
 import { splitParagraphs } from '../utils/paragraphs';
 
@@ -21,6 +22,7 @@ import { splitParagraphs } from '../utils/paragraphs';
  *   parent does the deleting (this screen never touches storage). Without it, the menu has no
  *   Delete. If it rejects, the screen resets and the parent shows the error.
  * - deleting: the parent is deleting; the menu is disabled and the player is released.
+ * - journal: optional, defaults to Dreams. Sets the wording (menu labels, delete confirmation, untitled).
  * - deleteBlocked: optional (default false). Another delete is in flight; Delete is disabled and
  *   cannot be confirmed (Edit and the player are unaffected).
  */
@@ -31,6 +33,7 @@ export type DreamDetailScreenProps = {
   onDelete?: () => Promise<void>;
   deleting?: boolean;
   deleteBlocked?: boolean;
+  journal?: Journal;
 };
 
 export function DreamDetailScreen({
@@ -40,7 +43,9 @@ export function DreamDetailScreen({
   onDelete,
   deleting = false,
   deleteBlocked = false,
+  journal = BUILT_IN_JOURNALS[0],
 }: DreamDetailScreenProps) {
+  const copy = journalCopy(journal.kind);
   // `confirmed` unmounts the player first; onDelete then runs from an effect after that commit.
   const [confirmed, setConfirmed] = useState(false);
   const alertOpen = useRef(false);
@@ -71,7 +76,7 @@ export function DreamDetailScreen({
     wasDeleting.current = deleting;
   }, [deleting]);
 
-  const row = dreamRow(dream);
+  const row = dreamRow(dream, new Date(), copy.untitled);
   const date = formatEntryDateTime(new Date(dream.createdAt));
   // Show every chip: no limit on the count and no "+N".
   const { visible } = limitChips(row.chips, Infinity, Infinity);
@@ -81,6 +86,7 @@ export function DreamDetailScreen({
     alertOpen.current = true;
     confirmDeleteDream({
       hasAudio: audioUri !== null,
+      kind: journal.kind,
       onClose: () => {
         alertOpen.current = false;
       },
@@ -143,6 +149,8 @@ export function DreamDetailScreen({
           onDelete={onDelete ? confirmDelete : undefined}
           disabled={busy}
           deleteDisabled={deleteBlocked}
+          editLabel={copy.editLabel}
+          deleteLabel={copy.deleteLabel}
         />
       </View>
     </SafeAreaView>
