@@ -1,3 +1,4 @@
+import { JournalId } from '../types/entry';
 import { Entry, isDraft } from '../types/dream';
 import { buildSearchIndex, SearchEntry } from './dreamLog';
 import { BUILT_IN_JOURNALS, journalById, journalCopy, journalOf, kindOf } from './journals';
@@ -33,4 +34,20 @@ export function untitledLabelOf(record: Entry): string {
 export function searchModel(records: Entry[]): { entries: Entry[]; searchIndex: SearchEntry[] } {
   const entries = searchableEntries(records);
   return { entries, searchIndex: buildSearchIndex(entries) };
+}
+
+/**
+ * Finished entries per built-in journal, for the Journals home. Drafts and entries of an unknown
+ * journalId are not counted; a record with no journalId counts as Dreams. Every built-in journal
+ * has a key (0 when empty).
+ */
+export function journalCounts(records: Entry[]): Record<JournalId, number> {
+  const counts: Record<JournalId, number> = {};
+  for (const j of BUILT_IN_JOURNALS) counts[j.id] = 0;
+  for (const r of records) {
+    if (isDraft(r)) continue;
+    const id = journalOf(r);
+    if (id in counts) counts[id] += 1;
+  }
+  return counts;
 }

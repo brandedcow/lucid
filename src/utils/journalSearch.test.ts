@@ -1,6 +1,12 @@
 import { Dream } from '../types/dream';
 import { buildLogItems, buildTagChips, dreamRow, EARLIER_LABEL, filterDreams } from './dreamLog';
-import { journalLabel, searchableEntries, searchModel, untitledLabelOf } from './journalSearch';
+import {
+  journalCounts,
+  journalLabel,
+  searchableEntries,
+  searchModel,
+  untitledLabelOf,
+} from './journalSearch';
 
 const mk = (id: string, createdAt: string, extra: Partial<Dream> = {}): Dream => ({
   id,
@@ -129,5 +135,25 @@ describe('search across journals', () => {
       `# ${EARLIER_LABEL}`,
       'undated',
     ]);
+  });
+});
+
+describe('journalCounts', () => {
+  const rec = (over: Partial<Dream>) => mk(over.id ?? 'x', '2026-10-01T10:00:00', over);
+
+  it('counts finished entries per journal; legacy records are Dreams; drafts and unknown journals are not counted', () => {
+    const counts = journalCounts([
+      rec({ id: '1' }),
+      rec({ id: '2', journalId: 'dreams' }),
+      rec({ id: '3', journalId: 'life' }),
+      rec({ id: '4', journalId: 'life', status: 'draft' }),
+      rec({ id: '5', status: 'draft' }),
+      rec({ id: '6', journalId: 'future' }),
+    ]);
+    expect(counts).toEqual({ dreams: 2, life: 1 });
+  });
+
+  it('has a zero for every built-in journal when empty', () => {
+    expect(journalCounts([])).toEqual({ dreams: 0, life: 0 });
   });
 });
