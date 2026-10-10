@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getIndexStatus, listDreams } from '../services/dreamStorage';
+import { deleteDream, getIndexStatus, listDreams } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
 
 export type IndexStatus = 'ok' | 'unreadable';
@@ -11,6 +11,10 @@ export type IndexStatus = 'ok' | 'unreadable';
  * Only the newest request may update state, so a slow earlier response cannot overwrite a fresher
  * one, and nothing updates after unmount. If a load fails the previous data is kept; if nothing
  * ever loaded, `dreams` becomes [] (status unchanged, 'ok') so the screen is not blank forever.
+ * `remove(id)` deletes a dream from storage. On success the dream leaves state at once, then a
+ * refresh syncs with disk (a failed refresh cannot bring it back, and does not make remove reject).
+ * On failure state is left alone, a best-effort refresh runs (a rare repair path may have removed
+ * the dream anyway), and the original error is rethrown for the caller to report.
  */
 export function useDreamLibrary() {
   const [dreams, setDreams] = useState<Dream[] | null>(null);
@@ -31,6 +35,28 @@ export function useDreamLibrary() {
     }
   }, []);
 
+  const remove = useCallback(
+    async (id: string) => {
+      try {
+        await deleteDream(id);
+      } catch (error) {
+        try {
+          await refresh();
+        } catch {
+          // Best effort only; the delete error is what the caller needs.
+        }
+        throw error;
+      }
+      // Filter now; refresh() below bumps the request id synchronously, so an older in-flight
+      // load that still contains this dream can no longer apply.
+      if (mounted.current) {
+        setDreams((previous) => previous?.filter((d) => d.id !== id) ?? previous);
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
   useEffect(() => {
     mounted.current = true;
     // Initial load; refresh only sets state after its awaits, never synchronously.
@@ -41,5 +67,5 @@ export function useDreamLibrary() {
     };
   }, [refresh]);
 
-  return { dreams, indexStatus, refresh };
+  return { dreams, indexStatus, refresh, remove };
 }

@@ -1,15 +1,17 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { getIndexStatus, listDreams } from '../services/dreamStorage';
+import { deleteDream, getIndexStatus, listDreams } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
 import { useDreamLibrary } from './useDreamLibrary';
 
 jest.mock('../services/dreamStorage', () => ({
   listDreams: jest.fn(),
   getIndexStatus: jest.fn(),
+  deleteDream: jest.fn(),
 }));
 
 const mockList = listDreams as jest.Mock;
 const mockStatus = getIndexStatus as jest.Mock;
+const mockDelete = deleteDream as jest.Mock;
 
 const dream = (id: string) => ({ id, createdAt: '2026-10-01T00:00:00.000Z' }) as Dream;
 
@@ -24,6 +26,7 @@ function deferred<T>() {
 beforeEach(() => {
   mockList.mockReset().mockResolvedValue([]);
   mockStatus.mockReset().mockResolvedValue('ok');
+  mockDelete.mockReset().mockResolvedValue(undefined);
 });
 
 describe('useDreamLibrary', () => {
@@ -129,5 +132,111 @@ describe('useDreamLibrary', () => {
     const { result } = await renderHook(() => useDreamLibrary());
     await waitFor(() => expect(result.current.dreams).toEqual([]));
     expect(result.current.indexStatus).toBe('ok');
+  });
+
+  describe('remove', () => {
+    async function loaded(ids: string[]) {
+      mockList.mockResolvedValueOnce(ids.map(dream));
+      const view = await renderHook(() => useDreamLibrary());
+      await waitFor(() => expect(view.result.current.dreams).toHaveLength(ids.length));
+      return view;
+    }
+
+    it('drops the dream immediately, then refreshes', async () => {
+      const { result } = await loaded(['a', 'b']);
+      const reload = deferred<Dream[]>();
+      mockList.mockReturnValueOnce(reload.promise);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = result.current.remove('a');
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mockDelete).toHaveBeenCalledWith('a');
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['b']);
+      expect(mockList).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        reload.resolve([dream('b')]);
+        await done;
+      });
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['b']);
+    });
+
+    it('keeps the dream gone and resolves when the refresh fails', async () => {
+      const { result } = await loaded(['a', 'b']);
+      mockList.mockRejectedValueOnce(new Error('boom'));
+      await act(async () => {
+        await expect(result.current.remove('a')).resolves.toBeUndefined();
+      });
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['b']);
+    });
+
+    it('rethrows a storage error, keeps the list and tries a refresh', async () => {
+      const { result } = await loaded(['a']);
+      const failure = new Error('INDEX_UNREADABLE');
+      mockDelete.mockRejectedValueOnce(failure);
+      mockList.mockResolvedValueOnce([dream('a')]);
+      let caught: unknown;
+      await act(async () => {
+        await result.current.remove('a').catch((e) => {
+          caught = e;
+        });
+      });
+      expect(caught).toBe(failure);
+      expect(mockList).toHaveBeenCalledTimes(2);
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['a']);
+    });
+
+    it('still throws the original error when the best-effort refresh fails too', async () => {
+      const { result } = await loaded(['a']);
+      const failure = new Error('original');
+      mockDelete.mockRejectedValueOnce(failure);
+      mockList.mockRejectedValueOnce(new Error('refresh boom'));
+      let caught: unknown;
+      await act(async () => {
+        await result.current.remove('a').catch((e) => {
+          caught = e;
+        });
+      });
+      expect(caught).toBe(failure);
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['a']);
+    });
+
+    it('a refresh started before remove cannot bring the dream back', async () => {
+      const { result } = await loaded(['a', 'b']);
+      const stale = deferred<Dream[]>();
+      mockList.mockReturnValueOnce(stale.promise);
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = result.current.refresh();
+      });
+      await act(async () => {
+        await result.current.remove('a'); // its own refresh uses the default mock ([])
+      });
+      await act(async () => {
+        stale.resolve([dream('a'), dream('b')]);
+        await pending;
+      });
+      expect(result.current.dreams?.map((d) => d.id)).not.toContain('a');
+    });
+
+    it('does not update state after unmount', async () => {
+      const { result, unmount } = await loaded(['a']);
+      const gate = deferred<void>();
+      mockDelete.mockReturnValueOnce(gate.promise);
+      const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+      let done!: Promise<void>;
+      await act(async () => {
+        done = result.current.remove('a');
+      });
+      await unmount();
+      await act(async () => {
+        gate.resolve();
+        await done;
+      });
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['a']);
+      expect(errors).not.toHaveBeenCalled();
+      errors.mockRestore();
+    });
   });
 });
