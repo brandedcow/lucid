@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DreamChips } from '../components/DreamChips';
+import { EntryRow } from '../components/EntryRow';
 import { MicIcon } from '../components/MicIcon';
 import { IndexStatus } from '../hooks/useDreamLibrary';
 import { LogView } from '../hooks/useLogView';
@@ -23,14 +23,11 @@ import {
   buildLogItems,
   buildSearchIndex,
   buildTagChips,
-  DreamRow,
   dreamRow,
   filterDreams,
-  limitChips,
   LogItem,
   tagChipLabel,
 } from '../utils/dreamLog';
-import { formatEntryDateTime } from '../utils/format';
 import { BUILT_IN_JOURNALS, Journal, JournalCopy, journalCopy } from '../utils/journals';
 
 /**
@@ -401,17 +398,6 @@ function SearchIcon() {
   );
 }
 
-function accessibleLabel(row: DreamRow, dream: Dream): string {
-  const date = formatEntryDateTime(new Date(dream.createdAt));
-  if (row.isDraft) {
-    return [`Draft: ${row.title}`, date, 'Tap to finish'].filter(Boolean).join('. ');
-  }
-  const parts = [row.title, date];
-  if (row.chips.emotions.length > 0) parts.push(`Feelings: ${row.chips.emotions.join(', ')}`);
-  if (row.chips.tags.length > 0) parts.push(`Tags: ${row.chips.tags.join(', ')}`);
-  return parts.filter(Boolean).join('. ');
-}
-
 const LogRow = memo(function LogRow({
   dream,
   copy,
@@ -445,35 +431,15 @@ const LogRow = memo(function LogRow({
     };
   }, [onRowClosed]);
   const row = useMemo(() => dreamRow(dream, new Date(), copy.untitled), [dream, copy]);
-  const label = useMemo(() => accessibleLabel(row, dream), [row, dream]);
-  const chips = useMemo(() => limitChips(row.chips), [row]);
 
   if (row.isDraft) {
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPress={() => onOpenDraft(dream)}
-        style={[styles.card, styles.draftCard]}
-      >
-        <View style={styles.cardMain}>
-          <View style={styles.draftTitleRow}>
-            <Text style={[styles.cardTitle, styles.draftTitle]} numberOfLines={1}>
-              {row.title}
-            </Text>
-            {row.draftSuffix !== '' && (
-              <Text style={[styles.cardTitle, styles.draftSuffix]}>{row.draftSuffix}</Text>
-            )}
-          </View>
-          <Text style={styles.draftHint}>
-            <Text style={styles.draftLabel}>{row.draftLabel}</Text>
-            {row.draftDate !== '' && ` · ${row.draftDate}`}
-          </Text>
-        </View>
-        <Text style={styles.chevron} importantForAccessibility="no">
-          ›
-        </Text>
-      </Pressable>
+      <EntryRow
+        dream={dream}
+        untitled={copy.untitled}
+        onOpenDream={onOpenDream}
+        onOpenDraft={onOpenDraft}
+      />
     );
   }
 
@@ -483,38 +449,15 @@ const LogRow = memo(function LogRow({
   };
 
   const card = (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={deleting ? { disabled: true } : undefined}
-      accessibilityActions={swipeable ? DELETE_ACTIONS : undefined}
-      onAccessibilityAction={
-        swipeable
-          ? (e) => {
-              if (e.nativeEvent.actionName === 'delete') deleteDream();
-            }
-          : undefined
-      }
-      disabled={deleting}
-      onPress={() => onOpenDream(dream.id)}
-      style={[styles.card, styles.swipeCard, deleting && styles.deleting]}
-    >
-      <View style={styles.dateCol}>
-        <Text style={styles.weekday}>{row.weekday}</Text>
-        <Text style={styles.day}>{row.day ?? ''}</Text>
-      </View>
-      <View style={styles.cardMain}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {row.title}
-        </Text>
-        {row.preview !== '' && (
-          <Text style={styles.preview} numberOfLines={2}>
-            {row.preview}
-          </Text>
-        )}
-        <DreamChips chips={chips.visible} overflow={chips.overflow} />
-      </View>
-    </Pressable>
+    <EntryRow
+      dream={dream}
+      untitled={copy.untitled}
+      onOpenDream={onOpenDream}
+      onOpenDraft={onOpenDraft}
+      deleting={deleting}
+      onAccessibilityDelete={swipeable ? deleteDream : undefined}
+      flush
+    />
   );
 
   return (
@@ -552,8 +495,6 @@ const LogRow = memo(function LogRow({
     </Swipeable>
   );
 });
-
-const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
@@ -638,22 +579,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
     paddingBottom: spacing.sm,
   },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: 72,
-    marginBottom: spacing.sm + 2,
-    padding: spacing.md,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
   // The margin sits on the swipe container, so the revealed action is exactly as tall as the card.
   swipeRow: { marginBottom: spacing.sm + 2, borderRadius: 16 },
-  swipeCard: { marginBottom: 0 },
-  deleting: { opacity: 0.45 },
   actionWrap: { width: 96, alignItems: 'stretch' },
   deleteAction: {
     flex: 1,
@@ -665,19 +592,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.draft,
   },
   deleteLabel: { color: colors.accentDark, fontSize: 16, fontWeight: '700' },
-  draftCard: { backgroundColor: 'transparent', borderColor: colors.faint },
-  dateCol: { width: 36, alignItems: 'center' },
-  weekday: { color: colors.muted, fontSize: 11, letterSpacing: 0.8 },
-  day: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
-  cardMain: { flex: 1, gap: spacing.xs },
-  cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 18 },
-  draftTitleRow: { flexDirection: 'row', alignItems: 'baseline' },
-  draftTitle: { flexShrink: 1 },
-  draftSuffix: { flexShrink: 0 },
-  preview: { color: colors.muted, fontSize: 14, lineHeight: 19 },
-  draftHint: { color: colors.muted, fontSize: 13 },
-  draftLabel: { color: colors.draft },
-  chevron: { color: colors.muted, fontSize: 24 },
   empty: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.sm },
   emptyTitle: { color: colors.text, fontSize: 18 },
   emptyBody: { color: colors.muted, fontSize: 16 },
