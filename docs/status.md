@@ -128,7 +128,7 @@ The dream flow, Dream log and Dream entry are built and covered by tests, but **
 
 ## Repo and workflow state
 
-- Git: work is on `spike/live-transcription` (many commits). `master` holds only the template's initial commit and is untouched. `origin` is set to `git@github.com:brandedcow/lucid.git`, but **nothing has been pushed**; do not push unless the user asks.
+- Git: work is on `spike/live-transcription` (many commits). `master` holds only the template's initial commit and is untouched. `origin` is set to `git@github.com:brandedcow/lucid.git`. The default branch is `main`; all work happens on feature branches (never commit directly to `main`), which may be pushed to `origin`; changes reach `main` only through a pull request that the user reviews and merges. Never push to `main`, merge a PR, force-push, or delete remote branches.
 - Identifiers: bundle ID / Android package `com.chrisvkang.lucid`; EAS `projectId` is in `app.json`; `ITSAppUsesNonExemptEncryption` is false. License is proprietary (all rights reserved), copyright Christopher Kang.
 - `eas.json` has `development` (dev client, internal) and `preview` profiles. `app.json` declares the iOS permission strings (`ios.infoPlist`), the Android permissions, and the `expo-audio`, `expo-speech-recognition`, `expo-asset` and `expo-splash-screen` plugins.
 - **Running the app needs a development build** (Expo Go cannot load it). Android: after `expo-dev-client` was added, rebuild once locally (`npm run android`), then start Metro with `npm start`. iOS: build in the cloud with EAS as described in `docs/ios-dev-build.md`; it needs a paid Apple Developer account, which is pending (iOS untested).

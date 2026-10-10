@@ -42,5 +42,5 @@ npm run format      # apply Prettier
 - On the Dream entry, Edit and Delete live in the top-right "..." menu (`OverflowMenu`, an in-screen overlay, not a `Modal`). On Android, hardware back closes the open menu first, before the screen's back.
 - `App.tsx` is wrapped in `GestureHandlerRootView` (the Dream log's swipe-to-delete uses `react-native-gesture-handler`'s `Swipeable`). Jest needs `jest.setup.ts` (listed in `package.json` `jest.setupFiles`), which imports `react-native-gesture-handler/jestSetup`.
 - Editing a finished dream never calls `save('draft')` and never discards its persisted audio.
-- Keep changes small and on a feature branch. Never commit to `master`, and never push to a remote unless the user explicitly asks.
+- Keep changes small. The default branch is `main`. All work happens on a feature branch; never commit directly to `main`. Feature branches may be pushed to `origin`; changes reach `main` only through a pull request from a feature branch, which the user reviews and merges. Never push to `main`, never merge a PR yourself, never force-push, and never delete remote branches.
 - Never create or edit `ios/` or `android/` by hand; configure native behavior in `app.json`.
