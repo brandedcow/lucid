@@ -1,4 +1,19 @@
-import { entriesFor } from './journals';
+import { entriesFor, journalOf } from './journals';
+
+describe('journalOf', () => {
+  it('defaults an absent journalId to dreams', () => {
+    expect(journalOf({})).toBe('dreams');
+  });
+  it('returns an explicit dreams id', () => {
+    expect(journalOf({ journalId: 'dreams' })).toBe('dreams');
+  });
+  it('returns life', () => {
+    expect(journalOf({ journalId: 'life' })).toBe('life');
+  });
+  it('returns an unknown id as is', () => {
+    expect(journalOf({ journalId: 'future' })).toBe('future');
+  });
+});
 
 const rec = (id: string, journalId?: string) => ({ id, ...(journalId ? { journalId } : {}) });
 
