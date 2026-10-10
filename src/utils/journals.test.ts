@@ -142,8 +142,8 @@ describe('journalCopy life values', () => {
         "The recording and text will be permanently deleted. This can't be undone.",
       deleteBodyNoAudio: "The text will be permanently deleted. This can't be undone.",
       deleteFailureTitle: 'Could not delete entry',
-      datePrefix: '',
-      dateFallback: '',
+      datePrefix: 'Life · ',
+      dateFallback: 'Life',
       titlePlaceholder: 'Title (optional)',
       untitled: 'Untitled entry',
     });
@@ -157,8 +157,7 @@ describe('journalCopy life values', () => {
           : typeof value === 'string'
             ? value
             : JSON.stringify(value);
-      // Life's date line is just the date, so these two are intentionally empty.
-      if (key !== 'datePrefix' && key !== 'dateFallback') expect(text.length).toBeGreaterThan(0);
+      expect(text.length).toBeGreaterThan(0);
       expect(`${key}: ${text}`).not.toMatch(/dream/i);
     }
   });

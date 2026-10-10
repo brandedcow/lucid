@@ -624,16 +624,16 @@ describe('ReviewScreen for the Life journal', () => {
     expect(screen.getByPlaceholderText('Add an emotion...')).toBeTruthy();
   });
 
-  it('shows just the date with no title and no dream wording when untitled', async () => {
+  it('shows "Life · date" with no title and no dream wording when untitled', async () => {
     await renderStatic({ journal: LIFE });
-    expect(screen.getByText('Sunday, October 4')).toBeTruthy();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
     expect(screen.queryByText(/dream/i)).toBeNull();
     expect(screen.queryByText(/Dream ·/)).toBeNull();
   });
 
-  it('shows only the date in the header even when there is a title', async () => {
+  it('shows "Life · date" in the header even when there is a title', async () => {
     await renderStatic({ journal: LIFE, title: 'A long walk' });
-    expect(screen.getByText('Sunday, October 4')).toBeTruthy();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
     expect(screen.queryByText('A long walk')).toBeNull();
   });
 
@@ -645,8 +645,9 @@ describe('ReviewScreen for the Life journal', () => {
     expect(screen.getByLabelText('Title').props.autoFocus).toBe(true);
   });
 
-  it('shows no date line at all for Life when there is no date', async () => {
+  it('shows just "Life" for Life when there is no date', async () => {
     await renderStatic({ journal: LIFE, date: undefined });
+    expect(screen.getByText('Life')).toBeTruthy();
     expect(screen.queryByText('Dream')).toBeNull();
   });
 

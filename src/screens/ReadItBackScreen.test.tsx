@@ -185,9 +185,9 @@ describe('ReadItBackScreen', () => {
 describe('ReadItBackScreen for the Life journal', () => {
   const LIFE = BUILT_IN_JOURNALS[1];
 
-  it('shows just the date, with no prefix and no title', async () => {
+  it('shows "Life · date" with no title', async () => {
     await setup({ journal: LIFE, text: 'hi' });
-    expect(screen.getByText('Tuesday, October 6')).toBeTruthy();
+    expect(screen.getByText('Life · Tuesday, October 6')).toBeTruthy();
     expect(screen.queryByText(/dream/i)).toBeNull();
     expect(screen.getByLabelText('Entry text')).toBeTruthy();
   });

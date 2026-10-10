@@ -67,9 +67,9 @@ export type JournalCopy = {
   saveFailureTitle: string;
   saveFailureMessage: string;
   saveFailureUnreadable: string;
-  /** Prefix of the date line, e.g. "Dream · Oct 6". Empty for Life: its date line is just the date. */
+  /** Prefix of the date line, e.g. "Dream · Oct 6" or "Life · Oct 6". */
   datePrefix: string;
-  /** The date line when there is no date. Empty for Life (no prefix, no fallback text). */
+  /** The date line when there is no date, e.g. "Dream" or "Life". */
   dateFallback: string;
   titlePlaceholder: string;
   readItBackTextLabel: string;
@@ -144,8 +144,8 @@ const JOURNAL_COPY: JournalCopy = {
   saveFailureMessage: 'Please try again.',
   saveFailureUnreadable:
     'Your saved entries could not be read, so this entry was not saved. Your recording is still here.',
-  datePrefix: '',
-  dateFallback: '',
+  datePrefix: 'Life · ',
+  dateFallback: 'Life',
   titlePlaceholder: 'Title (optional)',
   readItBackTextLabel: 'Entry text',
   untitled: 'Untitled entry',
