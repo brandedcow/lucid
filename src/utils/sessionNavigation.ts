@@ -1,4 +1,6 @@
 import type { Session } from '../hooks/useDreamSession';
+import type { EntryType } from '../types/entry';
+import { journalCopy } from './journals';
 
 /** True when leaving would lose a recording or text the user has not saved anywhere. */
 export function hasAtStake(session: Session): boolean {
@@ -37,7 +39,10 @@ export function hasEdits(session: Session): boolean {
 
 /** Text of the confirmation App shows when leaving an edit that has changes. */
 export const DISCARD_CHANGES_TITLE = 'Discard changes?';
+/** The Dreams wording; use `discardChangesMessage(kind)` for a journal-aware one. */
 export const DISCARD_CHANGES_MESSAGE = 'Your changes to this dream will be lost.';
+export const discardChangesMessage = (kind: EntryType): string =>
+  journalCopy(kind).discardChangesMessage;
 export const DISCARD_CHANGES_KEEP = 'Keep editing';
 export const DISCARD_CHANGES_DISCARD = 'Discard';
 

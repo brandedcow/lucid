@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { ComponentProps } from 'react';
 import { Keyboard, Platform } from 'react-native';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { ReadItBackScreen } from './ReadItBackScreen';
 
 jest.mock('expo-audio', () => ({
@@ -178,5 +179,37 @@ describe('ReadItBackScreen', () => {
     expect(dismiss).toHaveBeenCalledTimes(1);
     expect(onContinue).toHaveBeenCalledTimes(1);
     dismiss.mockRestore();
+  });
+});
+
+describe('ReadItBackScreen for the Life journal', () => {
+  const LIFE = BUILT_IN_JOURNALS[1];
+
+  it('shows just the date, with no prefix, when the entry has no title', async () => {
+    await setup({ journal: LIFE, text: 'hi' });
+    expect(screen.getByText('Tuesday, October 6')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+    expect(screen.getByLabelText('Entry text')).toBeTruthy();
+  });
+
+  it('shows the title above the date line when there is one', async () => {
+    await setup({ journal: LIFE, title: 'A long walk' });
+    const title = screen.getByText('A long walk');
+    const date = screen.getByText('Tuesday, October 6');
+    expect(title.parent).toBe(date.parent);
+    expect(date.parent!.children.indexOf(title)).toBeLessThan(date.parent!.children.indexOf(date));
+    expect(screen.queryByText(/dream/i)).toBeNull();
+  });
+
+  it('ignores a blank title', async () => {
+    await setup({ journal: LIFE, title: '   ' });
+    expect(screen.getByText('Tuesday, October 6')).toBeTruthy();
+  });
+
+  it('keeps "Dream · date" and ignores the title for Dreams', async () => {
+    await setup({ title: 'Flying' });
+    expect(screen.getByText('Dream · Tuesday, October 6')).toBeTruthy();
+    expect(screen.queryByText('Flying')).toBeNull();
+    expect(screen.getByLabelText('Dream text')).toBeTruthy();
   });
 });

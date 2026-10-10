@@ -4,6 +4,7 @@ import {
   DISCARD_CHANGES_KEEP,
   DISCARD_CHANGES_MESSAGE,
   DISCARD_CHANGES_TITLE,
+  discardChangesMessage,
   hasAtStake,
   hasEdits,
   hasSomethingToKeep,
@@ -153,5 +154,20 @@ describe('edit origin navigation', () => {
     expect(DISCARD_CHANGES_MESSAGE).toBe('Your changes to this dream will be lost.');
     expect(DISCARD_CHANGES_KEEP).toBe('Keep editing');
     expect(DISCARD_CHANGES_DISCARD).toBe('Discard');
+  });
+});
+
+describe('discardChangesMessage', () => {
+  it('is journal-aware and Dreams keeps the existing wording', () => {
+    expect(discardChangesMessage('dream')).toBe(DISCARD_CHANGES_MESSAGE);
+    expect(discardChangesMessage('journal')).toBe('Your changes to this entry will be lost.');
+    expect(discardChangesMessage('journal')).not.toMatch(/dream/i);
+  });
+});
+
+describe('hasSomethingToKeep for an untitled Life entry', () => {
+  it('does not depend on a title: text alone is something to keep', () => {
+    expect(hasSomethingToKeep({ ...base, journalId: 'life', transcript: 'x' })).toBe(true);
+    expect(hasSomethingToKeep({ ...base, journalId: 'life' })).toBe(false);
   });
 });

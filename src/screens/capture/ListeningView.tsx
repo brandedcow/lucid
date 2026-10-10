@@ -4,6 +4,7 @@ import { Waveform } from '../../components/Waveform';
 import { colors, fonts, spacing } from '../../theme';
 import { fadeTail } from '../../utils/fadeTail';
 import { formatDuration, formatToday } from '../../utils/format';
+import { journalCopy } from '../../utils/journals';
 
 type Props = {
   durationMs: number;
@@ -17,6 +18,8 @@ type Props = {
   /** Small debug line for the device test; omitted when there is no problem. */
   transcriptNote?: string | null;
   onSave: () => void;
+  /** The Save button's label; defaults to the Dreams wording. */
+  saveLabel?: string;
   /** Stop recording, delete it and keep the text so far; the screen confirms first. */
   onTypeInstead?: () => void;
 };
@@ -40,6 +43,7 @@ export function ListeningView({
   transcript = '',
   transcriptNote = null,
   onSave,
+  saveLabel = journalCopy('dream').saveButton,
   onTypeInstead,
 }: Props) {
   const time = formatDuration(Math.floor(durationMs / 1000));
@@ -98,7 +102,7 @@ export function ListeningView({
           onPress={onSave}
           style={[styles.save, saving && styles.disabled]}
         >
-          <Text style={styles.saveLabel}>{saving ? 'Saving…' : 'Save dream'}</Text>
+          <Text style={styles.saveLabel}>{saving ? 'Saving…' : saveLabel}</Text>
         </Pressable>
       </View>
       <Text style={styles.caption}>Audio and transcript are both kept</Text>

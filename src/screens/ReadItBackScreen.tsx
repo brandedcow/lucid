@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 import { colors, fonts, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
+import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 
 /**
  * Prop contract (stable):
@@ -22,6 +23,9 @@ import { formatDuration } from '../utils/format';
  * - onContinue: go on to Review. Enabled when the text is not blank or audio exists.
  * - onBack: the back arrow; the parent decides where it goes (and any confirmation).
  * - date: header date label.
+ * - journal: optional, defaults to Dreams. Sets the date-line prefix and the text's accessibility label.
+ * - title: optional entry title, shown above the date line for journals with no date prefix (Life);
+ *   ignored for Dreams, whose header is unchanged.
  */
 export type ReadItBackScreenProps = {
   text: string;
@@ -31,6 +35,8 @@ export type ReadItBackScreenProps = {
   onContinue: () => void;
   onBack: () => void;
   date: string;
+  journal?: Journal;
+  title?: string;
 };
 
 /** True while the on-screen keyboard is showing. */
@@ -59,7 +65,11 @@ export function ReadItBackScreen({
   onContinue,
   onBack,
   date,
+  journal = BUILT_IN_JOURNALS[0],
+  title = '',
 }: ReadItBackScreenProps) {
+  const copy = journalCopy(journal.kind);
+  const showTitle = copy.datePrefix === '' && title.trim().length > 0;
   const canContinue = text.trim().length > 0 || !!audio;
   const keyboardVisible = useKeyboardVisible();
 
@@ -83,7 +93,14 @@ export function ReadItBackScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <Text style={styles.date}>Dream · {date}</Text>
+          <View style={styles.dateColumn}>
+            {showTitle && (
+              <Text numberOfLines={1} style={styles.entryTitle}>
+                {title.trim()}
+              </Text>
+            )}
+            <Text style={styles.date}>{`${copy.datePrefix}${date}`}</Text>
+          </View>
           <View style={styles.headerSide} />
         </View>
 
@@ -99,7 +116,7 @@ export function ReadItBackScreen({
           onChangeText={onChangeText}
           placeholder="Type what you remember"
           placeholderTextColor={colors.faint}
-          accessibilityLabel="Dream text"
+          accessibilityLabel={copy.readItBackTextLabel}
           autoFocus={autoFocus}
           multiline
           scrollEnabled
@@ -142,7 +159,9 @@ const styles = StyleSheet.create({
   },
   headerSide: { width: 40 },
   back: { color: colors.text, fontSize: 24 },
-  date: { flex: 1, textAlign: 'center', color: colors.muted, fontSize: 13 },
+  dateColumn: { flex: 1, alignItems: 'center' },
+  entryTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 16 },
+  date: { textAlign: 'center', color: colors.muted, fontSize: 13 },
   heading: {
     color: colors.text,
     fontFamily: fonts.serif,

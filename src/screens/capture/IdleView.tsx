@@ -3,11 +3,29 @@ import { MicIcon } from '../../components/MicIcon';
 import { colors, fonts, spacing } from '../../theme';
 import { formatToday } from '../../utils/format';
 
-const TIPS = ['Stay still', 'Work backwards', 'Record the emotion', 'Think in the present tense'];
+import { journalCopy } from '../../utils/journals';
 
-type Props = { onStart: () => void; onSkip: () => void; onWrite: () => void };
+const DREAM_COPY = journalCopy('dream');
 
-export function IdleView({ onStart, onSkip, onWrite }: Props) {
+type Props = {
+  onStart: () => void;
+  onSkip: () => void;
+  onWrite: () => void;
+  /** Wording; defaults to the Dreams copy. */
+  headline?: string;
+  tips?: readonly string[];
+  /** The skip pill's label; null hides the pill. Defaults to "No dream". */
+  skipLabel?: string | null;
+};
+
+export function IdleView({
+  onStart,
+  onSkip,
+  onWrite,
+  headline = DREAM_COPY.captureHeadline,
+  tips = DREAM_COPY.tips,
+  skipLabel = DREAM_COPY.skipLabel,
+}: Props) {
   return (
     <>
       <View style={styles.header}>
@@ -15,9 +33,9 @@ export function IdleView({ onStart, onSkip, onWrite }: Props) {
       </View>
 
       <View style={styles.hero}>
-        <Text style={styles.headline}>What happened in my dream?</Text>
+        <Text style={styles.headline}>{headline}</Text>
         <View style={styles.tips}>
-          {TIPS.map((tip) => (
+          {tips.map((tip) => (
             <View key={tip} style={styles.tipRow}>
               <View style={styles.tipDot} />
               <Text style={styles.tip}>{tip}</Text>
@@ -46,10 +64,12 @@ export function IdleView({ onStart, onSkip, onWrite }: Props) {
             <Text style={styles.pillIcon}>⌨</Text>
             <Text style={styles.pillLabel}>Write instead</Text>
           </Pressable>
-          <Pressable onPress={onSkip} style={styles.pill}>
-            <Text style={styles.pillIcon}>☾</Text>
-            <Text style={styles.pillLabel}>No dream</Text>
-          </Pressable>
+          {skipLabel !== null && (
+            <Pressable onPress={onSkip} style={styles.pill}>
+              <Text style={styles.pillIcon}>☾</Text>
+              <Text style={styles.pillLabel}>{skipLabel}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </>

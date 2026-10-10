@@ -190,3 +190,18 @@ describe('ListeningView', () => {
     expect(onTypeInstead).not.toHaveBeenCalled();
   });
 });
+
+describe('ListeningView save label', () => {
+  it('defaults to Save dream', async () => {
+    await render(<ListeningView {...props} />);
+    expect(screen.getByText('Save dream')).toBeTruthy();
+  });
+
+  it('shows the label it is given, and Saving… while saving', async () => {
+    const view = await render(<ListeningView {...props} saveLabel="Save entry" />);
+    expect(screen.getByText('Save entry')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+    await view.rerender(<ListeningView {...props} saving saveLabel="Save entry" />);
+    expect(screen.getByText('Saving…')).toBeTruthy();
+  });
+});

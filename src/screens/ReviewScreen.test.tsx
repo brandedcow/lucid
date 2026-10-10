@@ -3,6 +3,7 @@ import { ComponentProps, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useDreamSession } from '../hooks/useDreamSession';
 import { INDEX_UNREADABLE, saveDream } from '../services/dreamStorage';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { ReviewScreen } from './ReviewScreen';
 
 jest.mock('expo-audio', () => ({
@@ -550,5 +551,140 @@ describe('ReviewScreen pending emotion text', () => {
     await view.rerender(<Harness />);
     expect(emotionInput().props.value).toBe('wist');
     expect(screen.getByLabelText('Remove emotion calm')).toBeTruthy();
+  });
+});
+
+describe('ReviewScreen for the Life journal', () => {
+  const LIFE = BUILT_IN_JOURNALS[1];
+  const noop = jest.fn();
+
+  async function renderStatic(props: Partial<ComponentProps<typeof ReviewScreen>> = {}) {
+    await render(
+      <ReviewScreen
+        transcript="I walked home"
+        durationMs={0}
+        title=""
+        onTitleChange={noop}
+        emotion=""
+        onEmotionChange={noop}
+        emotionDraft=""
+        onEmotionDraftChange={noop}
+        tags={[]}
+        onTagsChange={noop}
+        tagDraft=""
+        onTagDraftChange={noop}
+        onEditTranscript={noop}
+        onDone={callbacks.onLeft}
+        onFinishLater={noop}
+        onBack={noop}
+        date="Sunday, October 4"
+        {...props}
+      />,
+    );
+    await screen.findByText('+ water');
+  }
+
+  it('enables Done without a title for Life but not for Dreams', async () => {
+    await renderStatic({ journal: LIFE });
+    expect(screen.getByRole('button', { name: 'Done' }).props.accessibilityState.disabled).toBe(
+      false,
+    );
+    fireEvent.press(screen.getByText('Done'));
+    expect(callbacks.onLeft).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Done disabled without a title for Dreams (default journal)', async () => {
+    await renderStatic();
+    expect(screen.getByRole('button', { name: 'Done' }).props.accessibilityState.disabled).toBe(
+      true,
+    );
+  });
+
+  it('still locks Done while saving for Life', async () => {
+    await renderStatic({ journal: LIFE, saving: true });
+    expect(screen.getByRole('button', { name: 'Saving…' }).props.accessibilityState.disabled).toBe(
+      true,
+    );
+  });
+
+  it('uses the Life title placeholder and the Dreams one by default', async () => {
+    await renderStatic({ journal: LIFE });
+    expect(screen.getByPlaceholderText('Title (optional)')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Name this dream')).toBeNull();
+  });
+
+  it('shows the Dreams placeholder by default', async () => {
+    await renderStatic();
+    expect(screen.getByPlaceholderText('Name this dream')).toBeTruthy();
+  });
+
+  it('shows the optional emotion field for Life', async () => {
+    await renderStatic({ journal: LIFE });
+    expect(screen.getByText('How did it feel?')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Add an emotion...')).toBeTruthy();
+  });
+
+  it('shows just the date with no title and no dream wording when untitled', async () => {
+    await renderStatic({ journal: LIFE });
+    expect(screen.getByText('Sunday, October 4')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+    expect(screen.queryByText(/Dream ·/)).toBeNull();
+  });
+
+  it('shows the title above the date line when there is one', async () => {
+    await renderStatic({ journal: LIFE, title: 'A long walk' });
+    const date = screen.getByText('Sunday, October 4');
+    const title = screen.getByText('A long walk');
+    // Same header column, title first.
+    expect(title.parent).toBe(date.parent);
+    expect(date.parent!.children.indexOf(title)).toBeLessThan(date.parent!.children.indexOf(date));
+    expect(screen.queryByText(/dream/i)).toBeNull();
+  });
+
+  it('shows no date line at all for Life when there is no date', async () => {
+    await renderStatic({ journal: LIFE, date: undefined });
+    expect(screen.queryByText('Dream')).toBeNull();
+  });
+
+  it('keeps "Dream · date" and "Dream" for Dreams', async () => {
+    await renderStatic({ title: 'Flying' });
+    expect(screen.getByText('Dream · Sunday, October 4')).toBeTruthy();
+  });
+
+  it('saves an untitled Life entry through the real session hook', async () => {
+    function LifeHarness() {
+      const s = useDreamSession();
+      useEffect(() => {
+        s.startWriting('I walked home', 'life');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      if (!s.session) return null;
+      return (
+        <ReviewScreen
+          transcript={s.session.transcript}
+          durationMs={0}
+          title={s.session.title}
+          onTitleChange={s.setTitle}
+          emotion=""
+          onEmotionChange={noop}
+          emotionDraft=""
+          onEmotionDraftChange={noop}
+          tags={[]}
+          onTagsChange={noop}
+          tagDraft=""
+          onTagDraftChange={noop}
+          onEditTranscript={noop}
+          onDone={() => void s.save('saved')}
+          onFinishLater={noop}
+          onBack={noop}
+          journal={LIFE}
+        />
+      );
+    }
+    await render(<LifeHarness />);
+    await screen.findByText('+ water');
+    await fireEvent.press(screen.getByText('Done'));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0]).toMatchObject({ journalId: 'life', requireTitle: false });
   });
 });
