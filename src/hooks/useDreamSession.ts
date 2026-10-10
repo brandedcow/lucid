@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { Alert } from 'react-native';
 import { dreamAudioUri, isIndexUnreadableError, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
+import { DREAMS_JOURNAL, JournalId } from '../types/entry';
+import { journalCopy, journalOf, kindOf, titleRequired } from '../utils/journals';
 import { withPendingEmotion } from '../utils/emotions';
 import { addTag } from '../utils/tags';
 import { hasSomethingToKeep } from '../utils/sessionNavigation';
@@ -9,6 +11,8 @@ import { hasSomethingToKeep } from '../utils/sessionNavigation';
 /** Everything about the dream being captured or edited, kept above the screens. */
 export type Session = {
   origin: 'edit' | 'capture' | 'write' | 'draft';
+  /** The journal this entry belongs to (a reopened record's comes from `journalOf`). */
+  journalId: JournalId;
   /** Set when a saved draft or finished dream is reopened. */
   id?: string;
   createdAt?: string;
@@ -33,8 +37,13 @@ export type Session = {
 type Recording = { uri: string; durationMs: number };
 
 export type SessionAction =
-  | { type: 'startFromRecording'; recording: Recording; transcript: string }
-  | { type: 'startWriting'; transcript?: string }
+  | {
+      type: 'startFromRecording';
+      recording: Recording;
+      transcript: string;
+      journalId?: JournalId;
+    }
+  | { type: 'startWriting'; transcript?: string; journalId?: JournalId }
   | { type: 'openDraft'; session: Session }
   | { type: 'setTranscript'; value: string }
   | { type: 'setTitle'; value: string }
@@ -52,6 +61,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
     case 'startFromRecording':
       return {
         origin: 'capture',
+        journalId: action.journalId ?? DREAMS_JOURNAL,
         audio: {
           uri: action.recording.uri,
           durationMs: action.recording.durationMs,
@@ -68,6 +78,7 @@ export function sessionReducer(state: Session | null, action: SessionAction): Se
     case 'startWriting':
       return {
         origin: 'write',
+        journalId: action.journalId ?? DREAMS_JOURNAL,
         transcript: action.transcript ?? '',
         title: '',
         emotion: '',
@@ -125,6 +136,7 @@ export function sessionFromDream(dream: Dream, origin: 'edit' | 'draft'): Sessio
   const tags = Array.isArray(dream.tags) ? dream.tags : [];
   const session: Session = {
     origin,
+    journalId: journalOf(dream),
     id: dream.id,
     createdAt: dream.createdAt,
     ...(uri ? { audio: { uri, durationMs: dream.durationMs, persisted: true } } : {}),
@@ -155,12 +167,6 @@ export function sessionFromDraft(dream: Dream): Session {
 
 export type SaveStatus = 'draft' | 'saved';
 
-const SAVE_FAILED = ['Could not save your dream', 'Please try again.'] as const;
-const INDEX_UNREADABLE_MESSAGE = [
-  'Could not save your dream',
-  'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
-] as const;
-
 export function useDreamSession() {
   const [session, dispatch] = useReducer(sessionReducer, null);
   const [saving, setSaving] = useState(false);
@@ -173,9 +179,10 @@ export function useDreamSession() {
 
   const actions = useMemo(
     () => ({
-      startFromRecording: (recording: Recording, transcript: string) =>
-        dispatch({ type: 'startFromRecording', recording, transcript }),
-      startWriting: (transcript = '') => dispatch({ type: 'startWriting', transcript }),
+      startFromRecording: (recording: Recording, transcript: string, journalId?: JournalId) =>
+        dispatch({ type: 'startFromRecording', recording, transcript, journalId }),
+      startWriting: (transcript = '', journalId?: JournalId) =>
+        dispatch({ type: 'startWriting', transcript, journalId }),
       openDraft: (dream: Dream) =>
         dispatch({ type: 'openDraft', session: sessionFromDraft(dream) }),
       openDream: (dream: Dream) =>
@@ -203,7 +210,9 @@ export function useDreamSession() {
   const save = useCallback(async (status: SaveStatus): Promise<boolean> => {
     const current = sessionRef.current;
     if (!current || savingRef.current) return false;
-    if (status === 'saved' && current.title.trim().length === 0) return false;
+    const kind = kindOf(current.journalId);
+    if (status === 'saved' && titleRequired(kind) && current.title.trim().length === 0)
+      return false;
     // An edit must never turn a finished dream into a draft. Return false so the session is kept.
     if (status === 'draft' && current.origin === 'edit') return false;
     // Do not create an empty draft. A reopened draft already exists, so it is saved as it is.
@@ -228,6 +237,8 @@ export function useDreamSession() {
           transcript: current.transcript,
         },
         status,
+        journalId: current.journalId,
+        requireTitle: titleRequired(kind),
       });
       dispatch({
         type: 'markSaved',
@@ -237,8 +248,11 @@ export function useDreamSession() {
       });
       return true;
     } catch (e) {
-      const [heading, message] = isIndexUnreadableError(e) ? INDEX_UNREADABLE_MESSAGE : SAVE_FAILED;
-      Alert.alert(heading, message);
+      const copy = journalCopy(kind);
+      Alert.alert(
+        copy.saveFailureTitle,
+        isIndexUnreadableError(e) ? copy.saveFailureUnreadable : copy.saveFailureMessage,
+      );
       return false;
     } finally {
       savingRef.current = false;

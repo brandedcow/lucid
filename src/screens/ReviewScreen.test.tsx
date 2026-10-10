@@ -377,6 +377,8 @@ describe('ReviewScreen saving', () => {
         transcript: 'I was in a hallway',
       },
       status: 'saved',
+      journalId: 'dreams',
+      requireTitle: true,
     });
   });
 
@@ -389,6 +391,8 @@ describe('ReviewScreen saving', () => {
       durationMs: 0,
       details: { title: 'Hallway', emotion: '', tags: [], transcript: 'I was in a hallway' },
       status: 'saved',
+      journalId: 'dreams',
+      requireTitle: true,
     });
     expect(save.mock.calls[0][0]).not.toHaveProperty('recordingUri');
     expect(save.mock.calls[0][0]).not.toHaveProperty('id');
@@ -440,6 +444,8 @@ describe('ReviewScreen saving', () => {
       durationMs: 42_000,
       details: { title: '', emotion: '', tags: [], transcript: 'I was in a hallway' },
       status: 'draft',
+      journalId: 'dreams',
+      requireTitle: true,
     });
   });
 

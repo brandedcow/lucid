@@ -19,6 +19,7 @@ describe('sessionReducer', () => {
   it('startFromRecording makes a capture session with cache audio and the live text', () => {
     expect(fresh()).toEqual({
       origin: 'capture',
+      journalId: 'dreams',
       audio: { uri: recording.uri, durationMs: 5000, persisted: false },
       transcript: 'hello',
       title: '',
@@ -43,6 +44,7 @@ describe('sessionReducer', () => {
     const s = sessionReducer(fresh(), { type: 'startWriting' });
     expect(s).toEqual({
       origin: 'write',
+      journalId: 'dreams',
       transcript: '',
       title: '',
       emotion: '',
@@ -71,6 +73,7 @@ describe('sessionReducer', () => {
       emotion: 'calm',
       tags: ['a', 'b'],
       origin: 'capture',
+      journalId: 'dreams',
       audio: { uri: recording.uri },
     });
   });
@@ -295,6 +298,7 @@ describe('startWriting with text', () => {
     const s = sessionReducer(null, { type: 'startWriting', transcript: 'I was flying' });
     expect(s).toEqual({
       origin: 'write',
+      journalId: 'dreams',
       transcript: 'I was flying',
       title: '',
       emotion: '',

@@ -47,6 +47,8 @@ describe('useDreamSession save', () => {
       durationMs: 5000,
       details: { title: 'T', emotion: 'calm, uneasy', tags: ['falling'], transcript: 'text' },
       status: 'draft',
+      journalId: 'dreams',
+      requireTitle: true,
     });
     expect(result.current.session).toMatchObject({
       id: '9',
@@ -87,6 +89,8 @@ describe('useDreamSession save', () => {
       durationMs: 8000,
       details: { title: 'Old', emotion: '', tags: ['a'], transcript: '' },
       status: 'saved',
+      journalId: 'dreams',
+      requireTitle: true,
     });
     expect(hook.result.current.session?.audio).toEqual({
       uri: 'file:///docs/dreams/4.m4a',

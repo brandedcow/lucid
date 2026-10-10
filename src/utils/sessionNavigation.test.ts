@@ -15,6 +15,7 @@ jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem')
 
 const base: Session = {
   origin: 'capture',
+  journalId: 'dreams',
   transcript: '',
   title: '',
   emotion: '',
