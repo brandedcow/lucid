@@ -180,6 +180,30 @@ describe('ReadItBackScreen', () => {
     expect(onContinue).toHaveBeenCalledTimes(1);
     dismiss.mockRestore();
   });
+
+  it('shows "Hide keyboard" only while the keyboard is showing, and it dismisses the keyboard', async () => {
+    const handlers: Record<string, () => void> = {};
+    const add = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: () => void,
+    ) => {
+      handlers[event] = handler;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    await setup({ audio });
+    expect(screen.queryByRole('button', { name: 'Hide keyboard' })).toBeNull();
+    await act(async () => handlers.keyboardWillShow());
+    const button = screen.getByRole('button', { name: 'Hide keyboard' });
+    expect(button.props.style).toEqual(expect.objectContaining({ minHeight: 44 }));
+    await fireEvent.press(button);
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    await act(async () => handlers.keyboardWillHide());
+    expect(screen.queryByRole('button', { name: 'Hide keyboard' })).toBeNull();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    add.mockRestore();
+    dismiss.mockRestore();
+  });
 });
 
 describe('ReadItBackScreen for the Life journal', () => {

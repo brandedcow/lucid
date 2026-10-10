@@ -120,6 +120,16 @@ export function ReadItBackScreen({
               label={`Original recording · ${formatDuration(Math.round(audio.durationMs / 1000))} · always kept`}
             />
           )}
+          {keyboardVisible && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Hide keyboard"
+              onPress={() => Keyboard.dismiss()}
+              style={styles.hideKeyboard}
+            >
+              <Text style={styles.hideKeyboardLabel}>Hide keyboard</Text>
+            </Pressable>
+          )}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Continue"
@@ -181,5 +191,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueDisabled: { opacity: 0.4 },
+  hideKeyboard: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hideKeyboardLabel: { color: colors.muted, fontSize: 14 },
   continueLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
 });

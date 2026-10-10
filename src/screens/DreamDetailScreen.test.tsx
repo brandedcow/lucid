@@ -450,7 +450,7 @@ describe('DreamDetailScreen for the Life journal', () => {
     expect(screen.queryByRole('header')).toBeNull();
     expect(screen.queryByText('Untitled entry')).toBeNull();
     expect(screen.queryByText(/2026|Oct/)).toBeNull();
-    if (base.transcript) expect(screen.getByText(base.transcript.split('\n')[0])).toBeTruthy();
+    expect(screen.getByText('First paragraph.')).toBeTruthy();
   });
 
   it('still shows date and heading for a titled Life entry', async () => {
