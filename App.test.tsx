@@ -32,11 +32,30 @@ jest.mock('./src/services/dreamStorage', () => ({
 jest.mock('./src/screens/CaptureScreen', () => {
   const { Pressable, Text, View } = require('react-native');
   return {
-    CaptureScreen: ({ onRecorded, onWrite, onNoDream, onTypeInstead }: any) => (
+    CaptureScreen: ({
+      onRecorded,
+      onWrite,
+      onNoDream,
+      onTypeInstead,
+      onBack,
+      onActiveChange,
+      journal,
+    }: any) => (
       <View>
         <Text>capture-screen</Text>
-        <Pressable onPress={onNoDream}>
-          <Text>stub-no-dream</Text>
+        <Text>{`capture-journal:${journal?.id}`}</Text>
+        {onNoDream && (
+          <Pressable onPress={onNoDream}>
+            <Text>stub-no-dream</Text>
+          </Pressable>
+        )}
+        {onBack && (
+          <Pressable onPress={onBack}>
+            <Text>stub-capture-back</Text>
+          </Pressable>
+        )}
+        <Pressable onPress={() => onActiveChange(true)}>
+          <Text>stub-capture-busy</Text>
         </Pressable>
         <Pressable
           onPress={() => onRecorded({ uri: 'file:///cache/r.m4a', durationMs: 7000 }, 'live')}
@@ -65,6 +84,10 @@ jest.mock('./src/screens/ReviewScreen', () => {
     ReviewScreen: (p: any) => (
       <View>
         <Text>review-screen</Text>
+        <Text>{`review-journal:${p.journal?.id}`}</Text>
+        <Pressable onPress={() => p.onTitleChange('')}>
+          <Text>stub-clear-title</Text>
+        </Pressable>
         <Text>{`transcript:${p.transcript}`}</Text>
         <Text>{`title:${p.title}`}</Text>
         <Text>{`audio:${p.audio ? p.audio.uri : 'none'}`}</Text>
@@ -110,6 +133,9 @@ jest.mock('./src/screens/DreamLogScreen', () => {
   };
   return {
     DreamLogScreen: ({
+      journal,
+      dreams,
+      onBack,
       view,
       onOpenDream,
       onOpenDraft,
@@ -119,6 +145,18 @@ jest.mock('./src/screens/DreamLogScreen', () => {
     }: any) => (
       <>
         <Text>log-screen</Text>
+        <Text>{`log-journal:${journal?.id}`}</Text>
+        <Text>{`log-ids:${(dreams ?? []).map((d: any) => d.id).join(',')}`}</Text>
+        <Pressable onPress={onBack}>
+          <Text>stub-log-back</Text>
+        </Pressable>
+        <Pressable
+          onPress={() =>
+            onDeleteDream({ ...mockListDream, id: 'L1', journalId: 'life', title: 'x' })
+          }
+        >
+          <Text>stub-list-delete-life</Text>
+        </Pressable>
         <Text>{`query:${view.query}`}</Text>
         <Text>{`searching:${view.searching}`}</Text>
         <Text>{`deletingId:${deletingId}`}</Text>
@@ -156,9 +194,18 @@ jest.mock('./src/screens/DreamLogScreen', () => {
 jest.mock('./src/screens/DreamDetailScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    DreamDetailScreen: ({ dream, onBack, onEdit, onDelete, deleting, deleteBlocked }: any) => (
+    DreamDetailScreen: ({
+      dream,
+      journal,
+      onBack,
+      onEdit,
+      onDelete,
+      deleting,
+      deleteBlocked,
+    }: any) => (
       <>
         <Text>detail-screen</Text>
+        <Text>{`detail-journal:${journal?.id}`}</Text>
         <Text>{`detail-title:${dream.title}`}</Text>
         <Text>{`deleting:${deleting}`}</Text>
         <Text>{`blocked:${deleteBlocked}`}</Text>
@@ -174,6 +221,55 @@ jest.mock('./src/screens/DreamDetailScreen', () => {
         </Pressable>
         <Pressable onPress={onEdit}>
           <Text>stub-detail-edit</Text>
+        </Pressable>
+      </>
+    ),
+  };
+});
+jest.mock('./src/screens/JournalsScreen', () => {
+  const { Pressable, Text } = require('react-native');
+  return {
+    JournalsScreen: ({ counts, unreadable, onOpenJournal, onSearch }: any) => (
+      <>
+        <Text>journals-screen</Text>
+        <Text>{`counts:${counts ? JSON.stringify(counts) : 'null'}`}</Text>
+        <Text>{`unreadable:${unreadable}`}</Text>
+        <Pressable onPress={() => onOpenJournal('dreams')}>
+          <Text>stub-open-dreams</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenJournal('life')}>
+          <Text>stub-open-life</Text>
+        </Pressable>
+        <Pressable onPress={onSearch}>
+          <Text>stub-journals-search</Text>
+        </Pressable>
+      </>
+    ),
+  };
+});
+jest.mock('./src/screens/SearchScreen', () => {
+  const { Pressable, Text } = require('react-native');
+  return {
+    SearchScreen: ({ records, view, onBack, onOpenDream }: any) => (
+      <>
+        <Text>search-screen</Text>
+        <Text>{`search-count:${(records ?? []).length}`}</Text>
+        <Text>{`search-query:${view.query}`}</Text>
+        <Text>{`search-tags:${view.tags.join(',')}`}</Text>
+        <Pressable onPress={onBack}>
+          <Text>stub-search-back</Text>
+        </Pressable>
+        <Pressable onPress={() => view.setQuery('hall')}>
+          <Text>stub-search-set-query</Text>
+        </Pressable>
+        <Pressable onPress={() => view.toggleTag('water')}>
+          <Text>stub-search-toggle-tag</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenDream('7')}>
+          <Text>stub-search-open</Text>
+        </Pressable>
+        <Pressable onPress={() => onOpenDream('L1')}>
+          <Text>stub-search-open-life</Text>
         </Pressable>
       </>
     ),
@@ -548,7 +644,7 @@ describe('App Android hardware back', () => {
     await press('stub-done');
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('capture-screen')).toBeTruthy();
+    expect(screen.getByText('journals-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(false);
   });
 
@@ -648,7 +744,7 @@ describe('App Dream log and detail', () => {
     expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
-  it('hardware back on the log closes an open search first, then goes to capture', async () => {
+  it('hardware back on the log closes an open search first, then goes to Journals home', async () => {
     await render(<App />);
     await press('stub-no-dream');
     await press('stub-open-search');
@@ -658,17 +754,17 @@ describe('App Dream log and detail', () => {
     expect(screen.getByText('query:')).toBeTruthy();
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('capture-screen')).toBeTruthy();
+    expect(screen.getByText('journals-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(false);
   });
 
-  it('hardware back on the log with search closed goes to capture and keeps the view state', async () => {
+  it('hardware back on the log with search closed goes to Journals home and keeps the view state', async () => {
     await render(<App />);
     await press('stub-no-dream');
     await press('stub-set-query');
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('capture-screen')).toBeTruthy();
-    await press('stub-no-dream');
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    await press('stub-open-dreams');
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(screen.getByText('query:hall')).toBeTruthy();
   });
@@ -1009,9 +1105,9 @@ describe('App delete dream', () => {
       expect(await hardwareBack()).toBe(true);
       expect(screen.getByText('log-screen')).toBeTruthy();
       expect(await hardwareBack()).toBe(true);
-      expect(screen.getByText('stub-no-dream')).toBeTruthy();
+      expect(screen.getByText('journals-screen')).toBeTruthy();
       await act(async () => g.resolve());
-      expect(screen.getByText('stub-no-dream')).toBeTruthy();
+      expect(screen.getByText('journals-screen')).toBeTruthy();
     });
 
     it('blocks Delete on another open entry while a list delete runs, and unblocks after', async () => {
