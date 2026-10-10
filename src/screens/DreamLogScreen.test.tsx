@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { FlatList, StyleSheet } from 'react-native';
+import { Alert, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogView, useLogView } from '../hooks/useLogView';
 import { colors } from '../theme';
@@ -52,17 +52,34 @@ const DREAMS: Dream[] = [
   }),
 ];
 
-type SetupOpts = { dreams?: Dream[] | null; status?: 'ok' | 'unreadable' };
+type SetupOpts = {
+  dreams?: Dream[] | null;
+  status?: 'ok' | 'unreadable';
+  deletingId?: string | null;
+};
 
-async function setup({ dreams = DREAMS, status = 'ok' }: SetupOpts = {}) {
-  const handlers = { onOpenDream: jest.fn(), onOpenDraft: jest.fn(), onNewDream: jest.fn() };
+async function setup({ dreams = DREAMS, status = 'ok', deletingId = null }: SetupOpts = {}) {
+  const handlers = {
+    onOpenDream: jest.fn(),
+    onOpenDraft: jest.fn(),
+    onNewDream: jest.fn(),
+    onDeleteDream: jest.fn(),
+  };
+  const { onDeleteDream, ...rest } = handlers;
   const view: { current: LogView } = { current: undefined as unknown as LogView };
   function Harness() {
     const logView = useLogView();
     view.current = logView;
     return (
       <SafeAreaProvider initialMetrics={METRICS}>
-        <DreamLogScreen dreams={dreams} indexStatus={status} view={logView} {...handlers} />
+        <DreamLogScreen
+          dreams={dreams}
+          indexStatus={status}
+          view={logView}
+          deletingId={deletingId}
+          onDeleteDream={onDeleteDream}
+          {...rest}
+        />
       </SafeAreaProvider>
     );
   }
@@ -365,5 +382,134 @@ describe('DreamLogScreen scroll position', () => {
     await update((v) => v.toggleTag('water'));
     expect(view.current.offsetRef.current).toBe(0);
     expect(scrollTo).toHaveBeenCalledWith({ offset: 0, animated: false });
+  });
+});
+
+describe('DreamLogScreen delete', () => {
+  const HIDDEN = { includeHiddenElements: true };
+  let alertSpy: jest.SpiedFunction<typeof Alert.alert>;
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  const A_LABEL =
+    'The endless hallway. Sunday, October 4 · 6:42 AM. Feelings: Uneasy, Curious. Tags: water, stairs';
+
+  it('offers a Delete accessibility action on finished rows that calls onDeleteDream', async () => {
+    const { onDeleteDream, onOpenDream } = await setup();
+    const row = screen.getByLabelText(A_LABEL);
+    expect(row.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'delete' } });
+    expect(onDeleteDream).not.toHaveBeenCalled();
+    const [title, message, buttons] = alertSpy.mock.calls[0];
+    expect(title).toBe('Delete this dream?');
+    expect(message).toContain('recording and text');
+    expect(buttons?.map((b) => b.text)).toEqual(['Keep', 'Delete']);
+    await act(async () => buttons?.[1].onPress?.());
+    expect(onDeleteDream).toHaveBeenCalledTimes(1);
+    expect(onDeleteDream).toHaveBeenCalledWith(DREAMS[1]);
+    expect(onOpenDream).not.toHaveBeenCalled();
+  });
+
+  it('does not delete when Keep is pressed or the dialog is dismissed, and allows asking again', async () => {
+    const { onDeleteDream } = await setup();
+    const press = () =>
+      fireEvent.press(screen.getByLabelText('Delete dream: Missed the train again', HIDDEN));
+    await press();
+    await act(async () => alertSpy.mock.calls[0][2]?.[0].onPress?.());
+    await press();
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    await act(async () => alertSpy.mock.calls[1][3]?.onDismiss?.());
+    await press();
+    expect(alertSpy).toHaveBeenCalledTimes(3);
+    expect(onDeleteDream).not.toHaveBeenCalled();
+  });
+
+  it('shows only one confirmation however often Delete is pressed', async () => {
+    await setup();
+    const del = screen.getByLabelText('Delete dream: Missed the train again', HIDDEN);
+    await fireEvent.press(del);
+    await fireEvent.press(del);
+    await fireEvent.press(screen.getByLabelText('Delete dream: Swimming in the library', HIDDEN));
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('words the confirmation for a dream without a recording', async () => {
+    await setup({ dreams: [dream({ id: 'w', title: 'Written only', audioFileName: undefined })] });
+    await fireEvent.press(screen.getByLabelText('Delete dream: Written only', HIDDEN));
+    expect(alertSpy.mock.calls[0][1]).toMatch(/^The text will be permanently deleted/);
+  });
+
+  it('keeps tap-to-open on a swipeable row', async () => {
+    const { onOpenDream, onDeleteDream } = await setup();
+    await fireEvent.press(screen.getByLabelText(A_LABEL));
+    expect(onOpenDream).toHaveBeenCalledWith('a');
+    expect(onDeleteDream).not.toHaveBeenCalled();
+  });
+
+  it('renders a Delete action per finished row, hidden from screen readers while closed', async () => {
+    await setup();
+    expect(screen.queryByLabelText('Delete dream: The endless hallway')).toBeNull();
+    const action = screen.getByLabelText('Delete dream: The endless hallway', HIDDEN);
+    expect(action.props.accessibilityRole).toBe('button');
+    expect(screen.getByLabelText('Delete dream: Sep 23, 2025', HIDDEN)).toBeTruthy();
+  });
+
+  it('calls onDeleteDream with the dream when the revealed Delete is pressed', async () => {
+    const { onDeleteDream, onOpenDream } = await setup();
+    await fireEvent.press(screen.getByLabelText('Delete dream: Missed the train again', HIDDEN));
+    expect(onDeleteDream).not.toHaveBeenCalled();
+    await act(async () => alertSpy.mock.calls[0][2]?.[1].onPress?.());
+    expect(onDeleteDream).toHaveBeenCalledTimes(1);
+    expect(onDeleteDream).toHaveBeenCalledWith(DREAMS[2]);
+    expect(onOpenDream).not.toHaveBeenCalled();
+  });
+
+  it('styles the action red with a 44pt target', async () => {
+    await setup();
+    const action = screen.getByLabelText('Delete dream: The endless hallway', HIDDEN);
+    const style = StyleSheet.flatten(action.props.style);
+    expect(style.backgroundColor).toBe(colors.draft);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+    expect(screen.getAllByText('Delete', HIDDEN).length).toBeGreaterThan(0);
+  });
+
+  it('gives drafts no delete action', async () => {
+    await setup();
+    const draft = screen.getByLabelText(
+      'Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Tap to finish',
+    );
+    expect(draft.props.accessibilityActions).toBeUndefined();
+    expect(draft.props.onAccessibilityAction).toBeUndefined();
+    // Only the finished rows (a, b, c, legacy) have Delete; the label for the draft is "Untitled dream" too.
+    expect(screen.getAllByText('Delete', HIDDEN)).toHaveLength(4);
+  });
+
+  it('dims and disables the row being deleted, and turns off delete actions everywhere', async () => {
+    const { onOpenDream, onOpenDraft } = await setup({ deletingId: 'a' });
+    const row = screen.getByLabelText(A_LABEL);
+    expect(row.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(StyleSheet.flatten(row.props.style).opacity).toBeLessThan(1);
+    await fireEvent.press(row);
+    expect(onOpenDream).not.toHaveBeenCalled();
+    // A delete is in flight, so no row offers the accessibility action.
+    expect(row.props.accessibilityActions).toBeUndefined();
+    const other = screen.getByLabelText(/^Missed the train again\./);
+    expect(other.props.accessibilityActions).toBeUndefined();
+    // Everything else stays usable.
+    await fireEvent.press(other);
+    expect(onOpenDream).toHaveBeenCalledWith('b');
+    await fireEvent.press(screen.getByText('Untitled dream'));
+    expect(onOpenDraft).toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('New dream'));
+  });
+
+  it('keeps search and tag filters working while a delete is in flight', async () => {
+    const { update } = await setup({ deletingId: 'a' });
+    await update((v) => v.toggleTag('water'));
+    expect(screen.getByText('Swimming in the library')).toBeTruthy();
+    expect(screen.getByLabelText(/^The endless hallway\./).props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
   });
 });

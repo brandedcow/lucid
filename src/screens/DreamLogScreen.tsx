@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   NativeScrollEvent,
@@ -10,13 +10,15 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DreamChips } from '../components/DreamChips';
 import { MicIcon } from '../components/MicIcon';
 import { IndexStatus } from '../hooks/useDreamLibrary';
 import { LogView } from '../hooks/useLogView';
 import { colors, fonts, spacing } from '../theme';
-import { Dream } from '../types/dream';
+import { Dream, hasAudio } from '../types/dream';
+import { confirmDeleteDream } from '../utils/confirmDelete';
 import {
   buildLogItems,
   buildSearchIndex,
@@ -39,6 +41,11 @@ import { formatEntryDateTime } from '../utils/format';
  * - `onOpenDream(id)`: a finished dream was tapped.
  * - `onOpenDraft(dream)`: a draft was tapped.
  * - `onNewDream()`: the "New dream" button was tapped.
+ * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a finished row (or
+ *   the VoiceOver/TalkBack "Delete" action) and chose Delete in the confirmation shown here. The
+ *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
+ * - `deletingId`: the dream being deleted. Its row is dimmed and cannot be opened, and swiping is
+ *   off on every row until the delete ends. Everything else on the screen stays usable.
  */
 type Props = {
   dreams: Dream[] | null;
@@ -47,6 +54,8 @@ type Props = {
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
   onNewDream: () => void;
+  onDeleteDream: (dream: Dream) => void;
+  deletingId?: string | null;
 };
 
 const UNREADABLE_MESSAGE = 'Your saved dreams could not be read. Your recordings are safe.';
@@ -59,6 +68,8 @@ export function DreamLogScreen({
   onOpenDream,
   onOpenDraft,
   onNewDream,
+  onDeleteDream,
+  deletingId = null,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { tags, query, searching, offsetRef } = view;
@@ -86,8 +97,53 @@ export function DreamLogScreen({
     openDreamRef.current = onOpenDream;
     openDraftRef.current = onOpenDraft;
   });
-  const handleOpenDream = useCallback((id: string) => openDreamRef.current(id), []);
-  const handleOpenDraft = useCallback((dream: Dream) => openDraftRef.current(dream), []);
+  const deleteDreamRef = useRef(onDeleteDream);
+  useEffect(() => {
+    deleteDreamRef.current = onDeleteDream;
+  });
+  // True while the confirmation is up, so a second press cannot stack another Alert.
+  const confirmOpen = useRef(false);
+
+  // At most one row is open. A row reports when it opens or closes; anything else the user does
+  // (scrolling, opening a dream, opening another row) closes it.
+  const openRow = useRef<Swipeable | null>(null);
+  const handleRowWillOpen = useCallback((row: Swipeable) => {
+    if (openRow.current && openRow.current !== row) openRow.current.close();
+    openRow.current = row;
+  }, []);
+  const handleRowClosed = useCallback((row: Swipeable) => {
+    if (openRow.current === row) openRow.current = null;
+  }, []);
+  const closeOpenRow = useCallback(() => {
+    openRow.current?.close();
+  }, []);
+
+  const handleOpenDream = useCallback(
+    (id: string) => {
+      closeOpenRow();
+      openDreamRef.current(id);
+    },
+    [closeOpenRow],
+  );
+  const handleOpenDraft = useCallback(
+    (dream: Dream) => {
+      closeOpenRow();
+      openDraftRef.current(dream);
+    },
+    [closeOpenRow],
+  );
+  const handleDelete = useCallback((dream: Dream, closeRow: () => void) => {
+    if (confirmOpen.current) return;
+    confirmOpen.current = true;
+    confirmDeleteDream({
+      hasAudio: hasAudio(dream),
+      onClose: () => {
+        confirmOpen.current = false;
+        closeRow();
+      },
+      onConfirm: () => deleteDreamRef.current(dream),
+    });
+  }, []);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -112,9 +168,25 @@ export function DreamLogScreen({
           {item.label}
         </Text>
       ) : (
-        <LogRow dream={item.dream} onOpenDream={handleOpenDream} onOpenDraft={handleOpenDraft} />
+        <LogRow
+          dream={item.dream}
+          onOpenDream={handleOpenDream}
+          onOpenDraft={handleOpenDraft}
+          onDelete={handleDelete}
+          onRowWillOpen={handleRowWillOpen}
+          onRowClosed={handleRowClosed}
+          deleting={deletingId === item.dream.id}
+          swipeLocked={deletingId !== null}
+        />
       ),
-    [handleOpenDream, handleOpenDraft],
+    [
+      handleOpenDream,
+      handleOpenDraft,
+      handleDelete,
+      handleRowWillOpen,
+      handleRowClosed,
+      deletingId,
+    ],
   );
   const keyExtractor = useCallback(
     (item: LogItem) => (item.type === 'header' ? `h:${item.key}` : `d:${item.dream.id}`),
@@ -140,6 +212,7 @@ export function DreamLogScreen({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onScroll={onScroll}
+        onScrollBeginDrag={closeOpenRow}
         scrollEventThrottle={16}
         onContentSizeChange={onContentSizeChange}
         initialNumToRender={12}
@@ -331,11 +404,32 @@ const LogRow = memo(function LogRow({
   dream,
   onOpenDream,
   onOpenDraft,
+  onDelete,
+  onRowWillOpen,
+  onRowClosed,
+  deleting,
+  swipeLocked,
 }: {
   dream: Dream;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
+  onDelete: (dream: Dream, closeRow: () => void) => void;
+  onRowWillOpen: (row: Swipeable) => void;
+  onRowClosed: (row: Swipeable) => void;
+  /** This row's dream is being deleted. */
+  deleting: boolean;
+  /** Some delete is in flight, so no row can be swiped. */
+  swipeLocked: boolean;
 }) {
+  const swipeRef = useRef<Swipeable>(null);
+  // While closed, the Delete action sits behind the card and must stay out of the screen reader.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    const row = swipeRef.current;
+    return () => {
+      if (row) onRowClosed(row);
+    };
+  }, [onRowClosed]);
   const row = useMemo(() => dreamRow(dream), [dream]);
   const label = useMemo(() => accessibleLabel(row, dream), [row, dream]);
   const chips = useMemo(() => limitChips(row.chips), [row]);
@@ -369,12 +463,27 @@ const LogRow = memo(function LogRow({
     );
   }
 
-  return (
+  const swipeable = !swipeLocked && !deleting;
+  const deleteDream = () => {
+    onDelete(dream, () => swipeRef.current?.close());
+  };
+
+  const card = (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={deleting ? { disabled: true } : undefined}
+      accessibilityActions={swipeable ? DELETE_ACTIONS : undefined}
+      onAccessibilityAction={
+        swipeable
+          ? (e) => {
+              if (e.nativeEvent.actionName === 'delete') deleteDream();
+            }
+          : undefined
+      }
+      disabled={deleting}
       onPress={() => onOpenDream(dream.id)}
-      style={styles.card}
+      style={[styles.card, styles.swipeCard, deleting && styles.deleting]}
     >
       <View style={styles.dateCol}>
         <Text style={styles.weekday}>{row.weekday}</Text>
@@ -393,7 +502,44 @@ const LogRow = memo(function LogRow({
       </View>
     </Pressable>
   );
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      enabled={swipeable}
+      overshootRight={false}
+      containerStyle={styles.swipeRow}
+      onSwipeableWillOpen={() => {
+        setRevealed(true);
+        if (swipeRef.current) onRowWillOpen(swipeRef.current);
+      }}
+      onSwipeableClose={() => {
+        setRevealed(false);
+        if (swipeRef.current) onRowClosed(swipeRef.current);
+      }}
+      renderRightActions={() => (
+        <View
+          style={styles.actionWrap}
+          accessibilityElementsHidden={!revealed}
+          importantForAccessibility={revealed ? 'auto' : 'no-hide-descendants'}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Delete dream: ${row.title}`}
+            onPress={deleteDream}
+            style={styles.deleteAction}
+          >
+            <Text style={styles.deleteLabel}>Delete</Text>
+          </Pressable>
+        </View>
+      )}
+    >
+      {card}
+    </Swipeable>
+  );
 });
+
+const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
@@ -490,6 +636,21 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
+  // The margin sits on the swipe container, so the revealed action is exactly as tall as the card.
+  swipeRow: { marginBottom: spacing.sm + 2, borderRadius: 16 },
+  swipeCard: { marginBottom: 0 },
+  deleting: { opacity: 0.45 },
+  actionWrap: { width: 96, alignItems: 'stretch' },
+  deleteAction: {
+    flex: 1,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: colors.draft,
+  },
+  deleteLabel: { color: colors.accentDark, fontSize: 16, fontWeight: '700' },
   draftCard: { backgroundColor: 'transparent', borderColor: colors.faint },
   dateCol: { width: 36, alignItems: 'center' },
   weekday: { color: colors.muted, fontSize: 11, letterSpacing: 0.8 },

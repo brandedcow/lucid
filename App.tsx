@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDreamSession } from './src/hooks/useDreamSession';
@@ -10,7 +11,12 @@ import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { ReadItBackScreen } from './src/screens/ReadItBackScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
-import { discardRecording } from './src/services/dreamStorage';
+import {
+  discardRecording,
+  isIndexUnreadableError,
+  isSafetyCopyBlockedError,
+} from './src/services/dreamStorage';
+import type { Dream } from './src/types/dream';
 import { formatToday } from './src/utils/format';
 import {
   DISCARD_CHANGES_DISCARD,
@@ -23,6 +29,15 @@ import {
 } from './src/utils/sessionNavigation';
 
 type Screen = 'capture' | 'readItBack' | 'review' | 'log' | 'detail';
+
+// Retrying will not help in the safety-copy case, so that message does not say so.
+function deleteFailureMessage(e: unknown): string {
+  if (isIndexUnreadableError(e)) return 'Your saved dreams could not be read. Nothing was deleted.';
+  if (isSafetyCopyBlockedError(e)) {
+    return 'A saved copy of your dreams is damaged, so this dream was not deleted. Nothing was changed.';
+  }
+  return 'Please try again.';
+}
 
 // Temporary screen switch; replace with real navigation once that is decided.
 export default function App() {
@@ -38,9 +53,27 @@ export default function App() {
   const view = useLogView();
   // True from the start of a save until its refresh finishes, so a second tap or back cannot race it.
   const finishing = useRef(false);
+  // The dream being deleted, held from the confirmed delete until it ends, and whether the delete
+  // was started from its entry. `library.remove` drops the dream from the list at once, and an
+  // entry's delete must not make the entry vanish while it is in flight. A delete started from the
+  // Dream log (`fromDetail` false) never touches the entry screen.
+  const [deletingDream, setDeletingDream] = useState<{ dream: Dream; fromDetail: boolean } | null>(
+    null,
+  );
+  // True while any delete runs, readable synchronously: a second delete is ignored.
+  const deleting = useRef(false);
+  // True while a delete started from the entry runs: blocks back and Edit there. A delete started
+  // from the Dream log blocks nothing, like Notes.
+  const detailDeleting = useRef(false);
+  // The latest screen and open entry, for the async delete to read after its await.
+  const nav = useRef({ screen, detailId });
+  nav.current = { screen, detailId };
+  const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 
   // The detail screen needs a finished dream; otherwise the log shows.
-  const detailDream = detailId ? library.dreams?.find((d) => d.id === detailId) : undefined;
+  const detailDream =
+    (detailId ? library.dreams?.find((d) => d.id === detailId) : undefined) ??
+    (detailDeletingDream && detailDeletingDream.id === detailId ? detailDeletingDream : undefined);
   const current: Screen =
     screen === 'detail' && (!detailDream || detailDream.status === 'draft') ? 'log' : screen;
 
@@ -115,6 +148,30 @@ export default function App() {
     }
   };
 
+  // Deletes from the entry or from a Dream log row (the caller has already confirmed). Leaves for
+  // the log only if the entry of that same dream is open when the delete ends.
+  const deleteDreamFor = async (target: Dream) => {
+    if (deleting.current) return;
+    const fromDetail = nav.current.screen === 'detail' && nav.current.detailId === target.id;
+    deleting.current = true;
+    detailDeleting.current = fromDetail;
+    setDeletingDream({ dream: target, fromDetail });
+    try {
+      await library.remove(target.id);
+      if (nav.current.screen === 'detail' && nav.current.detailId === target.id) {
+        // The log keeps its filter, search and scroll: only the entry is left.
+        setDetailId(null);
+        setScreen('log');
+      }
+    } catch (e) {
+      Alert.alert('Could not delete dream', deleteFailureMessage(e));
+    } finally {
+      deleting.current = false;
+      detailDeleting.current = false;
+      setDeletingDream(null);
+    }
+  };
+
   const backFromEdit = () => {
     if (!session) return;
     const id = session.id ?? detailId;
@@ -159,6 +216,7 @@ export default function App() {
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (current === 'detail') {
+        if (detailDeleting.current) return true;
         setScreen('log');
         return true;
       }
@@ -184,98 +242,111 @@ export default function App() {
   }, [current, session, fromReview, detailId, view.searching]);
 
   return (
-    <SafeAreaProvider>
-      {current === 'capture' && (
-        <CaptureScreen
-          onRecorded={(recording, text) => {
-            dream.startFromRecording(recording, text);
-            setFromReview(false);
-            setScreen('readItBack');
-          }}
-          onWrite={() => {
-            dream.startWriting();
-            setFromReview(false);
-            setScreen('readItBack');
-          }}
-          onTypeInstead={(text) => {
-            dream.startWriting(text);
-            setFromReview(false);
-            setScreen('readItBack');
-          }}
-          onNoDream={() => setScreen('log')}
-        />
-      )}
-      {current === 'readItBack' && session && (
-        <ReadItBackScreen
-          text={session.transcript}
-          onChangeText={dream.setTranscript}
-          audio={session.audio}
-          autoFocus={session.origin === 'write'}
-          onContinue={() => {
-            dream.markPassedThroughReadItBack();
-            setFromReview(false);
-            setScreen('review');
-          }}
-          onBack={backFromReadItBack}
-          date={dreamDate}
-        />
-      )}
-      {current === 'review' && session && (
-        <ReviewScreen
-          transcript={session.transcript}
-          audio={session.audio}
-          durationMs={session.audio?.durationMs ?? 0}
-          title={session.title}
-          onTitleChange={dream.setTitle}
-          emotion={session.emotion}
-          onEmotionChange={dream.setEmotion}
-          emotionDraft={session.emotionDraft}
-          onEmotionDraftChange={dream.setEmotionDraft}
-          tags={session.tags}
-          onTagsChange={dream.setTags}
-          tagDraft={session.tagDraft}
-          onTagDraftChange={dream.setTagDraft}
-          saving={dream.saving}
-          date={dreamDate}
-          onEditTranscript={() => {
-            setFromReview(true);
-            setScreen('readItBack');
-          }}
-          onDone={() => void saveAndLeave('saved')}
-          showFinishLater={session.origin !== 'edit'}
-          onFinishLater={() => void saveAndLeave('draft')}
-          onBack={backFromReview}
-        />
-      )}
-      {current === 'log' && (
-        <DreamLogScreen
-          dreams={library.dreams}
-          indexStatus={library.indexStatus}
-          view={view}
-          onOpenDream={(id) => {
-            setDetailId(id);
-            setScreen('detail');
-          }}
-          onOpenDraft={(draft) => {
-            dream.openDraft(draft);
-            setFromReview(false);
-            setScreen('review');
-          }}
-          onNewDream={() => setScreen('capture')}
-        />
-      )}
-      {current === 'detail' && detailDream && (
-        <DreamDetailScreen
-          dream={detailDream}
-          onBack={() => setScreen('log')}
-          onEdit={() => {
-            dream.openDream(detailDream);
-            setFromReview(false);
-            setScreen('review');
-          }}
-        />
-      )}
-      <StatusBar style="light" />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        {current === 'capture' && (
+          <CaptureScreen
+            onRecorded={(recording, text) => {
+              dream.startFromRecording(recording, text);
+              setFromReview(false);
+              setScreen('readItBack');
+            }}
+            onWrite={() => {
+              dream.startWriting();
+              setFromReview(false);
+              setScreen('readItBack');
+            }}
+            onTypeInstead={(text) => {
+              dream.startWriting(text);
+              setFromReview(false);
+              setScreen('readItBack');
+            }}
+            onNoDream={() => setScreen('log')}
+          />
+        )}
+        {current === 'readItBack' && session && (
+          <ReadItBackScreen
+            text={session.transcript}
+            onChangeText={dream.setTranscript}
+            audio={session.audio}
+            autoFocus={session.origin === 'write'}
+            onContinue={() => {
+              dream.markPassedThroughReadItBack();
+              setFromReview(false);
+              setScreen('review');
+            }}
+            onBack={backFromReadItBack}
+            date={dreamDate}
+          />
+        )}
+        {current === 'review' && session && (
+          <ReviewScreen
+            transcript={session.transcript}
+            audio={session.audio}
+            durationMs={session.audio?.durationMs ?? 0}
+            title={session.title}
+            onTitleChange={dream.setTitle}
+            emotion={session.emotion}
+            onEmotionChange={dream.setEmotion}
+            emotionDraft={session.emotionDraft}
+            onEmotionDraftChange={dream.setEmotionDraft}
+            tags={session.tags}
+            onTagsChange={dream.setTags}
+            tagDraft={session.tagDraft}
+            onTagDraftChange={dream.setTagDraft}
+            saving={dream.saving}
+            date={dreamDate}
+            onEditTranscript={() => {
+              setFromReview(true);
+              setScreen('readItBack');
+            }}
+            onDone={() => void saveAndLeave('saved')}
+            showFinishLater={session.origin !== 'edit'}
+            onFinishLater={() => void saveAndLeave('draft')}
+            onBack={backFromReview}
+          />
+        )}
+        {current === 'log' && (
+          <DreamLogScreen
+            dreams={library.dreams}
+            indexStatus={library.indexStatus}
+            view={view}
+            onOpenDream={(id) => {
+              setDetailId(id);
+              setScreen('detail');
+            }}
+            onOpenDraft={(draft) => {
+              dream.openDraft(draft);
+              setFromReview(false);
+              setScreen('review');
+            }}
+            onNewDream={() => setScreen('capture')}
+            onDeleteDream={(d) => void deleteDreamFor(d)}
+            deletingId={deletingDream?.dream.id ?? null}
+          />
+        )}
+        {current === 'detail' && detailDream && (
+          <DreamDetailScreen
+            dream={detailDream}
+            onBack={() => {
+              if (!detailDeleting.current) setScreen('log');
+            }}
+            onEdit={() => {
+              if (detailDeleting.current) return;
+              dream.openDream(detailDream);
+              setFromReview(false);
+              setScreen('review');
+            }}
+            onDelete={async () => {
+              if (deleting.current) throw new Error('delete in progress');
+              await deleteDreamFor(detailDream);
+            }}
+            deleteBlocked={deletingDream !== null}
+            deleting={detailDeletingDream !== null && detailDeletingDream.id === detailDream.id}
+          />
+        )}
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

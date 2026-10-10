@@ -24,7 +24,8 @@ jest.mock('./src/services/dreamStorage', () => ({
   discardRecording: jest.fn(),
   dreamAudioUri: jest.fn(),
   saveDream: jest.fn(),
-  isIndexUnreadableError: () => false,
+  isIndexUnreadableError: (e: any) => e?.kind === 'unreadable',
+  isSafetyCopyBlockedError: (e: any) => e?.kind === 'blocked',
 }));
 
 // The heavy screens are replaced by small stubs that expose their callbacks as buttons.
@@ -89,6 +90,12 @@ jest.mock('./src/screens/ReviewScreen', () => {
     ),
   };
 });
+const mockListDream = {
+  createdAt: '2026-10-02T08:00:00.000Z',
+  durationMs: 1,
+  title: 'x',
+  tags: [],
+};
 jest.mock('./src/screens/DreamLogScreen', () => {
   const { Pressable, Text } = require('react-native');
   const draft = {
@@ -102,11 +109,25 @@ jest.mock('./src/screens/DreamLogScreen', () => {
     status: 'draft',
   };
   return {
-    DreamLogScreen: ({ view, onOpenDream, onOpenDraft, onNewDream }: any) => (
+    DreamLogScreen: ({
+      view,
+      onOpenDream,
+      onOpenDraft,
+      onNewDream,
+      onDeleteDream,
+      deletingId,
+    }: any) => (
       <>
         <Text>log-screen</Text>
         <Text>{`query:${view.query}`}</Text>
         <Text>{`searching:${view.searching}`}</Text>
+        <Text>{`deletingId:${deletingId}`}</Text>
+        <Pressable onPress={() => onDeleteDream({ ...mockListDream, id: '7' })}>
+          <Text>stub-list-delete</Text>
+        </Pressable>
+        <Pressable onPress={() => onDeleteDream({ ...mockListDream, id: '8' })}>
+          <Text>stub-list-delete-other</Text>
+        </Pressable>
         <Pressable onPress={() => onOpenDraft(draft)}>
           <Text>stub-open-draft</Text>
         </Pressable>
@@ -135,10 +156,19 @@ jest.mock('./src/screens/DreamLogScreen', () => {
 jest.mock('./src/screens/DreamDetailScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    DreamDetailScreen: ({ dream, onBack, onEdit }: any) => (
+    DreamDetailScreen: ({ dream, onBack, onEdit, onDelete, deleting, deleteBlocked }: any) => (
       <>
         <Text>detail-screen</Text>
         <Text>{`detail-title:${dream.title}`}</Text>
+        <Text>{`deleting:${deleting}`}</Text>
+        <Text>{`blocked:${deleteBlocked}`}</Text>
+        <Pressable
+          onPress={() => {
+            void onDelete().catch(() => {});
+          }}
+        >
+          <Text>stub-detail-delete</Text>
+        </Pressable>
         <Pressable onPress={onBack}>
           <Text>stub-detail-back</Text>
         </Pressable>
@@ -150,7 +180,12 @@ jest.mock('./src/screens/DreamDetailScreen', () => {
   };
 });
 // The library is faked so tests control what the log holds and when a refresh finishes.
-const mockLibrary: { dreams: any[]; onRefresh?: () => Promise<void> | void } = { dreams: [] };
+const mockLibrary: {
+  dreams: any[];
+  onRefresh?: () => Promise<void> | void;
+  onRemove?: (id: string) => Promise<void>;
+  afterRemoveFilter?: () => Promise<void>;
+} = { dreams: [] };
 jest.mock('./src/hooks/useDreamLibrary', () => {
   const { useState } = require('react');
   return {
@@ -162,6 +197,14 @@ jest.mock('./src/hooks/useDreamLibrary', () => {
         refresh: async () => {
           await mockLibrary.onRefresh?.();
           setDreams(mockLibrary.dreams);
+        },
+        // Like the real hook: the dream leaves state only once storage succeeded.
+        remove: async (id: string) => {
+          await mockLibrary.onRemove?.(id);
+          mockLibrary.dreams = mockLibrary.dreams.filter((d) => d.id !== id);
+          setDreams(mockLibrary.dreams);
+          // Like the real hook's `await refresh()` after the list has already dropped the dream.
+          await mockLibrary.afterRemoveFilter?.();
         },
       };
     },
@@ -198,6 +241,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockLibrary.dreams = [finishedDream];
   mockLibrary.onRefresh = undefined;
+  mockLibrary.onRemove = undefined;
+  mockLibrary.afterRemoveFilter = undefined;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as any);
   addListener = jest.spyOn(BackHandler, 'addEventListener');
@@ -818,5 +863,206 @@ describe('App refresh before leaving', () => {
     expect(screen.getByText('review-screen')).toBeTruthy();
     await act(async () => finishRefresh());
     expect(screen.getByText('detail-screen')).toBeTruthy();
+  });
+});
+
+describe('App delete dream', () => {
+  const gate = () => {
+    let resolve: () => void = () => {};
+    let reject: (e: unknown) => void = () => {};
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve: () => resolve(), reject: (e: unknown) => reject(e) };
+  };
+
+  it('success goes to the log and keeps the log view state', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-set-query');
+    await press('stub-open-dream');
+    await press('stub-detail-delete');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.queryByText('detail-screen')).toBeNull();
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ kind: 'unreadable' }, 'Your saved dreams could not be read. Nothing was deleted.'],
+    [
+      { kind: 'blocked' },
+      'A saved copy of your dreams is damaged, so this dream was not deleted. Nothing was changed.',
+    ],
+    [new Error('disk'), 'Please try again.'],
+  ])('failure %# alerts, stays on the entry and can be retried', async (error, body) => {
+    mockLibrary.onRemove = jest.fn().mockRejectedValueOnce(error);
+    await reachDetail();
+    await press('stub-detail-delete');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not delete dream', body);
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.getByText('deleting:false')).toBeTruthy();
+
+    await press('stub-detail-delete');
+    expect(mockLibrary.onRemove).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('ignores back, hardware back and Edit while deleting, then works again after a failure', async () => {
+    const g = gate();
+    const remove = jest.fn(() => g.promise);
+    mockLibrary.onRemove = remove;
+    await reachDetail();
+    await press('stub-detail-delete');
+    expect(screen.getByText('deleting:true')).toBeTruthy();
+
+    await press('stub-detail-back');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    await press('stub-detail-edit');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.queryByText('review-screen')).toBeNull();
+    await press('stub-detail-delete');
+    expect(remove).toHaveBeenCalledTimes(1);
+
+    await act(async () => g.reject(new Error('x')));
+    expect(screen.getByText('deleting:false')).toBeTruthy();
+    await press('stub-detail-back');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('keeps the entry shown while the delete is still finishing after the list dropped the dream', async () => {
+    const g = gate();
+    mockLibrary.afterRemoveFilter = () => g.promise;
+    await reachDetail();
+    await press('stub-detail-delete');
+    expect(mockLibrary.dreams.some((d) => d.id === finishedDream.id)).toBe(false);
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.queryByText('log-screen')).toBeNull();
+
+    await act(async () => g.resolve());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.queryByText('detail-screen')).toBeNull();
+  });
+
+  describe('from the Dream log', () => {
+    const otherDream = { ...finishedDream, id: '8', title: 'Other title' };
+    const reachLog = async () => {
+      await render(<App />);
+      await press('stub-no-dream');
+    };
+
+    it('success removes the dream without changing the screen, and shows deletingId only in flight', async () => {
+      const g = gate();
+      const remove = jest.fn(() => g.promise);
+      mockLibrary.onRemove = remove;
+      await reachLog();
+      await press('stub-set-query');
+      expect(screen.getByText('deletingId:null')).toBeTruthy();
+      await press('stub-list-delete');
+      expect(remove).toHaveBeenCalledWith('7');
+      expect(screen.getByText('deletingId:7')).toBeTruthy();
+      await act(async () => g.resolve());
+      expect(screen.getByText('log-screen')).toBeTruthy();
+      expect(screen.queryByText('detail-screen')).toBeNull();
+      expect(screen.getByText('query:hall')).toBeTruthy();
+      expect(screen.getByText('deletingId:null')).toBeTruthy();
+      expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('failure alerts, stays on the log and frees the row', async () => {
+      mockLibrary.onRemove = jest.fn().mockRejectedValueOnce(new Error('disk'));
+      await reachLog();
+      await press('stub-list-delete');
+      expect(Alert.alert).toHaveBeenCalledWith('Could not delete dream', 'Please try again.');
+      expect(screen.getByText('log-screen')).toBeTruthy();
+      expect(screen.getByText('deletingId:null')).toBeTruthy();
+      await press('stub-list-delete');
+      expect(mockLibrary.onRemove).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a second delete while one is in flight', async () => {
+      const g = gate();
+      const remove = jest.fn(() => g.promise);
+      mockLibrary.onRemove = remove;
+      await reachLog();
+      await press('stub-list-delete');
+      await press('stub-list-delete');
+      await press('stub-list-delete-other');
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('deletingId:7')).toBeTruthy();
+      await act(async () => g.resolve());
+    });
+
+    it('does not block hardware back on the log, or opening another dream', async () => {
+      const g = gate();
+      mockLibrary.dreams = [finishedDream, otherDream];
+      mockLibrary.onRemove = () => g.promise;
+      await reachLog();
+      await press('stub-list-delete-other');
+      expect(screen.getByText('deletingId:8')).toBeTruthy();
+      await press('stub-open-dream');
+      expect(screen.getByText('detail-screen')).toBeTruthy();
+      expect(screen.getByText('deleting:false')).toBeTruthy();
+      expect(await hardwareBack()).toBe(true);
+      expect(screen.getByText('log-screen')).toBeTruthy();
+      expect(await hardwareBack()).toBe(true);
+      expect(screen.getByText('stub-no-dream')).toBeTruthy();
+      await act(async () => g.resolve());
+      expect(screen.getByText('stub-no-dream')).toBeTruthy();
+    });
+
+    it('blocks Delete on another open entry while a list delete runs, and unblocks after', async () => {
+      const g = gate();
+      const remove = jest.fn(() => g.promise);
+      mockLibrary.dreams = [finishedDream, otherDream];
+      mockLibrary.onRemove = remove;
+      await reachLog();
+      await press('stub-list-delete-other');
+      await press('stub-open-dream');
+      expect(screen.getByText('blocked:true')).toBeTruthy();
+      await act(async () => g.resolve());
+      expect(screen.getByText('detail-screen')).toBeTruthy();
+      expect(screen.getByText('blocked:false')).toBeTruthy();
+    });
+
+    it('rejects an entry delete invoked during a list delete, without a second remove or navigation', async () => {
+      const g = gate();
+      const remove = jest.fn(() => g.promise);
+      mockLibrary.dreams = [finishedDream, otherDream];
+      mockLibrary.onRemove = remove;
+      await reachLog();
+      await press('stub-list-delete-other');
+      await press('stub-open-dream');
+      await press('stub-detail-delete');
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('detail-screen')).toBeTruthy();
+      expect(screen.getByText('deleting:false')).toBeTruthy();
+      await act(async () => g.resolve());
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('detail-screen')).toBeTruthy();
+    });
+
+    it('does not pull the user off another open entry when the list delete ends', async () => {
+      const g = gate();
+      mockLibrary.dreams = [finishedDream, otherDream];
+      mockLibrary.onRemove = () => g.promise;
+      await reachLog();
+      await press('stub-list-delete-other');
+      await press('stub-open-dream');
+      await act(async () => g.resolve());
+      expect(screen.getByText('detail-screen')).toBeTruthy();
+      expect(screen.getByText('detail-title:Old title')).toBeTruthy();
+      await press('stub-detail-edit');
+      expect(screen.getByText('review-screen')).toBeTruthy();
+    });
+  });
+
+  it('hardware back from the entry still works when not deleting', async () => {
+    await reachDetail();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 });
