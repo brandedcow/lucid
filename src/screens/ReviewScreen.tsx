@@ -39,7 +39,7 @@ import {
  * - saving: a save is in flight; Done, Finish later and the back arrow do nothing, and the card and
  *   all fields are locked so a late edit cannot be lost.
  * - onBack: the back arrow; the parent decides where it goes.
- * - date: label shown in the header ("Dream · <date>" for Dreams, just the date for Life).
+ * - date: label shown in the header ("Dream · <date>" for Dreams, "Life · <date>" for Life).
  * - journal: optional, defaults to Dreams. Sets the date line, title placeholder, whether Done needs
  *   a title (Dreams yes, Life no) and whether the emotion field shows.
  */
