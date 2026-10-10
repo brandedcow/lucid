@@ -1,3 +1,5 @@
+import { JournalId } from './entry';
+
 export type Dream = {
   id: string;
   /** ISO timestamp of when the dream was first stored (a draft counts). */
@@ -16,7 +18,15 @@ export type Dream = {
   transcript?: string;
   /** 'draft' while unfinished; absent once finished. */
   status?: 'draft';
+  /**
+   * Which journal the entry belongs to. Absent in records saved before journals existed; those
+   * count as 'dreams' (see `entriesFor`) and are never rewritten to add it.
+   */
+  journalId?: JournalId;
 };
+
+/** The stored record type serves every journal (Dreams, Life, ...); `Dream` is its original name. */
+export type Entry = Dream;
 
 export type DreamDetails = {
   title: string;
