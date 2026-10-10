@@ -172,6 +172,9 @@ jest.mock('./src/screens/DreamLogScreen', () => {
         <Pressable onPress={() => onOpenDream('7')}>
           <Text>stub-open-dream</Text>
         </Pressable>
+        <Pressable onPress={() => onOpenDream('L1')}>
+          <Text>stub-open-life-entry</Text>
+        </Pressable>
         <Pressable onPress={() => onOpenDream('missing')}>
           <Text>stub-open-missing</Text>
         </Pressable>
@@ -278,6 +281,7 @@ jest.mock('./src/screens/SearchScreen', () => {
 // The library is faked so tests control what the log holds and when a refresh finishes.
 const mockLibrary: {
   dreams: any[];
+  indexStatus?: 'ok' | 'unreadable';
   onRefresh?: () => Promise<void> | void;
   onRemove?: (id: string) => Promise<void>;
   afterRemoveFilter?: () => Promise<void>;
@@ -289,7 +293,7 @@ jest.mock('./src/hooks/useDreamLibrary', () => {
       const [dreams, setDreams] = useState(mockLibrary.dreams);
       return {
         dreams,
-        indexStatus: 'ok',
+        indexStatus: mockLibrary.indexStatus ?? 'ok',
         refresh: async () => {
           await mockLibrary.onRefresh?.();
           setDreams(mockLibrary.dreams);
@@ -336,6 +340,7 @@ const lastAlertButtons = () =>
 beforeEach(() => {
   jest.clearAllMocks();
   mockLibrary.dreams = [finishedDream];
+  mockLibrary.indexStatus = undefined;
   mockLibrary.onRefresh = undefined;
   mockLibrary.onRemove = undefined;
   mockLibrary.afterRemoveFilter = undefined;
@@ -1160,5 +1165,329 @@ describe('App delete dream', () => {
     await reachDetail();
     expect(await hardwareBack()).toBe(true);
     expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+});
+
+const lifeEntry = {
+  id: 'L1',
+  createdAt: '2026-10-03T08:00:00.000Z',
+  durationMs: 0,
+  title: '',
+  emotion: '',
+  tags: ['water'],
+  transcript: 'went for a walk',
+  journalId: 'life',
+};
+
+describe('App journals navigation', () => {
+  it('opens on Dream capture with no back arrow and the No dream pill', async () => {
+    await render(<App />);
+    expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
+    expect(screen.getByText('stub-no-dream')).toBeTruthy();
+    expect(screen.queryByText('stub-capture-back')).toBeNull();
+  });
+
+  it('No dream goes to the Dream log (unchanged)', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+  });
+
+  it('saving a dream goes to the Dream log', async () => {
+    await render(<App />);
+    await press('stub-save-recording');
+    await press('Continue');
+    expect(screen.getByText('review-journal:dreams')).toBeTruthy();
+    await press('stub-set-title');
+    await press('stub-done');
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'dreams' }));
+  });
+
+  it('the log back arrow goes to Journals home, which has counts and no way back', async () => {
+    mockLibrary.dreams = [
+      finishedDream,
+      lifeEntry,
+      { ...finishedDream, id: 'dr', status: 'draft' },
+    ];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expect(screen.getByText('counts:{"dreams":1,"life":1}')).toBeTruthy();
+    expect(screen.getByText('unreadable:false')).toBeTruthy();
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('Journals home shows unreadable from the library status', async () => {
+    mockLibrary.indexStatus = 'unreadable';
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    expect(screen.getByText('unreadable:true')).toBeTruthy();
+  });
+
+  it('each log shows only its own journal entries', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    expect(screen.getByText('log-ids:7')).toBeTruthy();
+    await press('stub-log-back');
+    await press('stub-open-life');
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+    expect(screen.getByText('log-ids:L1')).toBeTruthy();
+  });
+
+  it('opening another journal starts its log with a fresh view', async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-set-query');
+    await press('stub-log-back');
+    await press('stub-open-life');
+    expect(screen.getByText('query:')).toBeTruthy();
+  });
+
+  const reachLifeCapture = async () => {
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-open-life');
+    await press('stub-new-dream');
+  };
+
+  it('Life capture comes from the Life log, has a back arrow and no No dream pill', async () => {
+    await reachLifeCapture();
+    expect(screen.getByText('capture-journal:life')).toBeTruthy();
+    expect(screen.queryByText('stub-no-dream')).toBeNull();
+    await press('stub-capture-back');
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('Android back on Life capture goes to the Life log, except while recording', async () => {
+    await reachLifeCapture();
+    await press('stub-capture-busy');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('capture-screen')).toBeTruthy();
+    // Dreams capture still exits.
+  });
+
+  it('Android back on idle Life capture goes to the Life log', async () => {
+    await reachLifeCapture();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('saving an untitled Life entry goes to the Life log', async () => {
+    await reachLifeCapture();
+    await press('stub-type-instead');
+    expect(screen.getByLabelText('Entry text')).toBeTruthy();
+    await press('Continue');
+    expect(screen.getByText('review-journal:life')).toBeTruthy();
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'life' }));
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('Read it back discard alert uses the entry wording for Life', async () => {
+    await reachLifeCapture();
+    await press('stub-type-instead');
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Discard this entry?',
+      'Your recording and text will be deleted.',
+      expect.any(Array),
+    );
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Discard')
+        ?.onPress?.(),
+    );
+    expect(screen.getByText('capture-journal:life')).toBeTruthy();
+  });
+
+  it('Journals home search opens Search over all records', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    expect(screen.getByText('search-screen')).toBeTruthy();
+    expect(screen.getByText('search-count:2')).toBeTruthy();
+  });
+
+  it('Search back (arrow and Android) goes to Journals home and resets the search view', async () => {
+    const toSearch = async () => {
+      await press('stub-journals-search');
+      await press('stub-search-set-query');
+      await press('stub-search-toggle-tag');
+      expect(screen.getByText('search-query:hall')).toBeTruthy();
+      expect(screen.getByText('search-tags:water')).toBeTruthy();
+    };
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await toSearch();
+    await press('stub-search-back');
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    await press('stub-journals-search');
+    expect(screen.getByText('search-query:')).toBeTruthy();
+    expect(screen.getByText('search-tags:')).toBeTruthy();
+    await press('stub-search-set-query');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    await press('stub-journals-search');
+    expect(screen.getByText('search-query:')).toBeTruthy();
+  });
+
+  it('a search result opens its entry; Back returns to Search with the view kept', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    await press('stub-search-set-query');
+    await press('stub-search-open-life');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(screen.getByText('detail-journal:life')).toBeTruthy();
+    await press('stub-detail-back');
+    expect(screen.getByText('search-screen')).toBeTruthy();
+    expect(screen.getByText('search-query:hall')).toBeTruthy();
+    await press('stub-search-open');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('search-query:hall')).toBeTruthy();
+  });
+
+  it('detail Back from the Life log returns to the Life log', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-open-life');
+    await press('stub-open-life-entry');
+    await press('stub-detail-back');
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('an edit round trip from Search returns to Search', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    await press('stub-search-open');
+    await press('stub-detail-edit');
+    expect(screen.getByText('review-journal:dreams')).toBeTruthy();
+    await press('stub-review-back');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    await press('stub-detail-back');
+    expect(screen.getByText('search-screen')).toBeTruthy();
+  });
+
+  it('edit-save of an untitled Life entry is allowed and returns to the entry', async () => {
+    mockLibrary.dreams = [lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    await press('stub-search-open-life');
+    await press('stub-detail-edit');
+    await press('stub-edit');
+    await fireEvent.changeText(screen.getByLabelText('Entry text'), 'went for a long walk');
+    await press('Continue');
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ id: 'L1' }));
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+  });
+
+  it('edit-save of a Dreams entry with its title cleared is still blocked', async () => {
+    await reachEdit();
+    await press('stub-clear-title');
+    await press('stub-done');
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(screen.getByText('review-screen')).toBeTruthy();
+  });
+
+  it('Edit back with changes uses the entry wording for Life', async () => {
+    mockLibrary.dreams = [lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-open-life');
+    await press('stub-open-life-entry');
+    await press('stub-detail-edit');
+    await press('stub-set-title');
+    await press('stub-review-back');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Discard changes?',
+      'Your changes to this entry will be lost.',
+      expect.any(Array),
+    );
+  });
+
+  it('a Life delete failure uses the entry wording', async () => {
+    mockLibrary.onRemove = () => Promise.reject({ kind: 'unreadable' });
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-list-delete-life');
+    await act(async () => {});
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Could not delete entry',
+      'Your saved entries could not be read. Nothing was deleted.',
+    );
+  });
+
+  it('a Dreams delete failure keeps the dream wording', async () => {
+    mockLibrary.onRemove = () => Promise.reject({ kind: 'blocked' });
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-list-delete');
+    await act(async () => {});
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Could not delete dream',
+      'A saved copy of your dreams is damaged, so this dream was not deleted. Nothing was changed.',
+    );
+  });
+
+  it('a delete from an entry opened from Search returns to Search', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    await press('stub-search-open');
+    await press('stub-detail-delete');
+    await act(async () => {});
+    expect(screen.getByText('search-screen')).toBeTruthy();
+  });
+
+  it('a delete from a Life entry returns to the Life log', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-open-life');
+    await press('stub-open-life-entry');
+    await press('stub-detail-delete');
+    await act(async () => {});
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('an entry-started delete still blocks Back (arrow and Android) on Search-origin entries', async () => {
+    let resolve!: () => void;
+    const g = { promise: new Promise<void>((r) => (resolve = r)), resolve: () => resolve() };
+    mockLibrary.dreams = [finishedDream];
+    mockLibrary.onRemove = () => g.promise;
+    await render(<App />);
+    await press('stub-no-dream');
+    await press('stub-log-back');
+    await press('stub-journals-search');
+    await press('stub-search-open');
+    await press('stub-detail-delete');
+    await press('stub-detail-back');
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('detail-screen')).toBeTruthy();
+    await act(async () => g.resolve());
+    expect(screen.getByText('search-screen')).toBeTruthy();
   });
 });
