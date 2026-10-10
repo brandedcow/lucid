@@ -153,7 +153,7 @@ describe('DreamLogScreen list', () => {
     expect(onOpenDraft).not.toHaveBeenCalled();
   });
 
-  it('shows a draft with a red Draft label and a chevron, and opens it', async () => {
+  it('shows a draft with a red Draft label and no chevron, and opens it', async () => {
     const { onOpenDream, onOpenDraft } = await setup();
     expect(screen.getByText('Untitled dream')).toBeTruthy();
     expect(screen.getByText(' · 1:05')).toBeTruthy();
@@ -162,7 +162,7 @@ describe('DreamLogScreen list', () => {
     const subline = screen.getByText('Draft · Oct 4');
     expect(StyleSheet.flatten(subline.props.style).color).toBe(colors.muted);
     expect(screen.queryByText(/Not reviewed yet|Finish now/)).toBeNull();
-    expect(screen.getByText('›')).toBeTruthy();
+    expect(screen.queryByText('›')).toBeNull();
     await fireEvent.press(screen.getByText('Untitled dream'));
     expect(onOpenDraft).toHaveBeenCalledWith(DREAMS[0]);
     expect(onOpenDream).not.toHaveBeenCalled();
@@ -485,15 +485,53 @@ describe('DreamLogScreen delete', () => {
     expect(screen.getAllByText('Delete', HIDDEN).length).toBeGreaterThan(0);
   });
 
-  it('gives drafts no delete action', async () => {
-    await setup();
-    const draft = screen.getByLabelText(
-      'Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Tap to finish',
-    );
+  const DRAFT_LABEL = 'Draft: Untitled dream. Sunday, October 4 · 6:42 AM. Tap to finish';
+  const DRAFT_DELETE = 'Delete dream: Untitled dream';
+
+  it('gives drafts a Delete accessibility action and a revealed Delete', async () => {
+    const { onDeleteDream, onOpenDraft } = await setup();
+    const draft = screen.getByLabelText(DRAFT_LABEL);
+    expect(draft.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+    // Every row (draft, a, b, c, legacy) has a Delete behind it.
+    expect(screen.getAllByText('Delete', HIDDEN)).toHaveLength(5);
+    const action = screen.getByLabelText(DRAFT_DELETE, HIDDEN);
+    expect(StyleSheet.flatten(action.props.style).minHeight).toBeGreaterThanOrEqual(44);
+    expect(StyleSheet.flatten(action.props.style).backgroundColor).toBe(colors.draft);
+    await fireEvent(draft, 'accessibilityAction', { nativeEvent: { actionName: 'delete' } });
+    expect(alertSpy.mock.calls[0][0]).toBe('Delete this dream?');
+    expect(onDeleteDream).not.toHaveBeenCalled();
+    expect(onOpenDraft).not.toHaveBeenCalled();
+  });
+
+  it('deletes a draft only after confirming', async () => {
+    const { onDeleteDream } = await setup();
+    await fireEvent.press(screen.getByLabelText(DRAFT_DELETE, HIDDEN));
+    expect(onDeleteDream).not.toHaveBeenCalled();
+    await act(async () => alertSpy.mock.calls[0][2]?.[1].onPress?.());
+    expect(onDeleteDream).toHaveBeenCalledTimes(1);
+    expect(onDeleteDream).toHaveBeenCalledWith(DREAMS[0]);
+  });
+
+  it('deletes nothing when Keep is pressed on a draft', async () => {
+    const { onDeleteDream } = await setup();
+    await fireEvent.press(screen.getByLabelText(DRAFT_DELETE, HIDDEN));
+    await act(async () => alertSpy.mock.calls[0][2]?.[0].onPress?.());
+    expect(onDeleteDream).not.toHaveBeenCalled();
+  });
+
+  it('dims a draft being deleted and does not open it', async () => {
+    const { onOpenDraft } = await setup({ deletingId: 'draft' });
+    const draft = screen.getByLabelText(DRAFT_LABEL);
+    expect(draft.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(StyleSheet.flatten(draft.props.style).opacity).toBeLessThan(1);
+    await fireEvent.press(draft);
+    expect(onOpenDraft).not.toHaveBeenCalled();
     expect(draft.props.accessibilityActions).toBeUndefined();
-    expect(draft.props.onAccessibilityAction).toBeUndefined();
-    // Only the finished rows (a, b, c, legacy) have Delete; the label for the draft is "Untitled dream" too.
-    expect(screen.getAllByText('Delete', HIDDEN)).toHaveLength(4);
+  });
+
+  it('turns off the draft delete action while another dream is being deleted', async () => {
+    await setup({ deletingId: 'a' });
+    expect(screen.getByLabelText(DRAFT_LABEL).props.accessibilityActions).toBeUndefined();
   });
 
   it('dims and disables the row being deleted, and turns off delete actions everywhere', async () => {

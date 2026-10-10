@@ -59,6 +59,43 @@ describe('EntryRow', () => {
     expect(onOpenDream).not.toHaveBeenCalled();
   });
 
+  it('shows no chevron on a draft', async () => {
+    await setup({ dream: draft });
+    expect(screen.queryByText('›')).toBeNull();
+  });
+
+  it('dims and disables a deleting draft', async () => {
+    const onDelete = jest.fn();
+    const { onOpenDraft } = await setup({
+      dream: draft,
+      deleting: true,
+      flush: true,
+      onAccessibilityDelete: onDelete,
+    });
+    const btn = screen.getByRole('button');
+    expect(btn.props.accessibilityState).toEqual({ disabled: true });
+    const style = StyleSheet.flatten(btn.props.style);
+    expect(style.opacity).toBe(0.45);
+    expect(style.marginBottom).toBe(0);
+    fireEvent.press(btn);
+    expect(onOpenDraft).not.toHaveBeenCalled();
+    expect(btn.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+  });
+
+  it('calls the Delete accessibility action on a draft', async () => {
+    const onDelete = jest.fn();
+    await setup({ dream: draft, onAccessibilityDelete: onDelete });
+    fireEvent(screen.getByRole('button'), 'accessibilityAction', {
+      nativeEvent: { actionName: 'delete' },
+    });
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives a draft no accessibility actions without a handler', async () => {
+    await setup({ dream: draft });
+    expect(screen.getByRole('button').props.accessibilityActions).toBeUndefined();
+  });
+
   it('dims and disables a deleting card', async () => {
     const { onOpenDream } = await setup({ deleting: true });
     const btn = screen.getByRole('button');

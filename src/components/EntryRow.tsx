@@ -8,7 +8,7 @@ import { DreamChips } from './DreamChips';
 
 /**
  * One entry as a card: a finished entry (date, title, preview, chips) or a draft (title, "Draft"
- * line, chevron). Presentational only: the Dream log wraps it in its swipe row.
+ * line). Presentational only: the Dream log wraps it in its swipe row.
  * - `dream`: the entry.
  * - `untitled`: the title shown when the entry has none (journal copy).
  * - `onOpenDream(id)` / `onOpenDraft(dream)`: the card was pressed (finished / draft).
@@ -64,8 +64,18 @@ export const EntryRow = memo(function EntryRow({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={deleting ? { disabled: true } : undefined}
+        accessibilityActions={onAccessibilityDelete ? DELETE_ACTIONS : undefined}
+        onAccessibilityAction={
+          onAccessibilityDelete
+            ? (e) => {
+                if (e.nativeEvent.actionName === 'delete') onAccessibilityDelete();
+              }
+            : undefined
+        }
+        disabled={deleting}
         onPress={() => onOpenDraft(dream)}
-        style={[styles.card, styles.draftCard]}
+        style={[styles.card, styles.draftCard, flush && styles.flush, deleting && styles.deleting]}
       >
         <View style={styles.cardMain}>
           <View style={styles.draftTitleRow}>
@@ -82,9 +92,6 @@ export const EntryRow = memo(function EntryRow({
             {journalLabel ? ` · ${journalLabel}` : ''}
           </Text>
         </View>
-        <Text style={styles.chevron} importantForAccessibility="no">
-          ›
-        </Text>
       </Pressable>
     );
   }
@@ -154,5 +161,4 @@ const styles = StyleSheet.create({
   preview: { color: colors.muted, fontSize: 14, lineHeight: 19 },
   draftHint: { color: colors.muted, fontSize: 13 },
   draftLabel: { color: colors.draft },
-  chevron: { color: colors.muted, fontSize: 24 },
 });

@@ -40,7 +40,7 @@ import { BUILT_IN_JOURNALS, Journal, JournalCopy, journalCopy } from '../utils/j
  * - `onOpenDream(id)`: a finished dream was tapped.
  * - `onOpenDraft(dream)`: a draft was tapped.
  * - `onNewDream()`: the "New dream" button was tapped.
- * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a finished row (or
+ * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a row, draft or finished (or
  *   the VoiceOver/TalkBack "Delete" action) and chose Delete in the confirmation shown here. The
  *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
  * - `journal`: optional, defaults to Dreams. Sets the header and all wording (empty state, search,
@@ -439,17 +439,6 @@ const LogRow = memo(function LogRow({
     };
   }, [onRowClosed]);
   const row = useMemo(() => dreamRow(dream, new Date(), copy.untitled), [dream, copy]);
-
-  if (row.isDraft) {
-    return (
-      <EntryRow
-        dream={dream}
-        untitled={copy.untitled}
-        onOpenDream={onOpenDream}
-        onOpenDraft={onOpenDraft}
-      />
-    );
-  }
 
   const swipeable = !swipeLocked && !deleting;
   const deleteDream = () => {
