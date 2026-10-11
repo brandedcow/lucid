@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
 import { Alert, AlertButton, TextInput } from 'react-native';
-import { useEntrySession } from '../hooks/useEntrySession';
+import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
@@ -86,10 +86,7 @@ function Harness({ open }: { open?: { dream: Dream; as: 'draft' | 'edit' } }) {
       onTitleChange={entry.setTitle}
       body={session.body}
       onBodyChange={entry.setBody}
-      tags={session.tags}
-      onTagsChange={entry.setTags}
-      tagDraft={session.tagDraft}
-      onTagDraftChange={entry.setTagDraft}
+      bodyBaseFrom={session.materializedFrom}
       date="Sunday, October 6"
       saving={entry.saving}
       onSave={() => void entry.save('saved').then((ok) => ok && events.onSaved())}
@@ -442,7 +439,6 @@ describe('toolbar', () => {
     const tree = JSON.stringify(screen.toJSON());
     expect(tree.indexOf('"Entry text"')).toBeGreaterThan(-1);
     expect(tree.indexOf('"Undo"')).toBeGreaterThan(tree.indexOf('"Entry text"'));
-    expect(tree.indexOf('"Add a tag..."')).toBe(-1);
   });
 
   it('starts with undo and redo disabled', async () => {
@@ -477,7 +473,7 @@ describe('toolbar', () => {
     expect(disabled('Redo')).toBe(true);
   });
 
-  it('does not touch the title or tags', async () => {
+  it('does not touch the title', async () => {
     await renderPage();
     await fireEvent.changeText(screen.getByLabelText('Title'), 'A title');
     await advance(600);
@@ -573,53 +569,103 @@ describe('toolbar', () => {
   });
 
   describe('# button', () => {
-    it('hides the tag row until # is tapped, then shows and focuses it', async () => {
+    const select = (start: number, end = start) =>
+      fireEvent(body(), 'selectionChange', { nativeEvent: { selection: { start, end } } });
+
+    it('shows no tag row or tag input', async () => {
+      await renderPage({ open: { dream: { ...stored, tags: ['water'] }, as: 'edit' } });
+      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+      expect(screen.queryByLabelText('Remove tag water')).toBeNull();
+    });
+
+    it('inserts # at the end of the text when no cursor is known, and focuses the body', async () => {
       const focus = jest.spyOn(TextInput.prototype, 'focus');
       await renderPage();
-      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+      await typeBody('hello');
       await press('Add tags');
-      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
-      expect(focus).toHaveBeenCalledTimes(1);
+      expect(body().props.value).toBe('hello #');
+      expect(sessionApi?.session?.body).toBe('hello #');
+      expect(focus).toHaveBeenCalled();
     });
 
-    it('focuses the input again when # is tapped with tag text in it', async () => {
-      const focus = jest.spyOn(TextInput.prototype, 'focus');
+    it('inserts # at the cursor, mid-text, and moves the cursor after it', async () => {
+      await renderPage();
+      await typeBody('ab cd');
+      await select(2);
+      await press('Add tags');
+      expect(body().props.value).toBe('ab # cd');
+      expect(body().props.selection).toEqual({ start: 4, end: 4 });
+    });
+
+    it('inserts # at the start of an empty body without a space', async () => {
       await renderPage();
       await press('Add tags');
-      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'wat');
-      await press('Add tags');
-      expect(focus).toHaveBeenCalledTimes(2);
+      expect(body().props.value).toBe('#');
     });
 
-    it('tapping # again hides an empty row', async () => {
+    it('is its own undo step, apart from the typing before it', async () => {
       await renderPage();
+      await typeBody('hello');
       await press('Add tags');
-      await press('Add tags');
-      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+      await press('Undo');
+      expect(body().props.value).toBe('hello');
+      await press('Redo');
+      expect(body().props.value).toBe('hello #');
     });
 
-    it('shows the row regardless when the entry has tags, and # does not hide it', async () => {
-      await renderPage({ open: { dream: { ...stored, tags: ['water'] }, as: 'edit' } });
-      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
-      await press('Add tags');
-      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
-    });
-
-    it('keeps the row open after the last tag of a tagged entry is removed, until # closes it', async () => {
-      await renderPage({ open: { dream: { ...stored, tags: ['water'] }, as: 'edit' } });
-      await press('Remove tag water');
-      expect(screen.queryByText('water')).toBeNull();
-      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
-      await press('Add tags');
-      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
-    });
-
-    it('keeps the row when tag text is typed', async () => {
+    it('is locked while saving', async () => {
+      jest.mocked(saveDream).mockReturnValue(new Promise<Dream>(() => {}));
       await renderPage();
-      await press('Add tags');
-      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'wat');
-      await press('Add tags');
-      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+      await fireEvent.changeText(screen.getByLabelText('Title'), 'T');
+      await act(async () => {
+        fireEvent.press(screen.getByLabelText('Save dream'));
+      });
+      expect(disabled('Add tags')).toBe(true);
+    });
+  });
+
+  describe('tags in the body', () => {
+    it('saves tags derived from the body, with the body kept as typed', async () => {
+      await renderPage();
+      await fireEvent.changeText(screen.getByLabelText('Title'), 'T');
+      await typeBody('Saw #Water and #sky then #water');
+      await act(async () => {
+        fireEvent.press(screen.getByLabelText('Save dream'));
+      });
+      expect(saveDream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            tags: ['water', 'sky'],
+            transcript: 'Saw #Water and #sky then #water',
+          }),
+        }),
+      );
+    });
+
+    it('opens an entry with its stored tags written into the body as one undo step, not an edit', async () => {
+      await renderPage({
+        open: { dream: { ...stored, tags: ['water', 'Bad Dream'] }, as: 'edit' },
+      });
+      expect(body().props.value).toBe('old text\n#water #bad-dream');
+      expect(entryHasEdits(sessionApi!.session!)).toBe(false);
+      expect(disabled('Undo')).toBe(false);
+      await press('Undo');
+      expect(body().props.value).toBe('old text');
+      expect(disabled('Undo')).toBe(true);
+      await press('Redo');
+      expect(body().props.value).toBe('old text\n#water #bad-dream');
+    });
+
+    it('writes odd old tags in sanitized (v1.2 becomes #v1-2)', async () => {
+      await renderPage({ open: { dream: { ...stored, tags: ['v1.2', 'a/b'] }, as: 'draft' } });
+      expect(body().props.value).toBe('old text\n#v1-2 #a-b');
+    });
+
+    it('has no undo step when the body already holds every tag', async () => {
+      await renderPage({
+        open: { dream: { ...stored, transcript: 'a #water', tags: ['water'] }, as: 'edit' },
+      });
+      expect(disabled('Undo')).toBe(true);
     });
   });
 });

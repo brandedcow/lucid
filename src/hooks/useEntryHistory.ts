@@ -44,6 +44,11 @@ type Options = {
   removeAudio?: () => void;
   /** Brings a removed recording back. */
   restoreAudio?: () => void;
+  /**
+   * The body before something was added to it on open (the entry's tags written in as `#tag`s):
+   * seeds one undo step from it to `body`. Read once, when the page opens.
+   */
+  seedFrom?: string;
 };
 
 type State = HistoryStacks & {
@@ -57,8 +62,13 @@ type State = HistoryStacks & {
  * grouped into a step after a short pause, on blur, and before any other action. The stack is
  * capped and redo is cleared by any new action. Lives as long as the page; call `reset` on save.
  */
-export function useEntryHistory({ body, setBody, removeAudio, restoreAudio }: Options) {
-  const [state, setState] = useState<State>({ ...emptyHistory, committed: body });
+export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seedFrom }: Options) {
+  const [state, setState] = useState<State>(() => ({
+    ...(seedFrom !== undefined && seedFrom !== body
+      ? pushHistory(emptyHistory, { kind: 'body', from: seedFrom, to: body })
+      : emptyHistory),
+    committed: body,
+  }));
   // The ref mirrors the state so handlers always see the latest value, not a stale render's.
   const ref = useRef(state);
   const latestBody = useRef(body);

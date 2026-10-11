@@ -59,7 +59,6 @@ jest.mock('./src/screens/AddEntryScreen', () => {
         <Text>{`add-journal:${p.journal?.id}`}</Text>
         <Text>{`add-title:${p.title}`}</Text>
         <Text>{`add-body:${p.body}`}</Text>
-        <Text>{`add-tags:${p.tags.join(',')}`}</Text>
         <Text>{`add-date:${p.date}`}</Text>
         <Text>{`add-saving:${p.saving}`}</Text>
         <Text>{`add-autofocus:${p.autoFocus}`}</Text>
@@ -766,8 +765,8 @@ describe('App edit flow', () => {
     await reachEdit();
     expect(screen.getByText('add-screen')).toBeTruthy();
     expect(screen.getByText('add-title:Old title')).toBeTruthy();
-    expect(screen.getByText('add-body:old text')).toBeTruthy();
-    expect(screen.getByText('add-tags:water')).toBeTruthy();
+    // The stored tag is written into the body (the stub's text collapses the newline).
+    expect(screen.getByText('add-body:old text #water')).toBeTruthy();
     expect(screen.getByText('add-autofocus:false')).toBeTruthy();
     expect(
       screen.getByText(`add-date:${dateLabel(new Date(finishedDream.createdAt))}`),
@@ -794,7 +793,7 @@ describe('App edit flow', () => {
     expect(arg).toMatchObject({
       id: '7',
       status: 'saved',
-      details: { title: 'My title', emotion: '', tags: ['water'], transcript: 'old text' },
+      details: { title: 'My title', emotion: '', tags: ['water'], transcript: 'old text\n#water' },
     });
     expect(arg).not.toHaveProperty('recordingUri');
     expect(screen.getByText('detail-screen')).toBeTruthy();

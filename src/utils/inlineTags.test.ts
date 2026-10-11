@@ -291,11 +291,26 @@ describe('materializeTags', () => {
     expect(materializeTags('', ['a', 'A', ' a '])).toBe('#a');
   });
 
-  it('drops tags that cannot be written inline (empty, digits-only, terminators, too long, trailing hyphen)', () => {
-    expect(
-      materializeTags('x', ['', '   ', '#', '2024', 'c.s.', 'a/b', 'foo-', 'a'.repeat(41)]),
-    ).toBe('x');
+  it('drops tags that are empty, digits-only or too long', () => {
+    expect(materializeTags('x', ['', '   ', '#', '..', '2024', 'a'.repeat(41)])).toBe('x');
     expect(materializeTags('x', ['2024', 'ok'])).toBe('x\n#ok');
+  });
+
+  it('sanitizes terminator characters to hyphens, collapsing runs and trimming the end', () => {
+    expect(materializeTags('x', ['v1.2'])).toBe('x\n#v1-2');
+    expect(materializeTags('x', ['a/b', 'a(b', 'a_', 'c.s.', 'foo-', 'a. .b', 'q?!'])).toBe(
+      'x\n#a-b #a #c-s #foo #q',
+    );
+    expect(materializeTags('', ['2.5'])).toBe('#2-5');
+  });
+
+  it('treats a sanitized tag already in the body as present', () => {
+    expect(materializeTags('saw #v1-2', ['v1.2'])).toBe('saw #v1-2');
+  });
+
+  it('writes every sanitized result as one inline tag', () => {
+    const out = materializeTags('', ['v1.2', 'a/b', 'a(b', 'a_', 'bad dream']);
+    expect(inlineTags(out)).toEqual(['v1-2', 'a-b', 'a', 'bad-dream']);
   });
 
   it('keeps emoji tags and round-trips through inlineTags', () => {

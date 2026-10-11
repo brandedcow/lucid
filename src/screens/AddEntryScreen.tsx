@@ -13,11 +13,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
-import { TagInput } from '../components/TagInput';
-import { listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
+
+type Selection = { start: number; end: number };
 
 /**
  * Prop contract:
@@ -27,8 +27,8 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  *   a journal being deleted) and the pick handler. Without onJournalChange the pill is display only.
  * - journalLocked: a reopened draft or a saved entry never moves journals; the pill is a plain
  *   label with no chevron.
- * - title / body / tags / tagDraft and their setters: session state (the body is stored as the
- *   entry's transcript). There is no emotion field here.
+ * - title / body and their setters: session state (the body is stored as the entry's transcript;
+ *   tags are `#tag` words typed in it). There is no emotion field here.
  * - date: the date line ("Sunday, October 6").
  * - onSave: the check; the parent saves a finished entry. Disabled until there is a title when the
  *   journal requires one, and while a save is in flight.
@@ -42,8 +42,10 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  *   means the window does not resize; KeyboardAvoidingView on iOS) and above the bottom safe-area
  *   inset when the keyboard is closed. A suggestion bar can later go in the dock above the toolbar.
  * - onBodyBlur: the body lost focus (ends a typing step in the undo history).
- * - tagsVisible: false hides the tag row (the toolbar's # shows it); defaults to shown.
- * - tagFocusSignal: focuses the tag input each time this number changes (the # button).
+ * - onBodySelectionChange: the body's cursor / selection moved (the page tracks it for the # button).
+ * - bodySelection: forces the body's cursor (set after the # button inserts text); leave undefined
+ *   otherwise so the input manages it.
+ * - bodyFocusSignal: focuses the body each time this number changes (the # button).
  */
 export type AddEntryScreenProps = {
   journal?: Journal;
@@ -54,10 +56,6 @@ export type AddEntryScreenProps = {
   onTitleChange: (title: string) => void;
   body: string;
   onBodyChange: (body: string) => void;
-  tags: string[];
-  onTagsChange: (tags: string[]) => void;
-  tagDraft: string;
-  onTagDraftChange: (text: string) => void;
   date: string;
   onSave: () => void;
   onBack: () => void;
@@ -67,8 +65,9 @@ export type AddEntryScreenProps = {
   attachment?: ReactNode;
   toolbar?: ReactNode;
   onBodyBlur?: () => void;
-  tagsVisible?: boolean;
-  tagFocusSignal?: number;
+  onBodySelectionChange?: (selection: Selection) => void;
+  bodySelection?: Selection;
+  bodyFocusSignal?: number;
 };
 
 export function AddEntryScreen({
@@ -80,10 +79,6 @@ export function AddEntryScreen({
   onTitleChange,
   body,
   onBodyChange,
-  tags,
-  onTagsChange,
-  tagDraft,
-  onTagDraftChange,
   date,
   onSave,
   onBack,
@@ -93,18 +88,18 @@ export function AddEntryScreen({
   attachment,
   toolbar,
   onBodyBlur,
-  tagsVisible = true,
-  tagFocusSignal = 0,
+  onBodySelectionChange,
+  bodySelection,
+  bodyFocusSignal = 0,
 }: AddEntryScreenProps) {
   const copy = journalCopy(journal);
   const canSave =
     (!titleRequired(journal.kind) || title.trim().length > 0) && !saving && !saveDisabled;
-  const [knownTags, setKnownTags] = useState<string[]>([]);
-  const tagInputRef = useRef<TextInput>(null);
+  const bodyInputRef = useRef<TextInput>(null);
   useEffect(() => {
     // 0 is the initial value, not a request.
-    if (tagFocusSignal > 0) tagInputRef.current?.focus();
-  }, [tagFocusSignal]);
+    if (bodyFocusSignal > 0) bodyInputRef.current?.focus();
+  }, [bodyFocusSignal]);
   const keyboard = useKeyboardInset();
   const { bottom: bottomInset } = useSafeAreaInsets();
   // The dock's bottom padding. Android: the keyboard height plus the system bar inset while open (the
@@ -125,10 +120,6 @@ export function AddEntryScreen({
   // The menu closes for good when the picker stops being available (a save started, or the entry
   // got locked).
   const showMenu = menuOpen && pickable && !saving;
-
-  useEffect(() => {
-    listTags().then(setKnownTags);
-  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -195,9 +186,12 @@ export function AddEntryScreen({
             style={styles.titleInput}
           />
           <TextInput
+            ref={bodyInputRef}
             value={body}
             onChangeText={onBodyChange}
             onBlur={onBodyBlur}
+            onSelectionChange={(e) => onBodySelectionChange?.(e.nativeEvent.selection)}
+            {...(bodySelection ? { selection: bodySelection } : {})}
             editable={!saving}
             placeholder="Start writing..."
             placeholderTextColor={colors.faint}
@@ -206,19 +200,6 @@ export function AddEntryScreen({
             textAlignVertical="top"
             style={styles.bodyInput}
           />
-          {tagsVisible && (
-            <View pointerEvents={saving ? 'none' : 'auto'}>
-              <TagInput
-                inputRef={tagInputRef}
-                tags={tags}
-                onTagsChange={onTagsChange}
-                draft={tagDraft}
-                onDraftChange={onTagDraftChange}
-                suggestions={knownTags}
-                disabled={saving}
-              />
-            </View>
-          )}
         </ScrollView>
         <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
           {/* Suggestion bar slot: goes here, directly above the toolbar. */}

@@ -651,10 +651,7 @@ export default function App() {
             onTitleChange={entry.setTitle}
             body={entry.session.body}
             onBodyChange={entry.setBody}
-            tags={entry.session.tags}
-            onTagsChange={entry.setTags}
-            tagDraft={entry.session.tagDraft}
-            onTagDraftChange={entry.setTagDraft}
+            bodyBaseFrom={entry.session.materializedFrom}
             date={entryDate}
             saving={entry.saving}
             autoFocus={entry.session.origin === 'new'}

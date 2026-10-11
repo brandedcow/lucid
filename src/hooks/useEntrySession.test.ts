@@ -47,8 +47,6 @@ describe('entrySessionReducer', () => {
       title: '',
       body: '',
       emotion: '',
-      tags: [],
-      tagDraft: '',
     });
     expect(
       entrySessionReducer(null, { type: 'startNew', journalId: 'life', body: 'so far' }),
@@ -63,14 +61,10 @@ describe('entrySessionReducer', () => {
     let s = entrySessionReducer(null, { type: 'startNew' });
     s = entrySessionReducer(s, { type: 'setTitle', value: 't' });
     s = entrySessionReducer(s, { type: 'setBody', value: 'b' });
-    s = entrySessionReducer(s, { type: 'setTags', value: ['a'] });
-    s = entrySessionReducer(s, { type: 'setTagDraft', value: 'c' });
     s = entrySessionReducer(s, { type: 'markSaved', id: '9', createdAt: 'when' });
     expect(s).toMatchObject({
       title: 't',
       body: 'b',
-      tags: ['a'],
-      tagDraft: 'c',
       id: '9',
       createdAt: 'when',
     });
@@ -83,9 +77,8 @@ describe('entrySessionReducer setJournal', () => {
     let s = entrySessionReducer(null, { type: 'startNew' });
     s = entrySessionReducer(s, { type: 'setTitle', value: 't' });
     s = entrySessionReducer(s, { type: 'setBody', value: 'b' });
-    s = entrySessionReducer(s, { type: 'setTags', value: ['a'] });
     s = entrySessionReducer(s, { type: 'setJournal', journalId: 'life' });
-    expect(s).toMatchObject({ journalId: 'life', title: 't', body: 'b', tags: ['a'] });
+    expect(s).toMatchObject({ journalId: 'life', title: 't', body: 'b' });
     expect(entryJournalLocked(s!)).toBe(false);
   });
 
@@ -119,11 +112,11 @@ describe('entrySessionFromDream', () => {
       journalId: 'dreams',
       id: '7',
       title: 'Old title',
-      body: 'old text',
+      body: 'old text\n#water',
+      materializedFrom: 'old text',
       emotion: 'uneasy',
-      tags: ['water'],
       audio: { uri: AUDIO, durationMs: 12_000, persisted: true, removed: false },
-      baseline: { title: 'Old title', body: 'old text', tags: ['water'] },
+      baseline: { title: 'Old title', body: 'old text\n#water' },
     });
   });
 
@@ -134,31 +127,54 @@ describe('entrySessionFromDream', () => {
     );
     expect(s.origin).toBe('draft');
     expect(s.baseline).toBeUndefined();
-    expect(s.tags).toEqual([]);
+    expect(s.body).toBe('old text');
+    expect(s.materializedFrom).toBeUndefined();
     expect(s.journalId).toBe('life');
+  });
+
+  it('adds stored tags missing from the body as a trailing #tag line, and only those', () => {
+    const s = entrySessionFromDream(
+      { ...finished, tags: ['water', 'Bad Dream', 'v1.2', '2024'], transcript: 'saw #water' },
+      'edit',
+    );
+    expect(s.body).toBe('saw #water\n#bad-dream #v1-2');
+    expect(s.materializedFrom).toBe('saw #water');
+    expect(s.baseline?.body).toBe(s.body);
+    expect(entryHasEdits(s)).toBe(false);
+  });
+
+  it('adds nothing when the body already holds every tag', () => {
+    const s = entrySessionFromDream({ ...finished, transcript: 'a #water' }, 'edit');
+    expect(s.body).toBe('a #water');
+    expect(s.materializedFrom).toBeUndefined();
+  });
+
+  it('materializes into a reopened draft too (no baseline)', () => {
+    const s = entrySessionFromDream({ ...finished, status: 'draft' }, 'draft');
+    expect(s.body).toBe('old text\n#water');
+    expect(s.materializedFrom).toBe('old text');
+    expect(s.baseline).toBeUndefined();
   });
 });
 
 describe('entryHasContent / entryHasEdits', () => {
   const base = entrySessionReducer(null, { type: 'startNew' })!;
 
-  it('has content for a title, body, tag or pending tag, but not for blanks', () => {
+  it('has content for a title or body (tags are body text), but not for blanks', () => {
     expect(entryHasContent(base)).toBe(false);
     expect(entryHasContent({ ...base, title: '  ', body: '\n' })).toBe(false);
     expect(entryHasContent({ ...base, title: 'a' })).toBe(true);
     expect(entryHasContent({ ...base, body: 'a' })).toBe(true);
-    expect(entryHasContent({ ...base, tags: ['a'] })).toBe(true);
-    expect(entryHasContent({ ...base, tagDraft: 'a' })).toBe(true);
+    expect(entryHasContent({ ...base, body: '#a' })).toBe(true);
   });
 
-  it('detects edits against the baseline (trimmed text, ordered tags, pending tag)', () => {
+  it('detects edits against the baseline (trimmed text; tags are body text)', () => {
     const s = entrySessionFromDream(finished, 'edit');
     expect(entryHasEdits(s)).toBe(false);
     expect(entryHasEdits({ ...s, title: ' Old title ' })).toBe(false);
     expect(entryHasEdits({ ...s, title: 'New' })).toBe(true);
     expect(entryHasEdits({ ...s, body: 'new' })).toBe(true);
-    expect(entryHasEdits({ ...s, tags: [] })).toBe(true);
-    expect(entryHasEdits({ ...s, tagDraft: 'x' })).toBe(true);
+    expect(entryHasEdits({ ...s, body: 'old text' })).toBe(true);
     // No baseline (a new entry or draft) is never an "edit".
     expect(entryHasEdits({ ...s, baseline: undefined, title: 'New' })).toBe(false);
   });
@@ -197,7 +213,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
       expect(saved).not.toHaveProperty('audioFileName');
       expect(saved).toMatchObject({
         title: 'Old title',
-        transcript: 'old text',
+        transcript: 'old text\n#water',
         emotion: 'uneasy',
       });
       expect(__fs.has(AUDIO)).toBe(false);
@@ -326,8 +342,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
     await act(async () => result.current.openEntry(finished));
     await act(async () => {
       result.current.setTitle('New title');
-      result.current.setTags(['water', 'hall']);
-      result.current.setBody('new text');
+      result.current.setBody('new text #water #Hall #water');
     });
     await act(async () => {
       expect(await result.current.save('saved')).toBe(true);
@@ -341,7 +356,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
       title: 'New title',
       emotion: 'uneasy',
       tags: ['water', 'hall'],
-      transcript: 'new text',
+      transcript: 'new text #water #Hall #water',
       futureField: { keep: true },
     });
     expect(entry.status).toBeUndefined();
@@ -670,7 +685,7 @@ describe('saving and leaving with a voice attachment', () => {
       waveform: PEAKS,
       emotion: 'uneasy',
       title: 'Old title',
-      transcript: 'old text',
+      transcript: 'old text\n#water',
     });
     expect(entries()[0].status).toBeUndefined();
   });

@@ -16,7 +16,7 @@ import {
   kindOf,
   titleRequired,
 } from '../utils/journals';
-import { addTag } from '../utils/tags';
+import { inlineTags, materializeTags } from '../utils/inlineTags';
 import { sanitizeWaveform } from '../utils/waveform';
 
 /**
@@ -56,15 +56,20 @@ export type EntrySession = {
    */
   shelved?: EntryAudio[];
   title: string;
-  /** Stored as the entry's `transcript`. */
+  /** Stored as the entry's `transcript`. Tags are `#tag` words inside it. */
   body: string;
+  /**
+   * Set when opening added the entry's stored tags to the body as a trailing `#tag` line: the body
+   * as stored, so the page can seed that addition as one undo step.
+   */
+  materializedFrom?: string;
   /** Not on the page; kept so editing never clears a stored emotion. */
   emotion: string;
-  tags: string[];
-  /** Tag text typed but not yet turned into a tag; saved too. */
-  tagDraft: string;
-  /** Only for origin 'edit': the values when opened, to tell whether anything changed. */
-  baseline?: { title: string; body: string; tags: string[] };
+  /**
+   * Only for origin 'edit': the values when opened (the body after tags were added to it), to tell
+   * whether anything changed.
+   */
+  baseline?: { title: string; body: string };
 };
 
 export type EntrySessionAction =
@@ -73,8 +78,6 @@ export type EntrySessionAction =
   | { type: 'setJournal'; journalId: JournalId }
   | { type: 'setTitle'; value: string }
   | { type: 'setBody'; value: string }
-  | { type: 'setTags'; value: string[] }
-  | { type: 'setTagDraft'; value: string }
   | { type: 'attachRecording'; recording: { uri: string; durationMs: number; waveform?: number[] } }
   | { type: 'removeAudio' }
   | { type: 'restoreAudio' }
@@ -94,8 +97,6 @@ export function entrySessionReducer(
         title: '',
         body: action.body ?? '',
         emotion: '',
-        tags: [],
-        tagDraft: '',
       };
     case 'open':
       return action.session;
@@ -114,10 +115,6 @@ export function entrySessionReducer(
       return { ...state, title: action.value };
     case 'setBody':
       return { ...state, body: action.value };
-    case 'setTags':
-      return { ...state, tags: action.value };
-    case 'setTagDraft':
-      return { ...state, tagDraft: action.value };
     case 'attachRecording': {
       // One recording per entry: a new one is refused while a visible attachment exists. A closed
       // one is shelved, not forgotten.
@@ -181,8 +178,11 @@ export function entryJournalLocked(session: EntrySession): boolean {
 
 /** Builds the session for a stored entry: a reopened draft, or a finished entry being edited. */
 export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): EntrySession {
-  // Stored entries can predate the tags field.
+  // Stored entries can predate the tags field. Tags live inside the body now: any the body lacks
+  // are added as a trailing line.
   const tags = Array.isArray(dream.tags) ? dream.tags : [];
+  const stored = dream.transcript ?? '';
+  const body = materializeTags(stored, tags);
   const audioUri = dreamAudioUri(dream);
   const first = recordingsOf(dream)[0];
   const waveform = first?.waveform;
@@ -203,13 +203,12 @@ export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): E
         }
       : {}),
     title: dream.title,
-    body: dream.transcript ?? '',
+    body,
+    ...(body !== stored ? { materializedFrom: stored } : {}),
     emotion: dream.emotion ?? '',
-    tags,
-    tagDraft: '',
   };
   if (origin === 'edit') {
-    session.baseline = { title: session.title, body: session.body, tags: [...tags] };
+    session.baseline = { title: session.title, body: session.body };
   }
   return session;
 }
@@ -229,34 +228,27 @@ export function hasPendingAudioRemoval(session: EntrySession): boolean {
   );
 }
 
-/** True when the page holds anything the user typed or recorded: a title, body text, a tag, tag text or a recording. */
+/** True when the page holds anything the user typed or recorded: a title, body text (tags included) or a recording. */
 export function entryHasContent(session: EntrySession): boolean {
   return (
     visibleAudio(session) !== undefined ||
     session.title.trim().length > 0 ||
-    session.body.trim().length > 0 ||
-    session.tags.length > 0 ||
-    session.tagDraft.trim().length > 0
+    session.body.trim().length > 0
   );
 }
 
 /**
  * True when an 'edit' session differs from the entry as opened: title and body (trimmed, case
- * kept), tags (an ordered array), tag text not yet confirmed, or a recording added. False when
- * there is no baseline.
+ * kept; tags are part of the body), or a recording added. False when there is no baseline.
  */
 export function entryHasEdits(session: EntrySession): boolean {
   const { baseline } = session;
   if (!baseline) return false;
   if (hasPendingAudioRemoval(session)) return true;
-  if (session.tagDraft.trim().length > 0) return true;
   const added = visibleAudio(session);
   if (added && !added.persisted) return true;
   return (
-    session.title.trim() !== baseline.title.trim() ||
-    session.body.trim() !== baseline.body.trim() ||
-    session.tags.length !== baseline.tags.length ||
-    session.tags.some((tag, i) => tag !== baseline.tags[i])
+    session.title.trim() !== baseline.title.trim() || session.body.trim() !== baseline.body.trim()
   );
 }
 
@@ -307,8 +299,6 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
       setJournal: (journalId: JournalId) => dispatch({ type: 'setJournal', journalId }),
       setTitle: (value: string) => dispatch({ type: 'setTitle', value }),
       setBody: (value: string) => dispatch({ type: 'setBody', value }),
-      setTags: (value: string[]) => dispatch({ type: 'setTags', value }),
-      setTagDraft: (value: string) => dispatch({ type: 'setTagDraft', value }),
       attachRecording: (recording: { uri: string; durationMs: number; waveform?: number[] }) =>
         dispatch({ type: 'attachRecording', recording }),
       removeAudio: () => dispatch({ type: 'removeAudio' }),
@@ -365,8 +355,8 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
         details: {
           title: current.title,
           emotion: current.emotion,
-          // Include a tag that was typed but not yet confirmed.
-          tags: addTag(current.tags, current.tagDraft),
+          // Derived from the `#tag` words in the body, which stays as typed.
+          tags: inlineTags(current.body),
           transcript: current.body,
         },
         status,

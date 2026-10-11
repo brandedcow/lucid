@@ -59,10 +59,10 @@ describe('useEntryHistory', () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  const setup = (initial = '') =>
+  const setup = (initial = '', seedFrom?: string) =>
     renderHook(() => {
       const [body, setBody] = useState(initial);
-      const history = useEntryHistory({ body, setBody, removeAudio, restoreAudio });
+      const history = useEntryHistory({ body, setBody, removeAudio, restoreAudio, seedFrom });
       return { body, ...history };
     });
   const type = (h: Awaited<ReturnType<typeof setup>>, text: string) =>
@@ -73,6 +73,22 @@ describe('useEntryHistory', () => {
     const h = await setup('hello');
     expect(h.result.current.canUndo).toBe(false);
     expect(h.result.current.canRedo).toBe(false);
+  });
+
+  it('seeds one undo step for text added on open, which undo and redo move across', async () => {
+    const h = await setup('note\n#water', 'note');
+    expect(h.result.current.canUndo).toBe(true);
+    expect(h.result.current.canRedo).toBe(false);
+    await act(() => h.result.current.undo());
+    expect(h.result.current.body).toBe('note');
+    expect(h.result.current.canUndo).toBe(false);
+    await act(() => h.result.current.redo());
+    expect(h.result.current.body).toBe('note\n#water');
+  });
+
+  it('seeds nothing when the body is unchanged from the seed', async () => {
+    const h = await setup('note', 'note');
+    expect(h.result.current.canUndo).toBe(false);
   });
 
   it('groups typing within the debounce window into one step', async () => {

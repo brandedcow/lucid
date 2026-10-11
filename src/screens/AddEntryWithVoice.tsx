@@ -4,6 +4,7 @@ import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
 import { EntryAudio } from '../hooks/useEntrySession';
 import { useEntryHistory } from '../hooks/useEntryHistory';
+import { insertHash } from '../utils/inlineTags';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
@@ -22,13 +23,23 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * - onRestoreAudio: undo of the card's close: brings the recording back (reversible mark only).
  * - onBodyChange here is the session setter; the page wraps it for the undo history.
  *
- * Toolbar: undo / redo (body text and closing the voice note card, one shared stack; not title,
- * tags or journal), mic, # (shows the tag row and focuses it). The check is off while recording
+ * - bodyBaseFrom: set when opening added the entry's tags to the body as `#tag`s; the body as it
+ *   was stored. Seeds that addition as one undo step.
+ *
+ * Toolbar: undo / redo (body text and closing the voice note card, one shared stack; not title or
+ * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
+ * typed in the text). The check is off while recording
  * (stop first); back asks to discard. While recording, the mic, undo and redo are disabled.
  */
 export type AddEntryWithVoiceProps = Omit<
   AddEntryScreenProps,
-  'attachment' | 'toolbar' | 'saveDisabled' | 'onBodyBlur' | 'tagsVisible' | 'tagFocusSignal'
+  | 'attachment'
+  | 'toolbar'
+  | 'saveDisabled'
+  | 'onBodyBlur'
+  | 'onBodySelectionChange'
+  | 'bodySelection'
+  | 'bodyFocusSignal'
 > & {
   audio?: EntryAudio;
   onRecorded: (recording: PanelRecording) => void;
@@ -37,6 +48,7 @@ export type AddEntryWithVoiceProps = Omit<
   onRecordingChange?: (recording: boolean) => void;
   leaveRef?: MutableRefObject<(() => void) | null>;
   onRecordingDiscarded?: () => void;
+  bodyBaseFrom?: string;
 };
 
 export function AddEntryWithVoice({
@@ -47,12 +59,11 @@ export function AddEntryWithVoice({
   onRecordingChange,
   leaveRef,
   onRecordingDiscarded,
+  bodyBaseFrom,
   journal = BUILT_IN_JOURNALS[0] as Journal,
   saving = false,
   body,
   onBodyChange,
-  tags,
-  tagDraft,
   ...page
 }: AddEntryWithVoiceProps) {
   const [recording, setRecordingState] = useState(false);
@@ -77,6 +88,7 @@ export function AddEntryWithVoice({
     setBody: onBodyChange,
     removeAudio: onRemoveAudio,
     restoreAudio: onRestoreAudio,
+    seedFrom: bodyBaseFrom,
   });
   // A save ends the history: the removal it commits can no longer be undone.
   const { reset: resetHistory } = history;
@@ -84,13 +96,26 @@ export function AddEntryWithVoice({
     if (saving) resetHistory();
   }, [saving, resetHistory]);
 
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [tagFocusSignal, setTagFocusSignal] = useState(0);
-  const tagsHaveContent = tags.length > 0 || tagDraft.trim().length > 0;
-  // Once the row has had content in this session it stays open (latched into `tagsOpen`), so
-  // removing the last tag or clearing the text never makes it vanish mid-edit.
-  if (tagsHaveContent && !tagsOpen) setTagsOpen(true);
-  const tagsVisible = tagsHaveContent || tagsOpen;
+  // The body's cursor, as last reported; null until the input has reported one. `forcedSelection`
+  // moves the cursor after the # button inserts text and is dropped on the next report.
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(
+    null,
+  );
+  const [bodyFocusSignal, setBodyFocusSignal] = useState(0);
+
+  const insertTagStart = () => {
+    const sel = selectionRef.current;
+    const cursor = sel ? sel.end : body.length;
+    const next = insertHash(body, cursor);
+    // Its own undo step, apart from the typing around it.
+    history.onBodyBlur();
+    history.onBodyChange(next.text);
+    history.onBodyBlur();
+    selectionRef.current = { start: next.cursor, end: next.cursor };
+    setForcedSelection({ start: next.cursor, end: next.cursor });
+    setBodyFocusSignal((n) => n + 1);
+  };
 
   const shown = audio && !audio.removed ? audio : undefined;
   const micDisabled = saving || recording || shown !== undefined;
@@ -130,17 +155,7 @@ export function AddEntryWithVoice({
       micDisabled={micDisabled}
       onMic={() => setRecording(true)}
       disabled={saving}
-      onTags={() => {
-        if (!tagsVisible) {
-          setTagsOpen(true);
-          setTagFocusSignal((n) => n + 1);
-        } else if (!tagsHaveContent) {
-          // Opened by #, nothing in it: # closes it again.
-          setTagsOpen(false);
-        } else {
-          setTagFocusSignal((n) => n + 1);
-        }
-      }}
+      onTags={insertTagStart}
     />
   );
 
@@ -150,10 +165,12 @@ export function AddEntryWithVoice({
       body={body}
       onBodyChange={history.onBodyChange}
       onBodyBlur={history.onBodyBlur}
-      tags={tags}
-      tagDraft={tagDraft}
-      tagsVisible={tagsVisible}
-      tagFocusSignal={tagFocusSignal}
+      onBodySelectionChange={(sel) => {
+        selectionRef.current = sel;
+        setForcedSelection(null);
+      }}
+      bodySelection={forcedSelection ?? undefined}
+      bodyFocusSignal={bodyFocusSignal}
       journal={journal}
       saving={saving}
       saveDisabled={recording}

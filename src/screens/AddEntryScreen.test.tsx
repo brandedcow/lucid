@@ -14,7 +14,6 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('../services/dreamStorage', () => ({
-  listTags: jest.fn().mockResolvedValue(['water']),
   saveDream: jest.fn(),
   discardRecording: jest.fn(),
   dreamAudioUri: (d: { audioFileName?: string }) =>
@@ -69,10 +68,6 @@ function Harness({ journal = DREAMS, open, offered = REGISTRY }: Start) {
       onTitleChange={entry.setTitle}
       body={session.body}
       onBodyChange={entry.setBody}
-      tags={session.tags}
-      onTagsChange={entry.setTags}
-      tagDraft={session.tagDraft}
-      onTagDraftChange={entry.setTagDraft}
       date="Sunday, October 6"
       saving={entry.saving}
       autoFocus={session.origin === 'new'}
@@ -103,7 +98,7 @@ describe('AddEntryScreen', () => {
     expect(screen.getByLabelText('Journal: Dreams')).toBeTruthy();
     expect(screen.getByPlaceholderText('Title...')).toBeTruthy();
     expect(screen.getByPlaceholderText('Start writing...')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
     expect(screen.getByLabelText('Back')).toBeTruthy();
     expect(check()).toBeTruthy();
   });
@@ -124,26 +119,20 @@ describe('AddEntryScreen', () => {
     expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up');
   });
 
-  it('adds a tag with a comma, offers known tags, and removes a tag', async () => {
-    await renderPage();
-    await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'hallway,');
-    expect(screen.getByLabelText('Remove tag hallway')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Add tag water'));
-    expect(screen.getByLabelText('Remove tag water')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Remove tag hallway'));
-    expect(screen.queryByLabelText('Remove tag hallway')).toBeNull();
-  });
-
-  it('saves a finished entry with the body as the transcript and a pending tag', async () => {
+  it('saves a finished entry with the body as the transcript and its #tags as the tags', async () => {
     await renderPage();
     await fireEvent.changeText(screen.getByLabelText('Title'), 'Flooded hall');
-    await fireEvent.changeText(screen.getByLabelText('Entry text'), 'it filled up');
-    await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'Water');
+    await fireEvent.changeText(screen.getByLabelText('Entry text'), 'it filled up #Water');
     await fireEvent.press(check());
     await act(async () => {});
     expect(save).toHaveBeenCalledWith({
       durationMs: 0,
-      details: { title: 'Flooded hall', emotion: '', tags: ['water'], transcript: 'it filled up' },
+      details: {
+        title: 'Flooded hall',
+        emotion: '',
+        tags: ['water'],
+        transcript: 'it filled up #Water',
+      },
       status: 'saved',
       journalId: 'dreams',
       requireTitle: true,
@@ -198,18 +187,23 @@ describe('AddEntryScreen', () => {
   it('prefills a finished entry for editing and keeps its emotion on save', async () => {
     await renderPage({ open: { dream: stored, as: 'edit' } });
     expect(screen.getByLabelText('Title').props.value).toBe('Old title');
-    expect(screen.getByLabelText('Entry text').props.value).toBe('old text');
-    expect(screen.getByLabelText('Remove tag water')).toBeTruthy();
+    // The stored tag is written into the body.
+    expect(screen.getByLabelText('Entry text').props.value).toBe('old text\n#water');
     // There is no emotion field on the page.
     expect(screen.queryByText(/feel/i)).toBeNull();
-    await fireEvent.changeText(screen.getByLabelText('Entry text'), 'new text');
+    await fireEvent.changeText(screen.getByLabelText('Entry text'), 'new text #water');
     await fireEvent.press(check());
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({
         id: '7',
         durationMs: 12_000,
         status: 'saved',
-        details: { title: 'Old title', emotion: 'uneasy', tags: ['water'], transcript: 'new text' },
+        details: {
+          title: 'Old title',
+          emotion: 'uneasy',
+          tags: ['water'],
+          transcript: 'new text #water',
+        },
       }),
     );
     expect(save.mock.calls[0][0]).not.toHaveProperty('recordingUri');
@@ -219,7 +213,7 @@ describe('AddEntryScreen', () => {
     const draft: Dream = { ...stored, status: 'draft', audioFileName: undefined, durationMs: 0 };
     await renderPage({ open: { dream: draft, as: 'draft' } });
     expect(screen.getByLabelText('Title').props.value).toBe('Old title');
-    expect(screen.getByLabelText('Entry text').props.value).toBe('old text');
+    expect(screen.getByLabelText('Entry text').props.value).toBe('old text\n#water');
     await fireEvent.press(check());
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({ id: '7', status: 'saved', durationMs: 0 }),
@@ -233,10 +227,6 @@ describe('AddEntryScreen', () => {
         onTitleChange={jest.fn()}
         body=""
         onBodyChange={jest.fn()}
-        tags={[]}
-        onTagsChange={jest.fn()}
-        tagDraft=""
-        onTagDraftChange={jest.fn()}
         date="Sunday, October 6"
         onSave={jest.fn()}
         onBack={jest.fn()}
@@ -264,10 +254,6 @@ describe('AddEntryScreen', () => {
           onTitleChange={jest.fn()}
           body=""
           onBodyChange={jest.fn()}
-          tags={[]}
-          onTagsChange={jest.fn()}
-          tagDraft=""
-          onTagDraftChange={jest.fn()}
           date="d"
           onSave={jest.fn()}
           onBack={jest.fn()}
@@ -384,18 +370,17 @@ describe('AddEntryScreen', () => {
       expect(check().props.accessibilityState.disabled).toBe(true);
     });
 
-    it('keeps the typed title, body and tags across a switch, and saves in the picked journal', async () => {
+    it('keeps the typed title and body (with its tags) across a switch, and saves in the picked journal', async () => {
       await renderPage();
       await fireEvent.changeText(screen.getByLabelText('Title'), 'Flooded hall');
-      await fireEvent.changeText(screen.getByLabelText('Entry text'), 'it filled up');
-      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'hallway,');
-      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'half');
+      await fireEvent.changeText(
+        screen.getByLabelText('Entry text'),
+        'it filled up #hallway #half',
+      );
       await openMenu();
       await fireEvent.press(option('Gratitude'));
       expect(screen.getByLabelText('Title').props.value).toBe('Flooded hall');
-      expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up');
-      expect(screen.getByLabelText('Remove tag hallway')).toBeTruthy();
-      expect(screen.getByPlaceholderText('Add a tag...').props.value).toBe('half');
+      expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up #hallway #half');
       await fireEvent.press(check('Save entry'));
       await act(async () => {});
       expect(save).toHaveBeenCalledWith(
@@ -404,7 +389,7 @@ describe('AddEntryScreen', () => {
           requireTitle: false,
           details: expect.objectContaining({
             title: 'Flooded hall',
-            transcript: 'it filled up',
+            transcript: 'it filled up #hallway #half',
             tags: ['hallway', 'half'],
           }),
         }),
@@ -434,10 +419,6 @@ describe('AddEntryScreen', () => {
           onTitleChange={() => {}}
           body=""
           onBodyChange={() => {}}
-          tags={[]}
-          onTagsChange={() => {}}
-          tagDraft=""
-          onTagDraftChange={() => {}}
           date="d"
           onSave={() => {}}
           onBack={() => {}}

@@ -135,17 +135,38 @@ export function insertHash(text: string, cursor: number): { text: string; cursor
 }
 
 /**
- * Appends tags missing from `body` as a final line of "#tag" tokens. Spaces in
- * a tag become hyphens. Tags that cannot be written as an inline token (empty,
- * only digits, containing a terminator such as "." or "/", over 40 characters,
- * or ending in -/_) are dropped. Tags already present in the body (by
- * normalized comparison) are skipped. Returns `body` unchanged if nothing is added.
+ * Turns an old stored tag into a single inline token: whitespace and terminator characters become
+ * "-" (a run becomes one), then trailing "-" and "_" are trimmed. "v1.2" becomes "v1-2". Returns ''
+ * when nothing usable is left.
+ */
+function sanitizeForInline(raw: string): string {
+  let out = '';
+  let pendingGap = false;
+  for (const ch of Array.from(normalizeTag(raw))) {
+    if (!isTagChar(ch)) {
+      pendingGap = true;
+      continue;
+    }
+    if (pendingGap) out += '-';
+    pendingGap = false;
+    out += ch;
+  }
+  // A gap at the very end is dropped, like any trailing "-" or "_".
+  return out.replace(/[-_]+$/, '');
+}
+
+/**
+ * Appends tags missing from `body` as a final line of "#tag" tokens. Whitespace and terminator
+ * characters in a tag become hyphens (a run becomes one; trailing "-" and "_" are trimmed), so
+ * "bad dream" becomes #bad-dream and "v1.2" becomes #v1-2. Tags that are then empty, only digits or
+ * over 40 characters are dropped. Tags already present in the body (by the same conversion) are
+ * skipped. Returns `body` unchanged if nothing is added.
  */
 export function materializeTags(body: string, tags: string[]): string {
   const present = inlineTags(body);
   const add: string[] = [];
   for (const raw of tags) {
-    const conv = hyphenate(raw);
+    const conv = sanitizeForInline(raw);
     if (!conv) continue;
     const m = scanTags('#' + conv);
     if (m.length !== 1 || m[0].end !== conv.length + 1 || m[0].tag !== conv) continue;
