@@ -174,23 +174,90 @@ describe('hasSomethingToKeep for an untitled Life entry', () => {
 });
 
 describe('backTarget', () => {
-  it('Dreams capture exits, busy or not', () => {
-    expect(backTarget({ screen: 'capture', journalId: 'dreams' })).toEqual({ to: 'exit' });
+  it('Dreams capture with no flowReturn counts as No dream when idle, asks when busy', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'dreams' })).toEqual({ to: 'noDream' });
     expect(backTarget({ screen: 'capture', journalId: 'dreams', captureBusy: true })).toEqual({
-      to: 'exit',
+      to: 'confirmLeave',
     });
   });
-  it('Life capture goes to the Life log, but not while recording', () => {
+  it('Life capture goes to the Life log, and asks while recording', () => {
     expect(backTarget({ screen: 'capture', journalId: 'life' })).toEqual({
       to: 'log',
       journalId: 'life',
     });
     expect(backTarget({ screen: 'capture', journalId: 'life', captureBusy: true })).toEqual({
-      to: 'none',
+      to: 'confirmLeave',
     });
   });
-  it('Journals home exits', () => {
-    expect(backTarget({ screen: 'journals', journalId: 'dreams' })).toEqual({ to: 'exit' });
+  it('Journals home goes to Today', () => {
+    expect(backTarget({ screen: 'journals', journalId: 'dreams' })).toEqual({ to: 'today' });
+  });
+  it('Today exits, Settings goes to Today', () => {
+    expect(backTarget({ screen: 'today', journalId: 'dreams' })).toEqual({ to: 'exit' });
+    expect(backTarget({ screen: 'settings', journalId: 'dreams' })).toEqual({ to: 'today' });
+  });
+  it('the launch Dreams capture is No dream when idle and asks when busy, whatever flowReturn says', () => {
+    for (const flowReturn of [undefined, 'today', 'log'] as const) {
+      expect(
+        backTarget({ screen: 'capture', journalId: 'dreams', captureLaunch: true, flowReturn }),
+      ).toEqual({ to: 'noDream' });
+      expect(
+        backTarget({
+          screen: 'capture',
+          journalId: 'dreams',
+          captureLaunch: true,
+          flowReturn,
+          captureBusy: true,
+        }),
+      ).toEqual({ to: 'confirmLeave' });
+    }
+  });
+  it('a non-launch Dreams capture returns to Today or the Dreams log', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'log' })).toEqual({
+      to: 'log',
+      journalId: 'dreams',
+    });
+  });
+  it('a non-launch Dreams capture asks while recording', () => {
+    expect(
+      backTarget({
+        screen: 'capture',
+        journalId: 'dreams',
+        flowReturn: 'today',
+        captureBusy: true,
+      }),
+    ).toEqual({ to: 'confirmLeave' });
+    expect(
+      backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'log', captureBusy: true }),
+    ).toEqual({ to: 'confirmLeave' });
+  });
+  it('Life capture returns to Today when opened from Today, else to its log', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'log' })).toEqual({
+      to: 'log',
+      journalId: 'life',
+    });
+    expect(
+      backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today', captureBusy: true }),
+    ).toEqual({ to: 'confirmLeave' });
+  });
+  it('no capture case exits the app', () => {
+    for (const journalId of ['dreams', 'life'] as const) {
+      for (const flowReturn of [undefined, 'today', 'log'] as const) {
+        for (const captureLaunch of [false, true]) {
+          for (const captureBusy of [false, true]) {
+            expect(
+              backTarget({ screen: 'capture', journalId, flowReturn, captureLaunch, captureBusy }),
+            ).not.toEqual({ to: 'exit' });
+          }
+        }
+      }
+    }
   });
   it('a log closes its search first, otherwise goes to Journals home', () => {
     expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
@@ -214,12 +281,28 @@ describe('backTarget', () => {
       to: 'search',
     });
   });
+  it('a detail opened from Today goes back to Today', () => {
+    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'detail', journalId: 'dreams', detailFrom: 'today' })).toEqual({
+      to: 'today',
+    });
+  });
   it('a detail does nothing while its delete is in flight', () => {
     expect(
       backTarget({
         screen: 'detail',
         journalId: 'life',
         detailFrom: 'search',
+        detailDeleting: true,
+      }),
+    ).toEqual({ to: 'none' });
+    expect(
+      backTarget({
+        screen: 'detail',
+        journalId: 'life',
+        detailFrom: 'today',
         detailDeleting: true,
       }),
     ).toEqual({ to: 'none' });

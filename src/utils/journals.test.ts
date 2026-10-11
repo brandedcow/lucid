@@ -6,6 +6,7 @@ import {
   BUILT_IN_JOURNALS,
   entriesFor,
   journalById,
+  entryNoun,
   journalCopy,
   journalOf,
   kindOf,
@@ -160,5 +161,12 @@ describe('journalCopy life values', () => {
       expect(text.length).toBeGreaterThan(0);
       expect(`${key}: ${text}`).not.toMatch(/dream/i);
     }
+  });
+});
+
+describe('entryNoun', () => {
+  it('is the singular noun for each kind', () => {
+    expect(entryNoun('dream')).toBe('Dream');
+    expect(entryNoun('journal')).toBe('Life');
   });
 });

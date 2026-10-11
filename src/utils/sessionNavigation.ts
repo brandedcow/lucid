@@ -72,8 +72,20 @@ export function reviewBack(
   return session.origin === 'draft' ? 'draftToList' : 'readItBack';
 }
 
+/** Where a flow (capture, or a draft opened for Read it back and Review) returns to. */
+export type FlowReturn = 'today' | 'log';
+
 export type BackInput = {
-  screen: 'capture' | 'readItBack' | 'review' | 'log' | 'detail' | 'journals' | 'search';
+  screen:
+    | 'capture'
+    | 'readItBack'
+    | 'review'
+    | 'log'
+    | 'detail'
+    | 'journals'
+    | 'search'
+    | 'today'
+    | 'settings';
   /**
    * capture: the journal being captured. log: the open log's journal. detail: the journal of the
    * open entry (read with `journalOf`).
@@ -84,16 +96,27 @@ export type BackInput = {
   /** capture only: a recording is running (or being finished). */
   captureBusy?: boolean;
   /** detail only: where the entry was opened from. */
-  detailFrom?: 'log' | 'search';
+  detailFrom?: 'log' | 'search' | 'today';
+  /**
+   * capture only: where a capture that was not the launch capture returns to, 'today' or the log
+   * of `journalId`. Unset keeps the old rules (Dreams exits, Life goes to its log).
+   */
+  flowReturn?: FlowReturn;
+  /** capture only: this is the launch capture (opened by the launch rule); leaving it counts as No dream. */
+  captureLaunch?: boolean;
   /** detail only: a delete started from this entry is in flight. */
   detailDeleting?: boolean;
 };
 
 /**
  * Where Back (the on-screen arrow and Android hardware back) goes from a screen.
- * - `exit`: leave the app (Android only; Dreams capture and Journals home have no arrow).
- * - `none`: Back does nothing (a recording is running on Life capture, or an entry's delete runs).
+ * - `exit`: leave the app (Android only; only Today).
+ * - `none`: Back does nothing (an entry's delete runs).
+ * - `noDream`: the idle launch Dreams capture: Back counts as No dream and goes to Today.
+ * - `confirmLeave`: a recording is running on a capture: ask to discard it; App then leaves
+ *   (the launch capture as No dream, any other to its Today or log).
  * - `closeSearch`: close the log's search field first.
+ * - `today`: the Today page.
  * - `journals`: Journals home (a log, or Search, whose view App also resets).
  * - `search`: the Search results, state kept.
  * - `log`: that journal's log.
@@ -102,7 +125,10 @@ export type BackInput = {
 export type BackTarget =
   | { to: 'exit' }
   | { to: 'none' }
+  | { to: 'noDream' }
+  | { to: 'confirmLeave' }
   | { to: 'closeSearch' }
+  | { to: 'today' }
   | { to: 'journals' }
   | { to: 'search' }
   | { to: 'log'; journalId: JournalId }
@@ -110,17 +136,29 @@ export type BackTarget =
 
 export function backTarget(input: BackInput): BackTarget {
   switch (input.screen) {
-    case 'capture':
-      if (input.journalId === DREAMS_JOURNAL) return { to: 'exit' };
-      return input.captureBusy ? { to: 'none' } : { to: 'log', journalId: input.journalId };
-    case 'journals':
+    case 'capture': {
+      // A running recording always asks first; leaving is then up to App.
+      if (input.captureBusy) return { to: 'confirmLeave' };
+      // The launch capture (and a Dreams capture with no flowReturn, the old rule) counts as No dream.
+      if (input.journalId === DREAMS_JOURNAL && (input.captureLaunch || !input.flowReturn)) {
+        return { to: 'noDream' };
+      }
+      return input.flowReturn === 'today'
+        ? { to: 'today' }
+        : { to: 'log', journalId: input.journalId };
+    }
+    case 'today':
       return { to: 'exit' };
+    case 'settings':
+    case 'journals':
+      return { to: 'today' };
     case 'log':
       return input.searchOpen ? { to: 'closeSearch' } : { to: 'journals' };
     case 'search':
       return { to: 'journals' };
     case 'detail':
       if (input.detailDeleting) return { to: 'none' };
+      if (input.detailFrom === 'today') return { to: 'today' };
       return input.detailFrom === 'search'
         ? { to: 'search' }
         : { to: 'log', journalId: input.journalId };

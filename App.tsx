@@ -1,11 +1,14 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, BackHandler } from 'react-native';
+import { Alert, BackHandler, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
+import { useDayMarker } from './src/hooks/useDayMarker';
 import { useDreamSession } from './src/hooks/useDreamSession';
 import { useLogView } from './src/hooks/useLogView';
+import { useSettings } from './src/hooks/useSettings';
+import { useToday } from './src/hooks/useToday';
 import { CaptureScreen } from './src/screens/CaptureScreen';
 import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
@@ -13,6 +16,8 @@ import { JournalsScreen } from './src/screens/JournalsScreen';
 import { ReadItBackScreen } from './src/screens/ReadItBackScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SearchScreen } from './src/screens/SearchScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
+import { TodayScreen } from './src/screens/TodayScreen';
 import {
   discardRecording,
   isIndexUnreadableError,
@@ -20,6 +25,7 @@ import {
 } from './src/services/dreamStorage';
 import type { Dream } from './src/types/dream';
 import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
+import { colors } from './src/theme';
 import { formatToday } from './src/utils/format';
 import {
   BUILT_IN_JOURNALS,
@@ -40,19 +46,29 @@ import {
   backTarget,
   discardChangesMessage,
   hasEdits,
+  type FlowReturn,
   readItBackBack,
   reviewBack,
 } from './src/utils/sessionNavigation';
+import { dayStatus, launchScreen } from './src/utils/today';
 
-type Screen = 'capture' | 'readItBack' | 'review' | 'log' | 'detail' | 'journals' | 'search';
+type Screen =
+  | 'capture'
+  | 'readItBack'
+  | 'review'
+  | 'log'
+  | 'detail'
+  | 'journals'
+  | 'search'
+  | 'today'
+  | 'settings';
 
 /** Where the entry screen was opened from, and so where its Back and a delete return to. */
-type DetailFrom = 'log' | 'search';
+type DetailFrom = 'log' | 'search' | 'today';
 
-// The screen the app opens on. A function so a later part can choose from stored state.
-function initialScreen(): Screen {
-  return 'capture';
-}
+// How long the launch waits for stored data before opening Dream capture anyway: speed on waking
+// outranks the launch rule.
+const LAUNCH_CAP_MS = 1000;
 
 const journalFor = (id: JournalId): Journal => journalById(id) ?? BUILT_IN_JOURNALS[0];
 
@@ -65,13 +81,21 @@ function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
 
 // Temporary screen switch; replace with real navigation once that is decided.
 export default function App() {
-  const [screen, setScreen] = useState<Screen>(initialScreen);
+  // null until the launch rule has decided (a blank view shows meanwhile).
+  const [screen, setScreen] = useState<Screen | null>(null);
   // The journal whose log is open (or was last open): Dreams or Life.
   const [journalId, setJournalId] = useState<JournalId>(DREAMS_JOURNAL);
   // The journal a new entry is being captured for (Dreams from launch and the Dream log).
   const [captureJournal, setCaptureJournal] = useState<JournalId>(DREAMS_JOURNAL);
-  // True while Life capture is recording, so Android back does not leave it mid-recording.
+  // True for the capture opened by the launch rule: it offers "No dream", and leaving it counts
+  // as No dream.
+  const [captureLaunch, setCaptureLaunch] = useState(false);
+  // Where a capture (and a draft opened for Read it back and Review) returns to after a save.
+  const [flowReturn, setFlowReturn] = useState<FlowReturn>('log');
+  // True while the capture is recording, so Back asks to discard instead of leaving mid-recording.
   const [captureBusy, setCaptureBusy] = useState(false);
+  // Set by CaptureScreen to its discard confirmation, so Android back can ask while recording.
+  const captureLeaveRef = useRef<(() => void) | null>(null);
   // Where the open entry came from: a journal log or the Search results.
   const [detailFrom, setDetailFrom] = useState<DetailFrom>('log');
   // True only while Read it back was opened with Edit on Review, so its back arrow returns there.
@@ -81,6 +105,9 @@ export default function App() {
   const dream = useDreamSession();
   const { session } = dream;
   const library = useDreamLibrary();
+  const dayMarker = useDayMarker();
+  const settings = useSettings();
+  const { todayKey, resumeNewDayToken } = useToday();
   // Created here so the filter, search and scroll position survive leaving the Dream log.
   const view = useLogView();
   // Search across journals keeps its own query, tags and scroll while an entry is open.
@@ -104,17 +131,96 @@ export default function App() {
   useEffect(() => {
     nav.current = { screen, detailId, detailFrom, journalId };
   });
+
+  // Launch: once the library, the No dream marker and the settings are read, the launch rule picks
+  // Dream capture or Today. If they are not ready in time, Dream capture opens and the late data
+  // never moves the user.
+  const ready = library.dreams !== null && dayMarker.loaded && settings.loaded;
+  // True once the launch is decided (by the rule or by the cap), so only one of them acts.
+  const launchResolved = useRef(false);
+  useEffect(() => {
+    if (launchResolved.current || !ready) return;
+    launchResolved.current = true;
+    const status = dayStatus(library.dreams ?? [], dayMarker.noDreamDate, todayKey);
+    const target = launchScreen({ ...status, autoOpen: settings.autoOpenDreamCapture });
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (target === 'capture') {
+      setCaptureLaunch(true);
+      setFlowReturn('today');
+    }
+    setScreen(target);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [ready, library.dreams, dayMarker.noDreamDate, todayKey, settings.autoOpenDreamCapture]);
+  useEffect(() => {
+    if (screen !== null) return;
+    const timer = setTimeout(() => {
+      if (launchResolved.current) return;
+      launchResolved.current = true;
+      setCaptureJournal(DREAMS_JOURNAL);
+      setCaptureLaunch(true);
+      setFlowReturn('today');
+      setScreen('capture');
+    }, LAUNCH_CAP_MS);
+    return () => clearTimeout(timer);
+  }, [screen]);
+
+  // Resume after a new day: `resumeNewDayToken` increases once each time the app returns to the
+  // foreground on a different day than it left on (never on a foreground midnight rollover, and
+  // not twice on the same new day). If nothing is done yet, jump to the launch Dream capture (when
+  // auto-open is on and the user is not mid-flow).
+  // Everything the resume rule reads, as of the latest render (never stale).
+  const resumeInputs = useRef({
+    screen,
+    ready,
+    dreams: library.dreams,
+    noDreamDate: dayMarker.noDreamDate,
+    autoOpen: settings.autoOpenDreamCapture,
+    sessionOpen: session !== null,
+    deleteRunning: deletingDream !== null,
+  });
+  useEffect(() => {
+    resumeInputs.current = {
+      screen,
+      ready,
+      dreams: library.dreams,
+      noDreamDate: dayMarker.noDreamDate,
+      autoOpen: settings.autoOpenDreamCapture,
+      sessionOpen: session !== null,
+      deleteRunning: deletingDream !== null,
+    };
+  });
+  useEffect(() => {
+    if (resumeNewDayToken === 0) return;
+    const r = resumeInputs.current;
+    // Not launched yet (the launch rule decides), data not loaded, or the user is mid-flow.
+    if (r.screen === null || !r.ready || r.dreams === null) return;
+    if (r.sessionOpen || r.deleteRunning || deleting.current) return;
+    if (r.screen === 'capture' || r.screen === 'readItBack' || r.screen === 'review') return;
+    const status = dayStatus(r.dreams, r.noDreamDate, todayKey);
+    if (launchScreen({ ...status, autoOpen: r.autoOpen }) !== 'capture') return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setCaptureJournal(DREAMS_JOURNAL);
+    setCaptureLaunch(true);
+    setFlowReturn('today');
+    setFromReview(false);
+    setScreen('capture');
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the token only; the rest is read fresh
+  }, [resumeNewDayToken]);
+
   const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 
   // The detail screen needs a finished dream; otherwise the log shows.
   const detailDream =
     (detailId ? library.dreams?.find((d) => d.id === detailId) : undefined) ??
     (detailDeletingDream && detailDeletingDream.id === detailId ? detailDeletingDream : undefined);
-  const current: Screen =
+  const current: Screen | null =
     screen === 'detail' && (!detailDream || detailDream.status === 'draft')
       ? detailFrom === 'search'
         ? 'search'
-        : 'log'
+        : detailFrom === 'today'
+          ? 'today'
+          : 'log'
       : screen;
 
   // Each log shows only its own journal's entries (drafts included), whatever else is stored.
@@ -140,6 +246,15 @@ export default function App() {
     dream.clear();
     setFromReview(false);
     setScreen('capture');
+  };
+
+  // No dream: in memory first, so Today shows it at once; the file write follows and a failed
+  // write never blocks leaving. Shared by the No dream button, Back on an idle launch capture and
+  // a discarded recording on it.
+  const handleNoDream = () => {
+    dayMarker.markNoDream(todayKey);
+    setCaptureBusy(false);
+    setScreen('today');
   };
 
   const confirmDiscard = () => {
@@ -168,15 +283,21 @@ export default function App() {
     else if (target === 'capture') leaveToCapture();
     else {
       dream.clear();
-      showLog(session.journalId);
+      leaveFlow(session.journalId);
     }
   };
 
-  // After a save: the log of the journal the entry belongs to.
-  const leaveToLog = (id: JournalId) => {
+  // Where a flow ends: Today when it started there, otherwise the log of the entry's journal.
+  const leaveFlow = (id: JournalId) => {
+    if (flowReturn === 'today') setScreen('today');
+    else showLog(id);
+  };
+
+  // After a save: Today or the log of the journal the entry belongs to.
+  const leaveAfterSave = (id: JournalId) => {
     dream.clear();
     setFromReview(false);
-    showLog(id);
+    leaveFlow(id);
   };
 
   const showDetail = (id: string | null) => {
@@ -205,7 +326,7 @@ export default function App() {
       if (!(await dream.save(status))) return;
       await library.refresh();
       if (isEdit) showDetail(id);
-      else leaveToLog(session.journalId);
+      else leaveAfterSave(session.journalId);
     } finally {
       finishing.current = false;
     }
@@ -225,6 +346,7 @@ export default function App() {
         // The log or search keeps its filter, search and scroll: only the entry is left.
         setDetailId(null);
         if (nav.current.detailFrom === 'search') setScreen('search');
+        else if (nav.current.detailFrom === 'today') setScreen('today');
         else showLog(journalOf(target));
       }
     } catch (e) {
@@ -277,8 +399,9 @@ export default function App() {
   const dreamDate = formatToday(session?.createdAt ? new Date(session.createdAt) : new Date());
 
   // Back, for the on-screen arrows and Android hardware back alike. Returns false when the back
-  // should leave the app (Dreams capture and the Journals home), true when it was handled.
+  // should leave the app (the launch capture and Today), true when it was handled.
   const performBack = (): boolean => {
+    if (current === null) return false;
     const target = backTarget({
       screen: current,
       journalId:
@@ -291,15 +414,27 @@ export default function App() {
       captureBusy,
       detailFrom,
       detailDeleting: detailDeleting.current,
+      flowReturn,
+      captureLaunch,
     });
     switch (target.to) {
       case 'exit':
         return false;
       case 'none':
         return true;
+      case 'noDream':
+        handleNoDream();
+        return true;
+      case 'confirmLeave':
+        // Android back only asks while a recording runs (captureBusy); App leaves via onLeave.
+        captureLeaveRef.current?.();
+        return true;
       case 'closeSearch':
         // Same transition as leaving the search field: the log view state is kept.
         view.closeSearch();
+        return true;
+      case 'today':
+        setScreen('today');
         return true;
       case 'journals':
         // Leaving Search starts it fresh next time.
@@ -335,8 +470,45 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // After CaptureScreen discarded a recording to leave: the launch capture counts as No dream,
+  // any other capture returns to its Today or log with no marker. Not performBack: captureBusy is
+  // still true then and it would ask again. Does nothing if the screen has already changed.
+  const leaveCapture = () => {
+    if (nav.current.screen !== 'capture') return;
+    setCaptureBusy(false);
+    const target = backTarget({
+      screen: 'capture',
+      journalId: captureJournal,
+      captureBusy: false,
+      flowReturn,
+      captureLaunch,
+    });
+    if (target.to === 'noDream') handleNoDream();
+    else if (target.to === 'today') setScreen('today');
+    else if (target.to === 'log') showLog(target.journalId);
+  };
+
   const captureJournalInfo = journalFor(captureJournal);
   const logJournal = journalFor(journalId);
+
+  // Starts a Dream or Life capture from Today or a log; only the launch capture is `captureLaunch`.
+  const startCapture = (id: JournalId, from: FlowReturn) => {
+    setCaptureJournal(id);
+    setCaptureLaunch(false);
+    setFlowReturn(from);
+    setScreen('capture');
+  };
+
+  const openDraft = (draft: Dream, from: FlowReturn) => {
+    dream.openDraft(draft);
+    setFromReview(false);
+    setFlowReturn(from);
+    setScreen('review');
+  };
+
+  if (current === null) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -344,8 +516,12 @@ export default function App() {
         {current === 'capture' && (
           <CaptureScreen
             journal={captureJournalInfo}
-            // Life capture has a back arrow to its log; Dreams capture has none (Android back exits).
-            onBack={captureJournal === DREAMS_JOURNAL ? undefined : () => void performBack()}
+            onBack={() => void performBack()}
+            onLeave={leaveCapture}
+            leaveRef={captureLeaveRef}
+            backLabel={
+              captureLaunch && captureJournal === DREAMS_JOURNAL ? 'No dream, go to Today' : 'Back'
+            }
             onActiveChange={setCaptureBusy}
             onRecorded={(recording, text) => {
               dream.startFromRecording(recording, text, captureJournal);
@@ -363,7 +539,7 @@ export default function App() {
               setScreen('readItBack');
             }}
             onNoDream={
-              captureJournal === DREAMS_JOURNAL ? () => showLog(DREAMS_JOURNAL) : undefined
+              captureLaunch && captureJournal === DREAMS_JOURNAL ? handleNoDream : undefined
             }
           />
         )}
@@ -423,15 +599,8 @@ export default function App() {
               setDetailFrom('log');
               setScreen('detail');
             }}
-            onOpenDraft={(draft) => {
-              dream.openDraft(draft);
-              setFromReview(false);
-              setScreen('review');
-            }}
-            onNewDream={() => {
-              setCaptureJournal(journalId);
-              setScreen('capture');
-            }}
+            onOpenDraft={(draft) => openDraft(draft, 'log')}
+            onNewDream={() => startCapture(journalId, 'log')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.dream.id ?? null}
           />
@@ -461,6 +630,33 @@ export default function App() {
             unreadable={library.indexStatus === 'unreadable'}
             onOpenJournal={showLog}
             onSearch={() => setScreen('search')}
+            onBack={() => void performBack()}
+          />
+        )}
+        {current === 'today' && (
+          <TodayScreen
+            dreams={library.dreams}
+            todayKey={todayKey}
+            skippedToday={dayMarker.noDreamDate === todayKey}
+            unreadable={library.indexStatus === 'unreadable'}
+            onOpenEntry={(d) => {
+              setDetailId(d.id);
+              setDetailFrom('today');
+              setScreen('detail');
+            }}
+            onOpenDraft={(draft) => openDraft(draft, 'today')}
+            onDeleteDream={(d) => void deleteDreamFor(d)}
+            deletingId={deletingDream?.dream.id ?? null}
+            onNewEntry={(id) => startCapture(id, 'today')}
+            onOpenJournals={() => setScreen('journals')}
+            onOpenSettings={() => setScreen('settings')}
+          />
+        )}
+        {current === 'settings' && (
+          <SettingsScreen
+            autoOpenDreamCapture={settings.autoOpenDreamCapture}
+            onChangeAutoOpenDreamCapture={settings.setAutoOpenDreamCapture}
+            onBack={() => void performBack()}
           />
         )}
         {current === 'search' && (

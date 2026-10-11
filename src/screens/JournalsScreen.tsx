@@ -14,13 +14,14 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
  * - `onOpenJournal(id)`: a journal card was tapped.
  * - `onSearch()`: the search button was tapped (search across all journals).
  *
- * The Journals home has no back arrow.
+ * - `onBack()`: optional. When given, a back arrow ("Back to Today") shows at the top left.
  */
 type Props = {
   counts: Record<JournalId, number> | null;
   unreadable?: boolean;
   onOpenJournal: (id: JournalId) => void;
   onSearch: () => void;
+  onBack?: () => void;
 };
 
 /** "12 dreams", "1 dream", "No dreams yet"; "5 entries", "1 entry", "No entries yet". */
@@ -31,12 +32,29 @@ export function countLabel(journal: Journal, count: number): string {
   return count === 1 ? '1 entry' : `${count} entries`;
 }
 
-export function JournalsScreen({ counts, unreadable = false, onOpenJournal, onSearch }: Props) {
+export function JournalsScreen({
+  counts,
+  unreadable = false,
+  onOpenJournal,
+  onSearch,
+  onBack,
+}: Props) {
   const showCounts = counts !== null && !unreadable;
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
+      <View style={[styles.header, onBack && styles.headerWithBack]}>
+        {onBack && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to Today"
+            onPress={onBack}
+            hitSlop={12}
+            style={styles.backButton}
+          >
+            <Text style={styles.back}>←</Text>
+          </Pressable>
+        )}
+        <Text style={[styles.title, onBack && styles.titleWithBack]} accessibilityRole="header">
           Journals
         </Text>
         <Pressable
@@ -89,6 +107,10 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
     paddingTop: spacing.sm,
   },
+  headerWithBack: { paddingLeft: spacing.sm },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  back: { color: colors.text, fontSize: 24 },
+  titleWithBack: { flex: 1, marginLeft: spacing.xs },
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 34 },
   searchButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   unreadable: {

@@ -106,4 +106,16 @@ describe('JournalsScreen', () => {
     expect(screen.queryByLabelText(/back/i)).toBeNull();
     expect(screen.getAllByRole('button')).toHaveLength(3);
   });
+
+  it('shows no back arrow without onBack', async () => {
+    await setup();
+    expect(screen.queryByLabelText('Back to Today')).toBeNull();
+  });
+
+  it('shows "Back to Today" and calls onBack when given', async () => {
+    const onBack = jest.fn();
+    await setup({ onBack });
+    await fireEvent.press(screen.getByLabelText('Back to Today'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
 });

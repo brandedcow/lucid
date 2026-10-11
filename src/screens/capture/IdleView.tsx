@@ -16,8 +16,10 @@ type Props = {
   tips?: readonly string[];
   /** The skip pill's label; null hides the pill. Defaults to "No dream". */
   skipLabel?: string | null;
-  /** Shows a back arrow (top left) that calls it. Omitted for Dreams capture. */
+  /** Shows a back arrow (top left) that calls it. Omitted for the launch capture. */
   onBack?: () => void;
+  /** Accessibility label of the back arrow; defaults to "Back". */
+  backLabel?: string;
 };
 
 export function IdleView({
@@ -28,6 +30,7 @@ export function IdleView({
   tips = DREAM_COPY.tips,
   skipLabel = DREAM_COPY.skipLabel,
   onBack,
+  backLabel = 'Back',
 }: Props) {
   return (
     <>
@@ -35,7 +38,7 @@ export function IdleView({
         {onBack && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back"
+            accessibilityLabel={backLabel}
             onPress={onBack}
             hitSlop={12}
             style={styles.backButton}
