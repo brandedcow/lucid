@@ -291,6 +291,111 @@ describe('AddEntryScreen', () => {
     });
   });
 
+  describe('page layout (capped notes, internal body scroll)', () => {
+    const renderLayout = (props: Partial<React.ComponentProps<typeof AddEntryScreen>> = {}) =>
+      render(
+        <AddEntryScreen
+          title=""
+          onTitleChange={jest.fn()}
+          body=""
+          onBodyChange={jest.fn()}
+          date="d"
+          onSave={jest.fn()}
+          onBack={jest.fn()}
+          attachment={<Text>slot-notes</Text>}
+          {...props}
+        />,
+      );
+    const scrollViews = () =>
+      (JSON.stringify(screen.toJSON()).match(/"RCTScrollView"/g) ?? []).length;
+    const layout = (id: string, height: number) =>
+      fireEvent(screen.getByTestId(id), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 360, height } },
+      });
+    const notesStyle = () => StyleSheet.flatten(screen.getByTestId('entry-notes').props.style);
+    const measure = async (container: number, natural: number) => {
+      await layout('entry-page', container);
+      await fireEvent(screen.getByTestId('entry-notes'), 'contentSizeChange', 360, natural);
+    };
+
+    it('has no page-level scroll view: the only scroll view is the notes list', async () => {
+      await renderLayout();
+      expect(scrollViews()).toBe(1);
+      expect(screen.getByTestId('entry-notes')).toContainElement(screen.getByText('slot-notes'));
+    });
+
+    it('has no notes scroll view without an attachment', async () => {
+      await renderLayout({ attachment: undefined });
+      expect(screen.queryByTestId('entry-notes')).toBeNull();
+      expect(scrollViews()).toBe(0);
+    });
+
+    it('gives the body flex: 1 and keeps its testID and label', async () => {
+      await renderLayout();
+      const body = screen.getByTestId('entry-body');
+      expect(body).toBe(screen.getByLabelText('Entry text'));
+      expect(StyleSheet.flatten(body.props.style).flex).toBe(1);
+    });
+
+    it('does not cap one note', async () => {
+      await renderLayout();
+      await measure(600, 56);
+      expect(notesStyle().height).toBe(56);
+    });
+
+    it('caps a long list at 25% of the measured container', async () => {
+      await renderLayout();
+      await measure(600, 320);
+      expect(notesStyle().height).toBe(150);
+    });
+
+    it('shrinks the cap when the container shrinks (keyboard open)', async () => {
+      await renderLayout();
+      await measure(600, 320);
+      await layout('entry-page', 400);
+      expect(notesStyle().height).toBe(100);
+    });
+
+    it('never caps below one card', async () => {
+      await renderLayout();
+      await measure(200, 320);
+      expect(notesStyle().height).toBe(64);
+    });
+
+    it('is uncapped until the container is measured', async () => {
+      await renderLayout();
+      expect(notesStyle().height).toBeUndefined();
+    });
+
+    it('pins the recording panel outside the capped list and counts it in the budget', async () => {
+      await renderLayout({ recordingPanel: <Text>slot-panel</Text> });
+      const panel = screen.getByTestId('entry-recording-panel');
+      expect(panel).toContainElement(screen.getByText('slot-panel'));
+      expect(screen.getByTestId('entry-notes')).not.toContainElement(
+        screen.getByText('slot-panel'),
+      );
+      await measure(700, 320);
+      await layout('entry-date-title', 120);
+      const withoutPanelHeight = notesStyle().height as number;
+      await layout('entry-recording-panel', 300);
+      expect(notesStyle().height as number).toBeLessThan(withoutPanelHeight);
+      expect(notesStyle().height as number).toBeGreaterThanOrEqual(64);
+    });
+
+    it('still lifts the dock with the keyboard while the layout is measured', async () => {
+      const originalOS = Platform.OS;
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => 'android' });
+      const { emit } = fakeKeyboard();
+      await renderLayout({ toolbar: <Text>slot-toolbar</Text> });
+      await measure(600, 320);
+      await emit('keyboardDidShow', 300);
+      expect(
+        StyleSheet.flatten(screen.getByTestId('entry-bottom-dock').props.style).paddingBottom,
+      ).toBe(334);
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS });
+    });
+  });
+
   describe('journal picker', () => {
     const openMenu = () => fireEvent.press(screen.getByLabelText('Journal: Dreams'));
     const option = (name: string) => screen.getByRole('menuitem', { name });

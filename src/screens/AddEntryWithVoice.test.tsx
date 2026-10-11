@@ -1033,3 +1033,24 @@ describe('several recordings on the page', () => {
     expect(bodyText(body())).toBe('words');
   });
 });
+
+describe('notes list and recording panel layout', () => {
+  it('shows the cards in the notes list and the live panel pinned outside it', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    const notes = screen.getByTestId('entry-notes');
+    expect(notes).toContainElement(screen.getByLabelText('Play recording'));
+    expect(screen.queryByTestId('entry-recording-panel')).toBeNull();
+    await startRecording();
+    const panel = screen.getByTestId('entry-recording-panel');
+    expect(panel).toContainElement(screen.getByLabelText('Stop recording'));
+    expect(notes).not.toContainElement(screen.getByLabelText('Stop recording'));
+    expect(notes).toContainElement(screen.getByLabelText('Play recording'));
+  });
+
+  it('shows no notes list while recording the first note', async () => {
+    await renderPage();
+    await startRecording();
+    expect(screen.queryByTestId('entry-notes')).toBeNull();
+    expect(screen.getByTestId('entry-recording-panel')).toBeTruthy();
+  });
+});

@@ -17,6 +17,7 @@ import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
+import { BODY_MIN, layoutBudget } from '../utils/entryLayout';
 
 type Selection = { start: number; end: number };
 
@@ -37,7 +38,14 @@ type Selection = { start: number; end: number };
  * - saving: a save is in flight; the check and back do nothing and the fields are locked.
  * - autoFocus: focus the title on open (a new entry).
  * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
- * - attachment: slot above the title for the voice attachment card (see AddEntryWithVoice).
+ * - attachment: slot above the title for the saved voice note cards (see AddEntryWithVoice). It sits in
+ *   a scroll view of its own capped at about 25% of the visible page height (never less than one
+ *   card; one note is not capped), so the notes cannot push the typing area off the screen.
+ * - recordingPanel: slot pinned below the capped notes list (the live recording controls), outside
+ *   its scroll so they are never scrolled away.
+ *
+ *   There is no page-level scroll view: the date, title, notes and panel stay put and the body fills
+ *   the rest and scrolls inside itself (a native multiline input keeps its own caret visible).
  * - suggestions: slot directly above the toolbar for the tag suggestion bar (see AddEntryWithVoice).
  * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits in the
  *   bottom dock, which is lifted above the keyboard (explicit padding on Android, where edge-to-edge
@@ -68,6 +76,7 @@ export type AddEntryScreenProps = {
   saveDisabled?: boolean;
   autoFocus?: boolean;
   attachment?: ReactNode;
+  recordingPanel?: ReactNode;
   suggestions?: ReactNode;
   toolbar?: ReactNode;
   onBodyBlur?: () => void;
@@ -93,6 +102,7 @@ export function AddEntryScreen({
   saveDisabled = false,
   autoFocus = false,
   attachment,
+  recordingPanel,
   suggestions,
   toolbar,
   onBodyBlur,
@@ -120,6 +130,25 @@ export function AddEntryScreen({
         : bottomInset;
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);
+  // Measured heights for the notes cap (0 until the first layout, which means uncapped).
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [dateTitleHeight, setDateTitleHeight] = useState(0);
+  const [panelHeight, setPanelHeight] = useState(0);
+  const [notesNatural, setNotesNatural] = useState(0);
+  const hasPanel = recordingPanel != null && recordingPanel !== false;
+  const hasNotes = attachment != null && attachment !== false;
+  // Padding and the gaps between the blocks (notes, panel, date and title, body) are not measured
+  // separately; they count as fixed space next to the measured date and title.
+  const blocks = 2 + (hasNotes ? 1 : 0) + (hasPanel ? 1 : 0);
+  const notesHeight =
+    hasNotes && containerHeight > 0 && notesNatural > 0
+      ? layoutBudget({
+          container: containerHeight,
+          dateAndTitle: dateTitleHeight + 2 * spacing.lg + (blocks - 1) * spacing.md,
+          panel: hasPanel ? panelHeight : 0,
+          naturalNotes: notesNatural,
+        })
+      : undefined;
   const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
   // The menu closes for good when the picker stops being available (a save started, or the entry
   // got locked).
@@ -170,41 +199,67 @@ export function AddEntryScreen({
           </Pressable>
         </View>
 
-        <ScrollView
+        <View
+          testID="entry-page"
           style={styles.flex}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
+          onLayout={(e) => setContainerHeight(Math.round(e.nativeEvent.layout.height))}
         >
-          {attachment}
-          <Text style={styles.date}>{date}</Text>
-          <TextInput
-            value={title}
-            onChangeText={onTitleChange}
-            editable={!saving}
-            placeholder="Title..."
-            placeholderTextColor={colors.faint}
-            accessibilityLabel="Title"
-            autoFocus={autoFocus}
-            maxLength={80}
-            returnKeyType="next"
-            style={styles.titleInput}
-          />
-          <TaggedBodyInput
-            text={body}
-            onChangeText={onBodyChange}
-            onBlur={onBodyBlur}
-            onFocus={onBodyFocus}
-            onSelectionChange={onBodySelectionChange}
-            selection={bodySelection}
-            focusSignal={bodyFocusSignal}
-            editable={!saving}
-            placeholder="Start writing..."
-            placeholderTextColor={colors.faint}
-            accessibilityLabel="Entry text"
-            testID="entry-body"
-            style={styles.bodyInput}
-          />
-        </ScrollView>
+          <View style={styles.content}>
+            {hasNotes && (
+              <ScrollView
+                testID="entry-notes"
+                style={[styles.notes, notesHeight !== undefined && { height: notesHeight }]}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                onContentSizeChange={(_w, h) => setNotesNatural(Math.round(h))}
+              >
+                {attachment}
+              </ScrollView>
+            )}
+            {hasPanel && (
+              <View
+                testID="entry-recording-panel"
+                onLayout={(e) => setPanelHeight(Math.round(e.nativeEvent.layout.height))}
+              >
+                {recordingPanel}
+              </View>
+            )}
+            <View
+              testID="entry-date-title"
+              style={styles.dateTitle}
+              onLayout={(e) => setDateTitleHeight(Math.round(e.nativeEvent.layout.height))}
+            >
+              <Text style={styles.date}>{date}</Text>
+              <TextInput
+                value={title}
+                onChangeText={onTitleChange}
+                editable={!saving}
+                placeholder="Title..."
+                placeholderTextColor={colors.faint}
+                accessibilityLabel="Title"
+                autoFocus={autoFocus}
+                maxLength={80}
+                returnKeyType="next"
+                style={styles.titleInput}
+              />
+            </View>
+            <TaggedBodyInput
+              text={body}
+              onChangeText={onBodyChange}
+              onBlur={onBodyBlur}
+              onFocus={onBodyFocus}
+              onSelectionChange={onBodySelectionChange}
+              selection={bodySelection}
+              focusSignal={bodyFocusSignal}
+              editable={!saving}
+              placeholder="Start writing..."
+              placeholderTextColor={colors.faint}
+              accessibilityLabel="Entry text"
+              testID="entry-body"
+              style={styles.bodyInput}
+            />
+          </View>
+        </View>
         <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
           {suggestions}
           {toolbar}
@@ -248,7 +303,10 @@ const styles = StyleSheet.create({
   },
   checkDisabled: { opacity: 0.4 },
   checkMark: { color: colors.accentDark, fontSize: 20, fontWeight: '700' },
-  content: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
+  content: { flex: 1, padding: spacing.lg, gap: spacing.md },
+  // Sized by layoutBudget once measured; until then it only stops growing past its content.
+  notes: { flexGrow: 0, flexShrink: 0 },
+  dateTitle: { gap: spacing.md },
   date: { color: colors.muted, fontSize: 13 },
   titleInput: {
     color: colors.text,
@@ -260,7 +318,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     lineHeight: 26,
-    minHeight: 160,
+    flex: 1,
+    minHeight: BODY_MIN,
+    textAlignVertical: 'top',
     paddingVertical: spacing.sm,
   },
 });

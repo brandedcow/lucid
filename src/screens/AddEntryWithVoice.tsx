@@ -22,8 +22,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 /**
  * Prop contract (everything else is AddEntryScreen's):
  * - recordings: the entry's recordings from the session, in order (closed ones are not shown). One
- *   VoiceAttachmentCard per visible recording, stacked above the title inside the page's scroll
- *   view, labelled "voice note N of M" when there are several. Only one card plays at a time
+ *   VoiceAttachmentCard per visible recording, stacked above the title in the page's capped notes
+ *   list (about 25% of the visible height; the recording panel is pinned below it), labelled "voice note N of M" when there are several. Only one card plays at a time
  *   (useRecordingPlayback); starting the mic stops playback.
  * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
  *   available).
@@ -60,6 +60,7 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 export type AddEntryWithVoiceProps = Omit<
   AddEntryScreenProps,
   | 'attachment'
+  | 'recordingPanel'
   | 'toolbar'
   | 'suggestions'
   | 'saveDisabled'
@@ -198,8 +199,8 @@ export function AddEntryWithVoice({
   const micDisabled = saving || recording;
 
   const attachment =
-    shown.length > 0 || recording ? (
-      <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+    shown.length > 0 ? (
+      <View style={{ gap: spacing.sm }}>
         {shown.map((r, i) => (
           <VoiceAttachmentCard
             key={`${r.id}:${r.uri}`}
@@ -212,25 +213,26 @@ export function AddEntryWithVoice({
             onRemove={!saving ? () => history.onRemoveRecording(r.id) : undefined}
           />
         ))}
-        {recording && (
-          <RecordingPanel
-            microphoneMessage={journalCopy(journal).microphoneMessage}
-            leaveRef={leaveRef}
-            onRecorded={(rec) => {
-              setRecording(false);
-              // A new note is not undoable; typing ends as a step first.
-              history.onRecordingAttached();
-              onRecorded(rec);
-            }}
-            onClosed={() => setRecording(false)}
-            onDiscarded={() => {
-              setRecording(false);
-              onRecordingDiscarded?.();
-            }}
-          />
-        )}
       </View>
     ) : undefined;
+
+  const recordingPanel = recording ? (
+    <RecordingPanel
+      microphoneMessage={journalCopy(journal).microphoneMessage}
+      leaveRef={leaveRef}
+      onRecorded={(rec) => {
+        setRecording(false);
+        // A new note is not undoable; typing ends as a step first.
+        history.onRecordingAttached();
+        onRecorded(rec);
+      }}
+      onClosed={() => setRecording(false)}
+      onDiscarded={() => {
+        setRecording(false);
+        onRecordingDiscarded?.();
+      }}
+    />
+  ) : undefined;
 
   const toolbar = (
     <EntryToolbar
@@ -270,6 +272,7 @@ export function AddEntryWithVoice({
       saving={saving}
       saveDisabled={recording}
       attachment={attachment}
+      recordingPanel={recordingPanel}
       suggestions={suggestions}
       toolbar={toolbar}
     />
