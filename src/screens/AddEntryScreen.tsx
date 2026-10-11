@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { TaggedBodyInput } from '../components/TaggedBodyInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCaretFollow } from '../hooks/useCaretFollow';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { colors, fonts, spacing } from '../theme';
@@ -49,6 +50,8 @@ const BODY_MIN_HEIGHT = 160;
  *   The page ScrollView uses keyboardShouldPersistTaps="handled": a tap on blank space dismisses the
  *   keyboard (and blurs the focused input); taps on inputs, cards and buttons keep working. The body
  *   grows with its text (minHeight 160, no flex), so blank space below it is part of the scroller.
+ *   The page also follows the caret: while the body is focused and the cursor is at the end, the
+ *   ScrollView scrolls so the last line stays visible above the keyboard (useCaretFollow).
  * - suggestions: slot directly above the toolbar for the tag suggestion bar (see AddEntryWithVoice).
  * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits in the
  *   bottom dock, which is lifted above the keyboard (explicit padding on Android, where edge-to-edge
@@ -134,6 +137,22 @@ export function AddEntryScreen({
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);
   const pageScrollRef = useRef<ScrollView>(null);
+  // Caret follow: the ScrollView's visible height, the body wrapper's frame in the scroll content
+  // (the wrapper is a direct child of the content, so its y is content-relative), the body's focus
+  // and its cursor as last reported.
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [bodyLayout, setBodyLayout] = useState<{ y: number; height: number } | null>(null);
+  const [bodyFocused, setBodyFocused] = useState(false);
+  const [reportedSelection, setReportedSelection] = useState<Selection>({ start: 0, end: 0 });
+  const { onScroll } = useCaretFollow({
+    scrollRef: pageScrollRef,
+    bodyLayout,
+    text: body,
+    selection: bodySelection ?? reportedSelection,
+    focused: bodyFocused,
+    keyboardHeight: keyboard.height,
+    viewportHeight,
+  });
   const hasPanel = recordingPanel != null && recordingPanel !== false;
   const hasNotes = attachment != null && attachment !== false;
   const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
@@ -192,6 +211,9 @@ export function AddEntryScreen({
           style={styles.flex}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          onLayout={(e) => setViewportHeight(e.nativeEvent.layout.height)}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
         >
           {hasNotes && <View testID="entry-notes">{attachment}</View>}
           <View testID="entry-date-title" style={styles.dateTitle}>
@@ -209,25 +231,46 @@ export function AddEntryScreen({
               style={styles.titleInput}
             />
           </View>
-          <TaggedBodyInput
-            text={body}
-            onChangeText={onBodyChange}
-            onBlur={onBodyBlur}
-            onFocus={onBodyFocus}
-            onSelectionChange={onBodySelectionChange}
-            selection={bodySelection}
-            focusSignal={bodyFocusSignal}
-            editable={!saving}
-            placeholder="Start writing..."
-            placeholderTextColor={colors.faint}
-            accessibilityLabel="Entry text"
-            testID="entry-body"
-            style={styles.bodyInput}
-          />
+          <View
+            testID="entry-body-wrap"
+            onLayout={(e) =>
+              setBodyLayout({
+                y: e.nativeEvent.layout.y,
+                height: e.nativeEvent.layout.height,
+              })
+            }
+          >
+            <TaggedBodyInput
+              text={body}
+              onChangeText={onBodyChange}
+              onBlur={() => {
+                setBodyFocused(false);
+                onBodyBlur?.();
+              }}
+              onFocus={() => {
+                setBodyFocused(true);
+                onBodyFocus?.();
+              }}
+              onSelectionChange={(sel) => {
+                setReportedSelection(sel);
+                onBodySelectionChange?.(sel);
+              }}
+              selection={bodySelection}
+              focusSignal={bodyFocusSignal}
+              editable={!saving}
+              placeholder="Start writing..."
+              placeholderTextColor={colors.faint}
+              accessibilityLabel="Entry text"
+              testID="entry-body"
+              style={styles.bodyInput}
+            />
+          </View>
         </ScrollView>
         <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
           {hasPanel ? (
-            <View testID="entry-recording-panel">{recordingPanel}</View>
+            <View testID="entry-recording-panel" style={styles.recordingSlot}>
+              {recordingPanel}
+            </View>
           ) : (
             <>
               {suggestions}
@@ -275,6 +318,8 @@ const styles = StyleSheet.create({
   checkDisabled: { opacity: 0.4 },
   checkMark: { color: colors.accentDark, fontSize: 20, fontWeight: '700' },
   content: { padding: spacing.lg, gap: spacing.md },
+  // Same side gutter as the page content (the toolbar adds its own margin).
+  recordingSlot: { paddingHorizontal: spacing.lg },
   dateTitle: { gap: spacing.md },
   date: { color: colors.muted, fontSize: 13 },
   titleInput: {

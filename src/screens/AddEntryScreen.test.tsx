@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Platform, StyleSheet, Text } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text } from 'react-native';
 import { entryJournalLocked, useEntrySession } from '../hooks/useEntrySession';
 import { saveDream } from '../services/dreamStorage';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
+import { spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS, Journal, journalOrDefault } from '../utils/journals';
 import { AddEntryScreen } from './AddEntryScreen';
@@ -367,6 +368,63 @@ describe('AddEntryScreen', () => {
       expect(page()).not.toContainElement(screen.getByText('slot-panel'));
       expect(screen.queryByText('slot-toolbar')).toBeNull();
       expect(screen.queryByText('slot-suggestions')).toBeNull();
+    });
+
+    it('puts the body wrapper directly in the ScrollView content, so its layout y is content-relative', async () => {
+      await renderLayout();
+      const wrap = screen.getByTestId('entry-body-wrap');
+      // Same parent as the date/title block and the notes: the scroll content container, which is
+      // inside the page and is not nested under another offset wrapper.
+      expect(wrap.parent).toBe(screen.getByTestId('entry-date-title').parent);
+      expect(wrap.parent).toBe(screen.getByTestId('entry-notes').parent);
+      expect(page()).toContainElement(wrap.parent as never);
+      expect(wrap.parent).not.toBe(page());
+      expect(wrap).toContainElement(screen.getByTestId('entry-body'));
+    });
+
+    it('wires the caret follow: ScrollView onScroll and a 16ms throttle', async () => {
+      await renderLayout();
+      expect(typeof page().props.onScroll).toBe('function');
+      expect(page().props.scrollEventThrottle).toBe(16);
+    });
+
+    describe('caret follow', () => {
+      const layout = (el: Parameters<typeof fireEvent>[0], y: number, height: number) =>
+        fireEvent(el, 'layout', { nativeEvent: { layout: { x: 0, y, width: 300, height } } });
+      let scrollTo: jest.SpyInstance;
+      beforeEach(() => {
+        scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+      });
+      afterEach(() => scrollTo.mockRestore());
+
+      it('scrolls the last body line into view when the focused cursor is at the end', async () => {
+        await renderLayout({ body: 'one\ntwo', toolbar: undefined });
+        const body = screen.getByTestId('entry-body');
+        await layout(page(), 0, 400);
+        await layout(screen.getByTestId('entry-body-wrap'), 300, 900);
+        await fireEvent(body, 'focus');
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start: 7, end: 7 } },
+        });
+        // last line top 300 + 900 - 26 = 1174; + line 26 + margin 26 - viewport 400 = 826
+        expect(scrollTo).toHaveBeenLastCalledWith({ y: 826, animated: false });
+      });
+
+      it('does not scroll while the body is not focused', async () => {
+        await renderLayout({ body: 'one\ntwo' });
+        await layout(page(), 0, 400);
+        await layout(screen.getByTestId('entry-body-wrap'), 300, 900);
+        expect(scrollTo).not.toHaveBeenCalled();
+      });
+    });
+
+    it('gives the recording panel the same side gutter as the page content', async () => {
+      await renderLayout({ recordingPanel: <Text>slot-panel</Text> });
+      const gutter = StyleSheet.flatten(
+        screen.getByTestId('entry-recording-panel').props.style,
+      ).paddingHorizontal;
+      expect(gutter).toBe(spacing.lg);
+      expect(gutter).toBe(StyleSheet.flatten(page().props.contentContainerStyle).padding);
     });
 
     it('brings the toolbar back when the recording panel goes away', async () => {

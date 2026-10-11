@@ -58,7 +58,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * recording; not title or
  * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
  * typed in the text). The check is off while recording
- * (stop first); back asks to discard. While recording, the mic, undo and redo are disabled.
+ * (stop first); back asks to discard. While recording the toolbar is not shown at all (the panel
+ * takes its place in the dock).
  */
 export type AddEntryWithVoiceProps = Omit<
   AddEntryScreenProps,
@@ -198,8 +199,9 @@ export function AddEntryWithVoice({
     ) : undefined;
 
   const shown = recordings.filter((r) => !r.removed);
-  // The mic stays available after a recording; only a save or a running recording turns it off.
-  const micDisabled = saving || recording;
+  // The mic stays available after a recording; only a save turns it off. (While recording the
+  // toolbar is not rendered, so it needs no recording state.)
+  const micDisabled = saving;
 
   const attachment =
     shown.length > 0 ? (
@@ -239,8 +241,8 @@ export function AddEntryWithVoice({
 
   const toolbar = (
     <EntryToolbar
-      canUndo={history.canUndo && !recording}
-      canRedo={history.canRedo && !recording}
+      canUndo={history.canUndo}
+      canRedo={history.canRedo}
       onUndo={history.undo}
       onRedo={history.redo}
       micDisabled={micDisabled}
