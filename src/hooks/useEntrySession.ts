@@ -42,6 +42,7 @@ export type EntrySession = {
 export type EntrySessionAction =
   | { type: 'startNew'; journalId?: JournalId; body?: string }
   | { type: 'open'; session: EntrySession }
+  | { type: 'setJournal'; journalId: JournalId }
   | { type: 'setTitle'; value: string }
   | { type: 'setBody'; value: string }
   | { type: 'setTags'; value: string[] }
@@ -74,6 +75,10 @@ export function entrySessionReducer(
   }
   if (!state) return state;
   switch (action.type) {
+    case 'setJournal':
+      // Only a new entry that has never been saved may change journal; a saved entry or a
+      // reopened draft stays where it is.
+      return entryJournalLocked(state) ? state : { ...state, journalId: action.journalId };
     case 'setTitle':
       return { ...state, title: action.value };
     case 'setBody':
@@ -88,6 +93,14 @@ export function entrySessionReducer(
     default:
       return state;
   }
+}
+
+/**
+ * True when the entry's journal can no longer change: it is a reopened draft or finished entry, or
+ * a save already created it. Only a new entry that was never saved may switch journals.
+ */
+export function entryJournalLocked(session: EntrySession): boolean {
+  return session.origin !== 'new' || session.id !== undefined;
 }
 
 /** Builds the session for a stored entry: a reopened draft, or a finished entry being edited. */
@@ -163,6 +176,7 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
         dispatch({ type: 'open', session: entrySessionFromDream(dream, 'draft') }),
       openEntry: (dream: Dream) =>
         dispatch({ type: 'open', session: entrySessionFromDream(dream, 'edit') }),
+      setJournal: (journalId: JournalId) => dispatch({ type: 'setJournal', journalId }),
       setTitle: (value: string) => dispatch({ type: 'setTitle', value }),
       setBody: (value: string) => dispatch({ type: 'setBody', value }),
       setTags: (value: string[]) => dispatch({ type: 'setTags', value }),

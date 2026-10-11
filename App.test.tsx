@@ -189,6 +189,11 @@ jest.mock('./src/screens/AddEntryScreen', () => {
         <Text>{`add-date:${p.date}`}</Text>
         <Text>{`add-saving:${p.saving}`}</Text>
         <Text>{`add-autofocus:${p.autoFocus}`}</Text>
+        <Text>{`add-locked:${p.journalLocked}`}</Text>
+        <Text>{`add-offered:${(p.journals ?? []).map((j: any) => j.id).join(',')}`}</Text>
+        <Pressable onPress={() => p.onJournalChange('life')}>
+          <Text>stub-add-pick-life</Text>
+        </Pressable>
         <Pressable onPress={p.onBack}>
           <Text>stub-add-back</Text>
         </Pressable>
@@ -1509,6 +1514,54 @@ describe('App journals navigation', () => {
       expect.objectContaining({ journalId: 'life', status: 'saved', requireTitle: false }),
     );
     expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('the picked journal is what gets saved, and the entry lands in the log of that journal', async () => {
+    await reachLifeAdd();
+    expect(screen.getByText('add-locked:false')).toBeTruthy();
+    expect(screen.getByText('add-offered:dreams,life')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-pick-life');
+    expect(screen.getByText('add-journal:life')).toBeTruthy();
+    expect(screen.getByText('add-title:My title')).toBeTruthy();
+    await press('stub-add-save');
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({ journalId: 'life', status: 'saved', requireTitle: false }),
+    );
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('a draft saved from a Life page after switching keeps the picked journal', async () => {
+    await reachLifeAdd();
+    await press('stub-add-set-body');
+    await press('stub-add-pick-life');
+    await press('stub-add-back');
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Save draft')
+        ?.onPress?.(),
+    );
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({ journalId: 'life', status: 'draft' }),
+    );
+  });
+
+  it('launch Dreams page: switching to Life then backing out empty is not No dream; Dreams again is', async () => {
+    await renderApp();
+    await press('stub-write');
+    await press('stub-add-pick-life');
+    await press('stub-add-back');
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expectToday();
+    expect(screen.queryByText('No dream today')).toBeNull();
+  });
+
+  it('a reopened draft and an edit are locked to their journal', async () => {
+    await reachList();
+    await press('stub-open-draft');
+    expect(screen.getByText('add-locked:true')).toBeTruthy();
+    await press('stub-add-pick-life');
+    expect(screen.getByText('add-journal:dreams')).toBeTruthy();
   });
 
   it('the leave prompt on a Life page returns to the Life log on Discard', async () => {

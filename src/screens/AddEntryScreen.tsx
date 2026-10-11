@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,15 +11,21 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { TagInput } from '../components/TagInput';
 import { listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
+import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
 
 /**
  * Prop contract:
- * - journal: the entry's journal; shown in the pill (display only for now). Sets whether the
- *   check needs a title (Dreams yes, other kinds no) and the check's label.
+ * - journal: the entry's journal; shown in the pill. Sets whether the check needs a title (Dreams
+ *   yes, other kinds no) and the check's label, so it follows the picker live.
+ * - journals / onJournalChange: the registry rows the pill's dropdown offers (the parent leaves out
+ *   a journal being deleted) and the pick handler. Without onJournalChange the pill is display only.
+ * - journalLocked: a reopened draft or a saved entry never moves journals; the pill is a plain
+ *   label with no chevron.
  * - title / body / tags / tagDraft and their setters: session state (the body is stored as the
  *   entry's transcript). There is no emotion field here.
  * - date: the date line ("Sunday, October 6").
@@ -32,6 +39,9 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  */
 export type AddEntryScreenProps = {
   journal?: Journal;
+  journals?: readonly Journal[];
+  onJournalChange?: (journalId: JournalId) => void;
+  journalLocked?: boolean;
   title: string;
   onTitleChange: (title: string) => void;
   body: string;
@@ -51,6 +61,9 @@ export type AddEntryScreenProps = {
 
 export function AddEntryScreen({
   journal = BUILT_IN_JOURNALS[0],
+  journals = [],
+  onJournalChange,
+  journalLocked = false,
   title,
   onTitleChange,
   body,
@@ -70,6 +83,12 @@ export function AddEntryScreen({
   const copy = journalCopy(journal);
   const canSave = (!titleRequired(journal.kind) || title.trim().length > 0) && !saving;
   const [knownTags, setKnownTags] = useState<string[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [topBarBottom, setTopBarBottom] = useState(56);
+  const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
+  // The menu closes for good when the picker stops being available (a save started, or the entry
+  // got locked).
+  const showMenu = menuOpen && pickable && !saving;
 
   useEffect(() => {
     listTags().then(setKnownTags);
@@ -81,7 +100,10 @@ export function AddEntryScreen({
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.topBar}>
+        <View
+          style={styles.topBar}
+          onLayout={(e) => setTopBarBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
@@ -94,11 +116,16 @@ export function AddEntryScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <View accessibilityLabel={`Journal: ${journal.name}`} style={styles.pill}>
-            <Text style={styles.pillLabel} numberOfLines={1}>
-              {journal.name}
-            </Text>
-          </View>
+          <JournalPill
+            journal={journal}
+            open={showMenu}
+            locked={!pickable}
+            disabled={saving}
+            onPress={() => {
+              Keyboard.dismiss();
+              setMenuOpen((open) => !open);
+            }}
+          />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={copy.saveButton}
@@ -154,6 +181,18 @@ export function AddEntryScreen({
           </View>
         </ScrollView>
         {toolbar}
+        {showMenu && (
+          <JournalMenu
+            journals={journals}
+            selectedId={journal.id}
+            top={topBarBottom + spacing.xs}
+            onPick={(id) => {
+              setMenuOpen(false);
+              if (id !== journal.id) onJournalChange?.(id);
+            }}
+            onClose={() => setMenuOpen(false)}
+          />
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -171,16 +210,6 @@ const styles = StyleSheet.create({
   },
   iconButton: { width: 40 },
   back: { color: colors.text, fontSize: 24 },
-  pill: {
-    maxWidth: '60%',
-    paddingVertical: 6,
-    paddingHorizontal: spacing.md,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  pillLabel: { color: colors.text, fontSize: 14 },
   check: {
     width: 40,
     height: 40,

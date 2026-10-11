@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
 import { Text } from 'react-native';
-import { useEntrySession } from '../hooks/useEntrySession';
+import { entryJournalLocked, useEntrySession } from '../hooks/useEntrySession';
 import { saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
-import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
+import { BUILT_IN_JOURNALS, Journal, journalOrDefault } from '../utils/journals';
 import { AddEntryScreen } from './AddEntryScreen';
 
 jest.mock('../services/dreamStorage', () => ({
@@ -15,6 +15,8 @@ jest.mock('../services/dreamStorage', () => ({
 
 const save = saveDream as jest.Mock;
 const [DREAMS, LIFE] = BUILT_IN_JOURNALS;
+const GRATITUDE: Journal = { id: 'j_g1', name: 'Gratitude', kind: 'journal' };
+const REGISTRY = [...BUILT_IN_JOURNALS, GRATITUDE];
 
 const stored: Dream = {
   id: '7',
@@ -29,11 +31,16 @@ const stored: Dream = {
 
 const callbacks = { onBack: jest.fn(), onSaved: jest.fn() };
 
-type Start = { journal?: Journal; open?: { dream: Dream; as: 'draft' | 'edit' } };
+type Start = {
+  journal?: Journal;
+  open?: { dream: Dream; as: 'draft' | 'edit' };
+  /** The journals the dropdown offers (App passes the registry minus one being deleted). */
+  offered?: readonly Journal[];
+};
 
 /** Wires the page to the real session hook the way App does: the check saves a finished entry. */
-function Harness({ journal = DREAMS, open }: Start) {
-  const entry = useEntrySession();
+function Harness({ journal = DREAMS, open, offered = REGISTRY }: Start) {
+  const entry = useEntrySession(REGISTRY);
   const { session } = entry;
   useEffect(() => {
     if (open?.as === 'edit') entry.openEntry(open.dream);
@@ -45,7 +52,10 @@ function Harness({ journal = DREAMS, open }: Start) {
   if (!session) return null;
   return (
     <AddEntryScreen
-      journal={journal}
+      journal={journalOrDefault(REGISTRY, session.journalId)}
+      journals={offered}
+      onJournalChange={entry.setJournal}
+      journalLocked={entryJournalLocked(session)}
       title={session.title}
       onTitleChange={entry.setTitle}
       body={session.body}
@@ -227,5 +237,154 @@ describe('AddEntryScreen', () => {
     );
     expect(screen.getByText('slot-attachment')).toBeTruthy();
     expect(screen.getByText('slot-toolbar')).toBeTruthy();
+  });
+
+  describe('journal picker', () => {
+    const openMenu = () => fireEvent.press(screen.getByLabelText('Journal: Dreams'));
+    const option = (name: string) => screen.getByRole('menuitem', { name });
+
+    it('shows the pill as a button with a chevron, closed by default', async () => {
+      await renderPage();
+      const pill = screen.getByRole('button', { name: 'Journal: Dreams' });
+      expect(pill.props.accessibilityState).toMatchObject({ expanded: false });
+      expect(screen.getByText('▾', { includeHiddenElements: true })).toBeTruthy();
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('lists every offered journal in order, marking the current one', async () => {
+      await renderPage();
+      await openMenu();
+      expect(screen.getAllByRole('menuitem').map((o) => o.props.accessibilityLabel)).toEqual([
+        'Dreams',
+        'Life',
+        'Gratitude',
+      ]);
+      expect(option('Dreams').props.accessibilityState).toMatchObject({ selected: true });
+      expect(option('Life').props.accessibilityState).toMatchObject({ selected: false });
+      expect(
+        screen.getByRole('button', { name: 'Journal: Dreams', hidden: true }).props
+          .accessibilityState,
+      ).toMatchObject({
+        expanded: true,
+      });
+    });
+
+    it('picking a journal switches at once and closes the menu', async () => {
+      await renderPage();
+      await openMenu();
+      await fireEvent.press(option('Gratitude'));
+      expect(screen.getByLabelText('Journal: Gratitude')).toBeTruthy();
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('closes on the backdrop and on Android back, changing nothing', async () => {
+      const BackHandler = require('react-native').BackHandler;
+      const add = jest.spyOn(BackHandler, 'addEventListener');
+      await renderPage();
+      await openMenu();
+      await fireEvent.press(screen.getByLabelText('Close journal list'));
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(screen.getByLabelText('Journal: Dreams')).toBeTruthy();
+      await openMenu();
+      const handler = add.mock.calls.at(-1)![1] as () => boolean;
+      await act(async () => {
+        expect(handler()).toBe(true);
+      });
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      add.mockRestore();
+    });
+
+    it('does not offer a journal left out of the list (one being deleted)', async () => {
+      await renderPage({ offered: [DREAMS, LIFE] });
+      await openMenu();
+      expect(screen.queryByRole('menuitem', { name: 'Gratitude' })).toBeNull();
+      expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    });
+
+    it('the check, its label and the title rule follow the picked journal', async () => {
+      await renderPage();
+      await fireEvent.changeText(screen.getByLabelText('Entry text'), 'a walk');
+      expect(check().props.accessibilityState.disabled).toBe(true);
+      await openMenu();
+      await fireEvent.press(option('Life'));
+      expect(check('Save entry').props.accessibilityState.disabled).toBe(false);
+      // Back to Dreams: the title is required again.
+      await fireEvent.press(screen.getByLabelText('Journal: Life'));
+      await fireEvent.press(option('Dreams'));
+      expect(check().props.accessibilityState.disabled).toBe(true);
+    });
+
+    it('keeps the typed title, body and tags across a switch, and saves in the picked journal', async () => {
+      await renderPage();
+      await fireEvent.changeText(screen.getByLabelText('Title'), 'Flooded hall');
+      await fireEvent.changeText(screen.getByLabelText('Entry text'), 'it filled up');
+      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'hallway,');
+      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'half');
+      await openMenu();
+      await fireEvent.press(option('Gratitude'));
+      expect(screen.getByLabelText('Title').props.value).toBe('Flooded hall');
+      expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up');
+      expect(screen.getByLabelText('Remove tag hallway')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Add a tag...').props.value).toBe('half');
+      await fireEvent.press(check('Save entry'));
+      await act(async () => {});
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          journalId: 'j_g1',
+          requireTitle: false,
+          details: expect.objectContaining({
+            title: 'Flooded hall',
+            transcript: 'it filled up',
+            tags: ['hallway', 'half'],
+          }),
+        }),
+      );
+    });
+
+    it('is a plain label with no chevron for a reopened draft or a finished entry', async () => {
+      const draft: Dream = { ...stored, status: 'draft' };
+      await renderPage({ open: { dream: draft, as: 'draft' } });
+      expect(screen.queryByRole('button', { name: 'Journal: Dreams' })).toBeNull();
+      expect(screen.getByLabelText('Journal: Dreams')).toBeTruthy();
+      expect(screen.queryByText('▾', { includeHiddenElements: true })).toBeNull();
+      await fireEvent.press(screen.getByLabelText('Journal: Dreams'));
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      await screen.unmount();
+      await renderPage({ open: { dream: stored, as: 'edit' } });
+      expect(screen.queryByRole('button', { name: 'Journal: Dreams' })).toBeNull();
+      expect(screen.queryByText('▾', { includeHiddenElements: true })).toBeNull();
+    });
+
+    it('is display only without a change handler', async () => {
+      await render(
+        <AddEntryScreen
+          journal={DREAMS}
+          journals={REGISTRY}
+          title=""
+          onTitleChange={() => {}}
+          body=""
+          onBodyChange={() => {}}
+          tags={[]}
+          onTagsChange={() => {}}
+          tagDraft=""
+          onTagDraftChange={() => {}}
+          date="d"
+          onSave={() => {}}
+          onBack={() => {}}
+        />,
+      );
+      expect(screen.queryByText('▾', { includeHiddenElements: true })).toBeNull();
+    });
+
+    it('closes for good and locks the pill while a save is in flight', async () => {
+      save.mockReturnValue(new Promise(() => {}));
+      await renderPage({ journal: LIFE });
+      await fireEvent.press(check('Save entry'));
+      await fireEvent.press(screen.getByLabelText('Journal: Life'));
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Journal: Life' }).props.accessibilityState.disabled,
+      ).toBe(true);
+    });
   });
 });

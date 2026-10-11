@@ -6,7 +6,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDayMarker } from './src/hooks/useDayMarker';
 import { useDreamSession } from './src/hooks/useDreamSession';
-import { entryHasContent, entryHasEdits, useEntrySession } from './src/hooks/useEntrySession';
+import {
+  entryHasContent,
+  entryHasEdits,
+  entryJournalLocked,
+  useEntrySession,
+} from './src/hooks/useEntrySession';
 import { useJournals } from './src/hooks/useJournals';
 import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
@@ -829,6 +834,9 @@ export default function App() {
         {current === 'add' && entry.session && (
           <AddEntryScreen
             journal={journalFor(entry.session.journalId)}
+            journals={visibleJournals}
+            onJournalChange={entry.setJournal}
+            journalLocked={entryJournalLocked(entry.session)}
             title={entry.session.title}
             onTitleChange={entry.setTitle}
             body={entry.session.body}

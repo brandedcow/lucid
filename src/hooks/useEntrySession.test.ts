@@ -7,6 +7,7 @@ import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
 import {
   entryHasContent,
   entryHasEdits,
+  entryJournalLocked,
   entrySessionFromDream,
   entrySessionReducer,
   useEntrySession,
@@ -72,6 +73,39 @@ describe('entrySessionReducer', () => {
       createdAt: 'when',
     });
     expect(entrySessionReducer(s, { type: 'clear' })).toBeNull();
+  });
+});
+
+describe('entrySessionReducer setJournal', () => {
+  it('changes the journal of a new entry and keeps what was typed', () => {
+    let s = entrySessionReducer(null, { type: 'startNew' });
+    s = entrySessionReducer(s, { type: 'setTitle', value: 't' });
+    s = entrySessionReducer(s, { type: 'setBody', value: 'b' });
+    s = entrySessionReducer(s, { type: 'setTags', value: ['a'] });
+    s = entrySessionReducer(s, { type: 'setJournal', journalId: 'life' });
+    expect(s).toMatchObject({ journalId: 'life', title: 't', body: 'b', tags: ['a'] });
+    expect(entryJournalLocked(s!)).toBe(false);
+  });
+
+  it('ignores a change once a save created the entry', () => {
+    let s = entrySessionReducer(null, { type: 'startNew' });
+    s = entrySessionReducer(s, { type: 'markSaved', id: '9', createdAt: 'c' });
+    expect(entryJournalLocked(s!)).toBe(true);
+    expect(entrySessionReducer(s, { type: 'setJournal', journalId: 'life' })?.journalId).toBe(
+      'dreams',
+    );
+  });
+
+  it('is locked for a reopened draft and a reopened finished entry', () => {
+    for (const origin of ['draft', 'edit'] as const) {
+      const s = entrySessionFromDream(finished, origin);
+      expect(entryJournalLocked(s)).toBe(true);
+      expect(entrySessionReducer(s, { type: 'setJournal', journalId: 'life' })).toBe(s);
+    }
+  });
+
+  it('does nothing when no entry is open', () => {
+    expect(entrySessionReducer(null, { type: 'setJournal', journalId: 'life' })).toBeNull();
   });
 });
 
@@ -154,6 +188,30 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
     });
     expect(entry.status).toBeUndefined();
     expect(result.current.session?.id).toBe(entry.id);
+  });
+
+  it('saves a new entry in the journal picked after typing, with the rules of that kind', async () => {
+    const { result } = await open([...BUILT_IN_JOURNALS, custom]);
+    await act(async () => {
+      result.current.startNew('dreams');
+      result.current.setBody('thankful');
+    });
+    // Dreams needs a title: nothing is written.
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.save('saved');
+    });
+    expect(ok).toBe(false);
+    await act(async () => result.current.setJournal('j_g1'));
+    await act(async () => {
+      ok = await result.current.save('saved');
+    });
+    expect(ok).toBe(true);
+    const [entry] = await listDreams();
+    expect(entry).toMatchObject({ journalId: 'j_g1', transcript: 'thankful' });
+    // After the first save the journal is locked.
+    await act(async () => result.current.setJournal('life'));
+    expect(result.current.session?.journalId).toBe('j_g1');
   });
 
   it('refuses a finished Dreams entry with no title, writing nothing', async () => {
