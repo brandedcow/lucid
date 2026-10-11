@@ -2,7 +2,7 @@
 
 Where the project stands, so anyone (human or agent) can pick it up. `docs/product.md` says what the app is; this file says what exists, what doesn't, and what to watch out for. Update it when you change the state of the project.
 
-_Last updated: 2026-10-10 (Today page, Settings and the open-to-Today launch rule; before that Multiple journals: Dreams and Life, Journals home, cross-journal Search; the Delete UX rework, Delete for finished dreams, Dream log, Dream entry, emotion input, Type instead), branch `feat/today-page` (stacked on `feat/journals-wiring`). Jest: 49 suites, 1151 tests, all green (`npm run check`)._
+_Last updated: 2026-10-10 (Today page, Settings and the open-to-Today launch rule; before that Multiple journals: Dreams and Life, Journals home, cross-journal Search; the Delete UX rework, Delete for finished dreams, Dream log, Dream entry, emotion input, Type instead), branch `feat/today-page` (stacked on `feat/journals-wiring`). Jest: 50 suites, 1191 tests, all green (`npm run check`)._
 
 ## What works today
 
