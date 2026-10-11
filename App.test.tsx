@@ -40,9 +40,14 @@ jest.mock('./src/services/dreamStorage', () => ({
   isSafetyCopyBlockedError: (e: any) => e?.kind === 'blocked',
 }));
 
+// Stands in for the recorder's stop in the stub's discard (the real screen stops the recorder).
+const mockRecorderStop = jest.fn();
+
 // The heavy screens are replaced by small stubs that expose their callbacks as buttons.
 jest.mock('./src/screens/CaptureScreen', () => {
   const { Pressable, Text, View } = require('react-native');
+  const { Alert } = require('react-native');
+  const { useEffect } = require('react');
   return {
     CaptureScreen: ({
       onRecorded,
@@ -50,44 +55,81 @@ jest.mock('./src/screens/CaptureScreen', () => {
       onNoDream,
       onTypeInstead,
       onBack,
+      onLeave,
+      leaveRef,
+      backLabel,
       onActiveChange,
       journal,
-    }: any) => (
-      <View>
-        <Text>capture-screen</Text>
-        <Text>{`capture-journal:${journal?.id}`}</Text>
-        {onNoDream && (
-          <Pressable onPress={onNoDream}>
-            <Text>stub-no-dream</Text>
+    }: any) => {
+      // Mirrors the real screen's confirmLeave: ask, then on Discard stop the recorder, delete the
+      // unsaved cache file and call onLeave; if the stop fails nothing is deleted and it stays.
+      const confirmLeave = () => {
+        Alert.alert('Discard this recording?', 'x', [
+          { text: 'Keep recording', style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const recording = await mockRecorderStop();
+                require('./src/services/dreamStorage').discardRecording(recording.uri);
+              } catch {
+                return;
+              }
+              onLeave?.();
+            },
+          },
+        ]);
+      };
+      useEffect(() => {
+        if (!leaveRef) return;
+        leaveRef.current = confirmLeave;
+        return () => {
+          leaveRef.current = null;
+        };
+      });
+      return (
+        <View>
+          <Text>capture-screen</Text>
+          <Text>{`capture-journal:${journal?.id}`}</Text>
+          {onNoDream && (
+            <Pressable onPress={onNoDream}>
+              <Text>stub-no-dream</Text>
+            </Pressable>
+          )}
+          {onBack && (
+            <Pressable accessibilityLabel={backLabel ?? 'Back'} onPress={onBack}>
+              <Text>stub-capture-back</Text>
+            </Pressable>
+          )}
+          <Pressable onPress={() => onActiveChange(true)}>
+            <Text>stub-capture-busy</Text>
           </Pressable>
-        )}
-        {onBack && (
-          <Pressable onPress={onBack}>
-            <Text>stub-capture-back</Text>
+          <Pressable onPress={confirmLeave}>
+            <Text>stub-recording-arrow</Text>
           </Pressable>
-        )}
-        <Pressable onPress={() => onActiveChange(true)}>
-          <Text>stub-capture-busy</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => onRecorded({ uri: 'file:///cache/r.m4a', durationMs: 7000 }, 'live')}
-        >
-          <Text>stub-save-recording</Text>
-        </Pressable>
-        <Pressable onPress={() => onRecorded({ uri: 'file:///cache/e.m4a', durationMs: 7000 }, '')}>
-          <Text>stub-save-recording-no-text</Text>
-        </Pressable>
-        <Pressable onPress={onWrite}>
-          <Text>stub-write</Text>
-        </Pressable>
-        <Pressable onPress={() => onTypeInstead('so far')}>
-          <Text>stub-type-instead</Text>
-        </Pressable>
-        <Pressable onPress={() => onTypeInstead('')}>
-          <Text>stub-type-instead-empty</Text>
-        </Pressable>
-      </View>
-    ),
+          <Pressable
+            onPress={() => onRecorded({ uri: 'file:///cache/r.m4a', durationMs: 7000 }, 'live')}
+          >
+            <Text>stub-save-recording</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onRecorded({ uri: 'file:///cache/e.m4a', durationMs: 7000 }, '')}
+          >
+            <Text>stub-save-recording-no-text</Text>
+          </Pressable>
+          <Pressable onPress={onWrite}>
+            <Text>stub-write</Text>
+          </Pressable>
+          <Pressable onPress={() => onTypeInstead('so far')}>
+            <Text>stub-type-instead</Text>
+          </Pressable>
+          <Pressable onPress={() => onTypeInstead('')}>
+            <Text>stub-type-instead-empty</Text>
+          </Pressable>
+        </View>
+      );
+    },
   };
 });
 jest.mock('./src/screens/ReviewScreen', () => {
@@ -704,9 +746,10 @@ describe('App back rules', () => {
 });
 
 describe('App Android hardware back', () => {
-  it('is not handled on capture (default behavior, exits)', async () => {
+  it('is handled on the launch capture: it goes to Today instead of exiting', async () => {
     await renderApp();
-    expect(await hardwareBack()).toBe(false);
+    expect(await hardwareBack()).toBe(true);
+    expectToday();
   });
 
   it('after saving goes to Today, then Journals and the log from there; Today exits', async () => {
@@ -1256,11 +1299,11 @@ const lifeEntry = {
 };
 
 describe('App journals navigation', () => {
-  it('opens on Dream capture with no back arrow and the No dream pill', async () => {
+  it('opens on Dream capture with the No dream arrow and the No dream pill', async () => {
     await renderApp();
     expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
     expect(screen.getByText('stub-no-dream')).toBeTruthy();
-    expect(screen.queryByText('stub-capture-back')).toBeNull();
+    expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
   });
 
   it('No dream goes to the Dream log (unchanged)', async () => {
@@ -1634,8 +1677,8 @@ describe('App launch rule', () => {
     await renderApp();
     if (expected === 'capture') {
       expect(screen.getByText('capture-screen')).toBeTruthy();
-      // The launch capture has no back arrow and offers "No dream".
-      expect(screen.queryByText('stub-capture-back')).toBeNull();
+      // The launch capture has the No dream arrow and the No dream button.
+      expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
       expect(screen.getByText('stub-no-dream')).toBeTruthy();
     } else {
       expectToday();
@@ -1658,7 +1701,7 @@ describe('App launch rule', () => {
       });
       expect(screen.getByText('capture-screen')).toBeTruthy();
       expect(screen.getByText('stub-no-dream')).toBeTruthy();
-      expect(screen.queryByText('stub-capture-back')).toBeNull();
+      expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
 
       // The data arrives late and says a dream exists today: the user is not moved.
       await act(async () => {
@@ -1804,10 +1847,12 @@ describe('App Today page', () => {
     expect(await hardwareBack()).toBe(false);
   });
 
-  it('Android back on the launch capture exits the app', async () => {
+  it('Android back on the launch capture goes to Today as No dream, not out of the app', async () => {
     mockLibrary.dreams = [oldDream];
     await renderApp();
-    expect(await hardwareBack()).toBe(false);
+    expect(await hardwareBack()).toBe(true);
+    expectToday();
+    expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
   it('shows the unreadable note from the library status', async () => {
@@ -1955,21 +2000,30 @@ describe('App captures opened from Today and the log', () => {
 describe('App launch cap timer', () => {
   it('is cleared on unmount', async () => {
     jest.useFakeTimers();
+    // Plain wrappers, put back before real timers return: a jest.spyOn here would be restored
+    // after the test and leave the fake setTimeout installed for every later test.
+    const fakeSet = globalThis.setTimeout;
+    const fakeClear = globalThis.clearTimeout;
+    const capIds: unknown[] = [];
+    const cleared: unknown[] = [];
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      const id = fakeSet(fn, ms);
+      if (ms === 1000) capIds.push(id);
+      return id;
+    }) as never;
+    globalThis.clearTimeout = ((id: never) => {
+      cleared.push(id);
+      return fakeClear(id);
+    }) as never;
     try {
-      const capIds: unknown[] = [];
-      const realSet = globalThis.setTimeout;
-      jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
-        const id = realSet(fn, ms);
-        if (ms === 1000) capIds.push(id);
-        return id;
-      }) as never);
-      const clear = jest.spyOn(globalThis, 'clearTimeout');
       mockLibrary.dreams = null;
       const view = await render(<App />);
       expect(capIds).toHaveLength(1);
       await view.unmount();
-      expect(clear).toHaveBeenCalledWith(capIds[0]);
+      expect(cleared).toContain(capIds[0]);
     } finally {
+      globalThis.setTimeout = fakeSet;
+      globalThis.clearTimeout = fakeClear;
       jest.useRealTimers();
     }
   });
@@ -2031,7 +2085,7 @@ describe('App resume on a new day', () => {
     expect(screen.getByText('capture-screen')).toBeTruthy();
     expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
     expect(screen.getByText('stub-no-dream')).toBeTruthy();
-    expect(screen.queryByText('stub-capture-back')).toBeNull();
+    expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
   };
 
   beforeEach(() => {
@@ -2278,5 +2332,228 @@ describe('App resume on a new day', () => {
     expect(screen.queryByText('capture-screen')).toBeNull();
     await awayUntil(new Date(2026, 9, 12, 8, 0, 0));
     expectLaunchCapture();
+  });
+});
+
+describe('App leaving a capture', () => {
+  const marker = () => __fs.read(`${DOC}/no-dream.json`);
+  const press_ = (text: string) =>
+    act(async () => {
+      lastAlertButtons()
+        .find((b) => b.text === text)
+        ?.onPress?.();
+    });
+  const startRecording = () => press('stub-capture-busy');
+
+  beforeEach(() => {
+    mockLibrary.dreams = [oldDream];
+    mockRecorderStop.mockResolvedValue({ uri: 'file:///cache/r.m4a', durationMs: 1000 });
+  });
+
+  describe('the launch capture', () => {
+    it('idle arrow counts as No dream and lands on Today', async () => {
+      await renderApp();
+      await fireEvent.press(screen.getByLabelText('No dream, go to Today'));
+      await flush();
+      expectToday();
+      expect(screen.getByText('No dream today')).toBeTruthy();
+      expect(marker()).toContain(todayKeyNow());
+      expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('idle Android back does the same and does not exit', async () => {
+      await renderApp();
+      expect(await hardwareBack()).toBe(true);
+      await flush();
+      expectToday();
+      expect(screen.getByText('No dream today')).toBeTruthy();
+      expect(marker()).toContain(todayKeyNow());
+      expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('the No dream button still works', async () => {
+      await renderApp();
+      await press('stub-no-dream');
+      await flush();
+      expectToday();
+      expect(marker()).toContain(todayKeyNow());
+    });
+
+    it('a marker write failure still navigates to Today', async () => {
+      __fs.failWhen('write', (uri) => uri.endsWith('no-dream.json'));
+      __fs.failWhen('create', (uri) => uri.endsWith('no-dream.json'));
+      await renderApp();
+      await fireEvent.press(screen.getByLabelText('No dream, go to Today'));
+      await flush();
+      expectToday();
+      expect(screen.getByText('No dream today')).toBeTruthy();
+      expect(marker()).toBeUndefined();
+    });
+
+    it('mid-recording Android back asks; Keep recording stays and marks nothing', async () => {
+      await renderApp();
+      await startRecording();
+      expect(await hardwareBack()).toBe(true);
+      expect(Alert.alert).toHaveBeenCalledTimes(1);
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Discard this recording?',
+        expect.any(String),
+        expect.any(Array),
+      );
+      await press_('Keep recording');
+      await flush();
+      expect(screen.getByText('capture-screen')).toBeTruthy();
+      expect(marker()).toBeUndefined();
+      expect(discardRecording).not.toHaveBeenCalled();
+    });
+
+    it('mid-recording Discard stops, deletes the cache file, then marks No dream and lands on Today', async () => {
+      await renderApp();
+      await startRecording();
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expect(mockRecorderStop).toHaveBeenCalledTimes(1);
+      expect(discardRecording).toHaveBeenCalledWith('file:///cache/r.m4a');
+      expectToday();
+      expect(screen.getByText('No dream today')).toBeTruthy();
+      expect(marker()).toContain(todayKeyNow());
+      // Not asked again after the discard.
+      jest.mocked(Alert.alert).mockClear();
+      expect(await hardwareBack()).toBe(false);
+      expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('a recorder stop failure stays on the capture and writes no marker', async () => {
+      mockRecorderStop.mockRejectedValue(new Error('stop failed'));
+      await renderApp();
+      await startRecording();
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expect(screen.getByText('capture-screen')).toBeTruthy();
+      expect(discardRecording).not.toHaveBeenCalled();
+      expect(marker()).toBeUndefined();
+    });
+
+    it('the arrow while recording discards through the screen, then marks No dream', async () => {
+      await renderApp();
+      await startRecording();
+      await press('stub-recording-arrow');
+      await press_('Discard');
+      await flush();
+      expectToday();
+      expect(marker()).toContain(todayKeyNow());
+    });
+
+    it('opens Today on relaunch the same day after leaving', async () => {
+      const view = await renderApp();
+      await hardwareBack();
+      await flush();
+      await view.unmount();
+      await renderApp();
+      expectToday();
+    });
+  });
+
+  describe('a capture that is not the launch capture', () => {
+    beforeEach(() => {
+      mockLibrary.dreams = [todayDream];
+    });
+
+    it('from Today: idle arrow returns to Today with no marker', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      expect(screen.getByLabelText('Back')).toBeTruthy();
+      await fireEvent.press(screen.getByLabelText('Back'));
+      await flush();
+      expectToday();
+      expect(marker()).toBeUndefined();
+    });
+
+    it.each(['Dreams', 'Life'] as const)(
+      'from Today (%s): mid-recording Android back asks, Keep stays, Discard returns to Today without a marker',
+      async (journal) => {
+        await renderApp();
+        await addEntry(journal);
+        await startRecording();
+        expect(await hardwareBack()).toBe(true);
+        expect(Alert.alert).toHaveBeenCalledTimes(1);
+        await press_('Keep recording');
+        expect(screen.getByText('capture-screen')).toBeTruthy();
+
+        await hardwareBack();
+        await press_('Discard');
+        await flush();
+        expect(discardRecording).toHaveBeenCalledWith('file:///cache/r.m4a');
+        expectToday();
+        expect(marker()).toBeUndefined();
+        // Not asked again.
+        jest.mocked(Alert.alert).mockClear();
+        expect(await hardwareBack()).toBe(false);
+        expect(Alert.alert).not.toHaveBeenCalled();
+      },
+    );
+
+    it('from the Dream log: Discard returns to that log', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-new-dream');
+      await startRecording();
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+      expect(marker()).toBeUndefined();
+    });
+
+    it('from the Life log: Discard returns to the Life log', async () => {
+      await renderApp();
+      await pressLabel('Open Journals');
+      await press('stub-open-life');
+      await press('stub-new-dream');
+      await startRecording();
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expect(screen.getByText('log-journal:life')).toBeTruthy();
+      expect(marker()).toBeUndefined();
+    });
+
+    it('a recorder stop failure stays on the capture', async () => {
+      mockRecorderStop.mockRejectedValue(new Error('stop failed'));
+      await renderApp();
+      await addEntry('Life');
+      await startRecording();
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expect(screen.getByText('capture-journal:life')).toBeTruthy();
+      expect(discardRecording).not.toHaveBeenCalled();
+    });
+  });
+
+  it('Read it back and Review back do not mark No dream', async () => {
+    await renderApp();
+    await press('stub-save-recording');
+    expect(await hardwareBack()).toBe(true);
+    await press_('Keep');
+    expect(marker()).toBeUndefined();
+    await press('Continue');
+    await press('stub-review-back');
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    expect(marker()).toBeUndefined();
+  });
+
+  it('a normal record-and-save flow still works and marks nothing', async () => {
+    await renderApp();
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    await flush();
+    expectToday();
+    expect(saveDream).toHaveBeenCalled();
+    expect(marker()).toBeUndefined();
   });
 });

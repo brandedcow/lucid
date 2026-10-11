@@ -102,7 +102,7 @@ export type BackInput = {
    * of `journalId`. Unset keeps the old rules (Dreams exits, Life goes to its log).
    */
   flowReturn?: FlowReturn;
-  /** capture only: this is the launch capture (opened by the launch rule); Back exits. */
+  /** capture only: this is the launch capture (opened by the launch rule); leaving it counts as No dream. */
   captureLaunch?: boolean;
   /** detail only: a delete started from this entry is in flight. */
   detailDeleting?: boolean;
@@ -110,8 +110,11 @@ export type BackInput = {
 
 /**
  * Where Back (the on-screen arrow and Android hardware back) goes from a screen.
- * - `exit`: leave the app (Android only; Today and the launch Dreams capture have no arrow, other captures do).
- * - `none`: Back does nothing (a recording is running on a capture that is not the launch capture, or an entry's delete runs).
+ * - `exit`: leave the app (Android only; only Today).
+ * - `none`: Back does nothing (an entry's delete runs).
+ * - `noDream`: the idle launch Dreams capture: Back counts as No dream and goes to Today.
+ * - `confirmLeave`: a recording is running on a capture: ask to discard it; App then leaves
+ *   (the launch capture as No dream, any other to its Today or log).
  * - `closeSearch`: close the log's search field first.
  * - `today`: the Today page.
  * - `journals`: Journals home (a log, or Search, whose view App also resets).
@@ -122,6 +125,8 @@ export type BackInput = {
 export type BackTarget =
   | { to: 'exit' }
   | { to: 'none' }
+  | { to: 'noDream' }
+  | { to: 'confirmLeave' }
   | { to: 'closeSearch' }
   | { to: 'today' }
   | { to: 'journals' }
@@ -132,11 +137,12 @@ export type BackTarget =
 export function backTarget(input: BackInput): BackTarget {
   switch (input.screen) {
     case 'capture': {
-      // The launch capture (and a Dreams capture with no flowReturn, the old rule) exits.
+      // A running recording always asks first; leaving is then up to App.
+      if (input.captureBusy) return { to: 'confirmLeave' };
+      // The launch capture (and a Dreams capture with no flowReturn, the old rule) counts as No dream.
       if (input.journalId === DREAMS_JOURNAL && (input.captureLaunch || !input.flowReturn)) {
-        return { to: 'exit' };
+        return { to: 'noDream' };
       }
-      if (input.captureBusy) return { to: 'none' };
       return input.flowReturn === 'today'
         ? { to: 'today' }
         : { to: 'log', journalId: input.journalId };

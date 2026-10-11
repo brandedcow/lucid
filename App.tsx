@@ -87,13 +87,15 @@ export default function App() {
   const [journalId, setJournalId] = useState<JournalId>(DREAMS_JOURNAL);
   // The journal a new entry is being captured for (Dreams from launch and the Dream log).
   const [captureJournal, setCaptureJournal] = useState<JournalId>(DREAMS_JOURNAL);
-  // True for the capture opened by the launch rule: no back arrow (Android back exits), and it
-  // offers "No dream".
+  // True for the capture opened by the launch rule: it offers "No dream", and leaving it counts
+  // as No dream.
   const [captureLaunch, setCaptureLaunch] = useState(false);
   // Where a capture (and a draft opened for Read it back and Review) returns to after a save.
   const [flowReturn, setFlowReturn] = useState<FlowReturn>('log');
-  // True while Life capture is recording, so Android back does not leave it mid-recording.
+  // True while the capture is recording, so Back asks to discard instead of leaving mid-recording.
   const [captureBusy, setCaptureBusy] = useState(false);
+  // Set by CaptureScreen to its discard confirmation, so Android back can ask while recording.
+  const captureLeaveRef = useRef<(() => void) | null>(null);
   // Where the open entry came from: a journal log or the Search results.
   const [detailFrom, setDetailFrom] = useState<DetailFrom>('log');
   // True only while Read it back was opened with Edit on Review, so its back arrow returns there.
@@ -244,6 +246,15 @@ export default function App() {
     dream.clear();
     setFromReview(false);
     setScreen('capture');
+  };
+
+  // No dream: in memory first, so Today shows it at once; the file write follows and a failed
+  // write never blocks leaving. Shared by the No dream button, Back on an idle launch capture and
+  // a discarded recording on it.
+  const handleNoDream = () => {
+    dayMarker.markNoDream(todayKey);
+    setCaptureBusy(false);
+    setScreen('today');
   };
 
   const confirmDiscard = () => {
@@ -411,6 +422,13 @@ export default function App() {
         return false;
       case 'none':
         return true;
+      case 'noDream':
+        handleNoDream();
+        return true;
+      case 'confirmLeave':
+        // Android back only asks while a recording runs (captureBusy); App leaves via onLeave.
+        captureLeaveRef.current?.();
+        return true;
       case 'closeSearch':
         // Same transition as leaving the search field: the log view state is kept.
         view.closeSearch();
@@ -452,6 +470,24 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // After CaptureScreen discarded a recording to leave: the launch capture counts as No dream,
+  // any other capture returns to its Today or log with no marker. Not performBack: captureBusy is
+  // still true then and it would ask again. Does nothing if the screen has already changed.
+  const leaveCapture = () => {
+    if (nav.current.screen !== 'capture') return;
+    setCaptureBusy(false);
+    const target = backTarget({
+      screen: 'capture',
+      journalId: captureJournal,
+      captureBusy: false,
+      flowReturn,
+      captureLaunch,
+    });
+    if (target.to === 'noDream') handleNoDream();
+    else if (target.to === 'today') setScreen('today');
+    else if (target.to === 'log') showLog(target.journalId);
+  };
+
   const captureJournalInfo = journalFor(captureJournal);
   const logJournal = journalFor(journalId);
 
@@ -480,8 +516,12 @@ export default function App() {
         {current === 'capture' && (
           <CaptureScreen
             journal={captureJournalInfo}
-            // Only the launch capture has no back arrow (Android back exits).
-            onBack={captureLaunch ? undefined : () => void performBack()}
+            onBack={() => void performBack()}
+            onLeave={leaveCapture}
+            leaveRef={captureLeaveRef}
+            backLabel={
+              captureLaunch && captureJournal === DREAMS_JOURNAL ? 'No dream, go to Today' : 'Back'
+            }
             onActiveChange={setCaptureBusy}
             onRecorded={(recording, text) => {
               dream.startFromRecording(recording, text, captureJournal);
@@ -499,13 +539,7 @@ export default function App() {
               setScreen('readItBack');
             }}
             onNoDream={
-              captureLaunch && captureJournal === DREAMS_JOURNAL
-                ? () => {
-                    // In memory first, so Today shows it at once; the file write follows.
-                    dayMarker.markNoDream(todayKey);
-                    setScreen('today');
-                  }
-                : undefined
+              captureLaunch && captureJournal === DREAMS_JOURNAL ? handleNoDream : undefined
             }
           />
         )}

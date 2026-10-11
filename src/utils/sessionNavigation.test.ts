@@ -174,19 +174,19 @@ describe('hasSomethingToKeep for an untitled Life entry', () => {
 });
 
 describe('backTarget', () => {
-  it('Dreams capture exits, busy or not', () => {
-    expect(backTarget({ screen: 'capture', journalId: 'dreams' })).toEqual({ to: 'exit' });
+  it('Dreams capture with no flowReturn counts as No dream when idle, asks when busy', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'dreams' })).toEqual({ to: 'noDream' });
     expect(backTarget({ screen: 'capture', journalId: 'dreams', captureBusy: true })).toEqual({
-      to: 'exit',
+      to: 'confirmLeave',
     });
   });
-  it('Life capture goes to the Life log, but not while recording', () => {
+  it('Life capture goes to the Life log, and asks while recording', () => {
     expect(backTarget({ screen: 'capture', journalId: 'life' })).toEqual({
       to: 'log',
       journalId: 'life',
     });
     expect(backTarget({ screen: 'capture', journalId: 'life', captureBusy: true })).toEqual({
-      to: 'none',
+      to: 'confirmLeave',
     });
   });
   it('Journals home goes to Today', () => {
@@ -196,13 +196,11 @@ describe('backTarget', () => {
     expect(backTarget({ screen: 'today', journalId: 'dreams' })).toEqual({ to: 'exit' });
     expect(backTarget({ screen: 'settings', journalId: 'dreams' })).toEqual({ to: 'today' });
   });
-  // Deliberate asymmetry: the launch capture exits even while busy (as it always has), while a
-  // non-launch capture is blocked while busy so Back cannot drop a live recording.
-  it('the launch Dreams capture exits, busy or not, whatever flowReturn says', () => {
+  it('the launch Dreams capture is No dream when idle and asks when busy, whatever flowReturn says', () => {
     for (const flowReturn of [undefined, 'today', 'log'] as const) {
       expect(
         backTarget({ screen: 'capture', journalId: 'dreams', captureLaunch: true, flowReturn }),
-      ).toEqual({ to: 'exit' });
+      ).toEqual({ to: 'noDream' });
       expect(
         backTarget({
           screen: 'capture',
@@ -211,7 +209,7 @@ describe('backTarget', () => {
           flowReturn,
           captureBusy: true,
         }),
-      ).toEqual({ to: 'exit' });
+      ).toEqual({ to: 'confirmLeave' });
     }
   });
   it('a non-launch Dreams capture returns to Today or the Dreams log', () => {
@@ -223,7 +221,7 @@ describe('backTarget', () => {
       journalId: 'dreams',
     });
   });
-  it('a non-launch Dreams capture does nothing while recording', () => {
+  it('a non-launch Dreams capture asks while recording', () => {
     expect(
       backTarget({
         screen: 'capture',
@@ -231,10 +229,10 @@ describe('backTarget', () => {
         flowReturn: 'today',
         captureBusy: true,
       }),
-    ).toEqual({ to: 'none' });
+    ).toEqual({ to: 'confirmLeave' });
     expect(
       backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'log', captureBusy: true }),
-    ).toEqual({ to: 'none' });
+    ).toEqual({ to: 'confirmLeave' });
   });
   it('Life capture returns to Today when opened from Today, else to its log', () => {
     expect(backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today' })).toEqual({
@@ -246,7 +244,20 @@ describe('backTarget', () => {
     });
     expect(
       backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today', captureBusy: true }),
-    ).toEqual({ to: 'none' });
+    ).toEqual({ to: 'confirmLeave' });
+  });
+  it('no capture case exits the app', () => {
+    for (const journalId of ['dreams', 'life'] as const) {
+      for (const flowReturn of [undefined, 'today', 'log'] as const) {
+        for (const captureLaunch of [false, true]) {
+          for (const captureBusy of [false, true]) {
+            expect(
+              backTarget({ screen: 'capture', journalId, flowReturn, captureLaunch, captureBusy }),
+            ).not.toEqual({ to: 'exit' });
+          }
+        }
+      }
+    }
   });
   it('a log closes its search first, otherwise goes to Journals home', () => {
     expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
