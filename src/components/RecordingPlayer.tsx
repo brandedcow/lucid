@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRecordingPlayback } from '../hooks/useRecordingPlayback';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
+import { SeekBar } from './SeekBar';
 
 type Props = {
   uri: string;
@@ -22,12 +23,34 @@ type Props = {
 
 /** Play/pause with elapsed time and a progress bar for a single recording. */
 export function RecordingPlayer({ uri, durationMs, label, compact, index = 1, count = 1 }: Props) {
-  const { playing, position, total, progress, toggle } = useRecordingPlayback(uri, durationMs);
+  const {
+    playing,
+    total,
+    toggle,
+    seekTo,
+    seekBy,
+    scrub,
+    scrubbing,
+    displayProgress,
+    displayPosition,
+  } = useRecordingPlayback(uri, durationMs);
+  const elapsed = formatDuration(Math.floor(displayPosition));
+  const length = formatDuration(Math.round(total));
+  const seekBar = (style?: object) => (
+    <SeekBar
+      style={style}
+      progress={displayProgress}
+      peaks={null}
+      onSeek={seekTo}
+      scrub={scrub}
+      onStep={seekBy}
+      label={count > 1 ? `Position of ${noun}` : 'Recording position'}
+      valueText={`${elapsed} of ${length}`}
+    />
+  );
 
   const noun = count > 1 ? `voice note ${index} of ${count}` : 'recording';
   if (compact) {
-    const elapsed = formatDuration(Math.floor(position));
-    const length = formatDuration(Math.round(total));
     return (
       <View style={styles.compactRow}>
         <Pressable
@@ -38,10 +61,8 @@ export function RecordingPlayer({ uri, durationMs, label, compact, index = 1, co
         >
           <Text style={styles.compactGlyph}>{playing ? 'ǁ' : '▶'}</Text>
         </Pressable>
-        <View style={[styles.bar, styles.compactBar]}>
-          <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-        </View>
-        <Text style={styles.time}>{playing ? `${elapsed} / ${length}` : length}</Text>
+        {seekBar(styles.compactBar)}
+        <Text style={styles.time}>{playing || scrubbing ? `${elapsed} / ${length}` : length}</Text>
       </View>
     );
   }
@@ -57,14 +78,12 @@ export function RecordingPlayer({ uri, durationMs, label, compact, index = 1, co
         <Text style={styles.glyph}>{playing ? 'ǁ' : '▶'}</Text>
       </Pressable>
       <View style={styles.track}>
-        <View style={styles.bar}>
-          <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-        </View>
+        {seekBar()}
         {label ? (
           <Text style={styles.label}>{label}</Text>
         ) : (
           <Text style={styles.time}>
-            {formatDuration(Math.floor(position))} / {formatDuration(Math.round(total))}
+            {elapsed} / {length}
           </Text>
         )}
       </View>
@@ -91,8 +110,6 @@ const styles = StyleSheet.create({
   },
   glyph: { color: colors.accentDark, fontSize: 16, fontWeight: '700' },
   track: { flex: 1, gap: spacing.sm },
-  bar: { height: 4, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
-  fill: { height: 4, backgroundColor: colors.accent },
   label: { color: colors.muted, fontSize: 13 },
   compactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   compactButton: {

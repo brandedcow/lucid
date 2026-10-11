@@ -3,6 +3,7 @@ import { useRecordingPlayback } from '../hooks/useRecordingPlayback';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
 import { isValidWaveform } from '../utils/waveform';
+import { SeekBar } from './SeekBar';
 
 type Props = {
   uri: string;
@@ -19,8 +20,6 @@ type Props = {
   playDisabled?: boolean;
 };
 
-const WAVE_HEIGHT = 32;
-
 /**
  * The voice attachment above an entry's title: play/pause, a waveform that fills left to right as
  * playback advances (a plain progress bar when there is no waveform), the length and, when
@@ -36,14 +35,21 @@ export function VoiceAttachmentCard({
   count = 1,
   playDisabled = false,
 }: Props) {
-  const { playing, position, total, progress, toggle } = useRecordingPlayback(
-    uri,
-    durationMs,
-    playDisabled,
-  );
+  const {
+    playing,
+    total,
+    toggle,
+    seekTo,
+    seekBy,
+    scrub,
+    scrubbing,
+    displayProgress,
+    displayPosition,
+  } = useRecordingPlayback(uri, durationMs, playDisabled);
   const bars = isValidWaveform(waveform) ? waveform : null;
   const noun = count > 1 ? `voice note ${index} of ${count}` : 'recording';
-  const percent = Math.round(progress * 100);
+  const elapsed = formatDuration(Math.floor(displayPosition));
+  const length = formatDuration(Math.round(total));
 
   return (
     <View style={styles.card}>
@@ -58,38 +64,18 @@ export function VoiceAttachmentCard({
       >
         <Text style={styles.glyph}>{playing ? 'ǁ' : '▶'}</Text>
       </Pressable>
-      <View
+      <SeekBar
         style={styles.track}
-        accessible
-        accessibilityRole="progressbar"
-        accessibilityLabel={count > 1 ? `Progress of ${noun}` : 'Recording progress'}
-        accessibilityValue={{ min: 0, max: 100, now: percent }}
-      >
-        {bars ? (
-          <View style={styles.wave}>
-            {bars.map((peak, i) => (
-              <View
-                key={i}
-                testID="wave-bar"
-                style={[
-                  styles.waveBar,
-                  { height: Math.max(3, peak * WAVE_HEIGHT) },
-                  (i + 0.5) / bars.length <= progress ? styles.barFilled : styles.barEmpty,
-                ]}
-              />
-            ))}
-          </View>
-        ) : (
-          <View style={styles.bar}>
-            <View testID="progress-fill" style={[styles.fill, { width: `${progress * 100}%` }]} />
-          </View>
-        )}
-      </View>
-      <Text style={styles.time}>
-        {playing
-          ? `${formatDuration(Math.floor(position))} / ${formatDuration(Math.round(total))}`
-          : formatDuration(Math.round(total))}
-      </Text>
+        progress={displayProgress}
+        peaks={bars}
+        onSeek={seekTo}
+        scrub={scrub}
+        onStep={seekBy}
+        disabled={playDisabled}
+        label={count > 1 ? `Position of ${noun}` : 'Recording position'}
+        valueText={`${elapsed} of ${length}`}
+      />
+      <Text style={styles.time}>{playing || scrubbing ? `${elapsed} / ${length}` : length}</Text>
       {onRemove && (
         <Pressable
           accessibilityRole="button"
@@ -125,13 +111,7 @@ const styles = StyleSheet.create({
   },
   buttonOff: { opacity: 0.4 },
   glyph: { color: colors.accentDark, fontSize: 14, fontWeight: '700' },
-  track: { flex: 1, justifyContent: 'center', minHeight: WAVE_HEIGHT },
-  wave: { flexDirection: 'row', alignItems: 'center', gap: 2, height: WAVE_HEIGHT },
-  waveBar: { flex: 1, borderRadius: 2 },
-  barFilled: { backgroundColor: colors.accent },
-  barEmpty: { backgroundColor: colors.border },
-  bar: { height: 4, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
-  fill: { height: 4, backgroundColor: colors.accent },
+  track: { flex: 1 },
   time: { color: colors.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
   close: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   closeGlyph: { color: colors.muted, fontSize: 16 },
