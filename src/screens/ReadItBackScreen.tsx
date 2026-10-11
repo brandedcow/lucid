@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 import { colors, fonts, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
+import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 
 /**
  * Prop contract (stable):
@@ -22,6 +23,7 @@ import { formatDuration } from '../utils/format';
  * - onContinue: go on to Review. Enabled when the text is not blank or audio exists.
  * - onBack: the back arrow; the parent decides where it goes (and any confirmation).
  * - date: header date label.
+ * - journal: optional, defaults to Dreams. Sets the date-line prefix and the text's accessibility label.
  */
 export type ReadItBackScreenProps = {
   text: string;
@@ -31,6 +33,7 @@ export type ReadItBackScreenProps = {
   onContinue: () => void;
   onBack: () => void;
   date: string;
+  journal?: Journal;
 };
 
 /** True while the on-screen keyboard is showing. */
@@ -59,7 +62,9 @@ export function ReadItBackScreen({
   onContinue,
   onBack,
   date,
+  journal = BUILT_IN_JOURNALS[0],
 }: ReadItBackScreenProps) {
+  const copy = journalCopy(journal.kind);
   const canContinue = text.trim().length > 0 || !!audio;
   const keyboardVisible = useKeyboardVisible();
 
@@ -83,7 +88,7 @@ export function ReadItBackScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <Text style={styles.date}>Dream · {date}</Text>
+          <Text style={styles.date}>{`${copy.datePrefix}${date}`}</Text>
           <View style={styles.headerSide} />
         </View>
 
@@ -99,7 +104,7 @@ export function ReadItBackScreen({
           onChangeText={onChangeText}
           placeholder="Type what you remember"
           placeholderTextColor={colors.faint}
-          accessibilityLabel="Dream text"
+          accessibilityLabel={copy.readItBackTextLabel}
           autoFocus={autoFocus}
           multiline
           scrollEnabled
@@ -114,6 +119,16 @@ export function ReadItBackScreen({
               durationMs={audio.durationMs}
               label={`Original recording · ${formatDuration(Math.round(audio.durationMs / 1000))} · always kept`}
             />
+          )}
+          {keyboardVisible && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Hide keyboard"
+              onPress={() => Keyboard.dismiss()}
+              style={styles.hideKeyboard}
+            >
+              <Text style={styles.hideKeyboardLabel}>Hide keyboard</Text>
+            </Pressable>
           )}
           <Pressable
             accessibilityRole="button"
@@ -176,5 +191,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueDisabled: { opacity: 0.4 },
+  hideKeyboard: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hideKeyboardLabel: { color: colors.muted, fontSize: 14 },
   continueLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
 });

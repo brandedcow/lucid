@@ -4,6 +4,8 @@ import {
   DISCARD_CHANGES_KEEP,
   DISCARD_CHANGES_MESSAGE,
   DISCARD_CHANGES_TITLE,
+  backTarget,
+  discardChangesMessage,
   hasAtStake,
   hasEdits,
   hasSomethingToKeep,
@@ -15,6 +17,7 @@ jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem')
 
 const base: Session = {
   origin: 'capture',
+  journalId: 'dreams',
   transcript: '',
   title: '',
   emotion: '',
@@ -152,5 +155,77 @@ describe('edit origin navigation', () => {
     expect(DISCARD_CHANGES_MESSAGE).toBe('Your changes to this dream will be lost.');
     expect(DISCARD_CHANGES_KEEP).toBe('Keep editing');
     expect(DISCARD_CHANGES_DISCARD).toBe('Discard');
+  });
+});
+
+describe('discardChangesMessage', () => {
+  it('is journal-aware and Dreams keeps the existing wording', () => {
+    expect(discardChangesMessage('dream')).toBe(DISCARD_CHANGES_MESSAGE);
+    expect(discardChangesMessage('journal')).toBe('Your changes to this entry will be lost.');
+    expect(discardChangesMessage('journal')).not.toMatch(/dream/i);
+  });
+});
+
+describe('hasSomethingToKeep for an untitled Life entry', () => {
+  it('does not depend on a title: text alone is something to keep', () => {
+    expect(hasSomethingToKeep({ ...base, journalId: 'life', transcript: 'x' })).toBe(true);
+    expect(hasSomethingToKeep({ ...base, journalId: 'life' })).toBe(false);
+  });
+});
+
+describe('backTarget', () => {
+  it('Dreams capture exits, busy or not', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'dreams' })).toEqual({ to: 'exit' });
+    expect(backTarget({ screen: 'capture', journalId: 'dreams', captureBusy: true })).toEqual({
+      to: 'exit',
+    });
+  });
+  it('Life capture goes to the Life log, but not while recording', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'life' })).toEqual({
+      to: 'log',
+      journalId: 'life',
+    });
+    expect(backTarget({ screen: 'capture', journalId: 'life', captureBusy: true })).toEqual({
+      to: 'none',
+    });
+  });
+  it('Journals home exits', () => {
+    expect(backTarget({ screen: 'journals', journalId: 'dreams' })).toEqual({ to: 'exit' });
+  });
+  it('a log closes its search first, otherwise goes to Journals home', () => {
+    expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
+      to: 'closeSearch',
+    });
+    expect(backTarget({ screen: 'log', journalId: 'life' })).toEqual({ to: 'journals' });
+  });
+  it('Search goes to Journals home', () => {
+    expect(backTarget({ screen: 'search', journalId: 'dreams' })).toEqual({ to: 'journals' });
+  });
+  it('a detail goes back to its source', () => {
+    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'log' })).toEqual({
+      to: 'log',
+      journalId: 'life',
+    });
+    expect(backTarget({ screen: 'detail', journalId: 'dreams' })).toEqual({
+      to: 'log',
+      journalId: 'dreams',
+    });
+    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'search' })).toEqual({
+      to: 'search',
+    });
+  });
+  it('a detail does nothing while its delete is in flight', () => {
+    expect(
+      backTarget({
+        screen: 'detail',
+        journalId: 'life',
+        detailFrom: 'search',
+        detailDeleting: true,
+      }),
+    ).toEqual({ to: 'none' });
+  });
+  it('Read it back and Review keep their own chains', () => {
+    expect(backTarget({ screen: 'readItBack', journalId: 'life' })).toEqual({ to: 'chain' });
+    expect(backTarget({ screen: 'review', journalId: 'dreams' })).toEqual({ to: 'chain' });
   });
 });

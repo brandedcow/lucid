@@ -17,6 +17,13 @@ import { listEmotions, listTags } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { joinEmotions, splitEmotions } from '../utils/emotions';
 import { countWords, formatDuration } from '../utils/format';
+import {
+  BUILT_IN_JOURNALS,
+  Journal,
+  journalCopy,
+  showsEmotion,
+  titleRequired,
+} from '../utils/journals';
 
 /**
  * Prop contract:
@@ -32,7 +39,9 @@ import { countWords, formatDuration } from '../utils/format';
  * - saving: a save is in flight; Done, Finish later and the back arrow do nothing, and the card and
  *   all fields are locked so a late edit cannot be lost.
  * - onBack: the back arrow; the parent decides where it goes.
- * - date: label shown in the header ("Dream · <date>").
+ * - date: label shown in the header ("Dream · <date>" for Dreams, "Life · <date>" for Life).
+ * - journal: optional, defaults to Dreams. Sets the date line, title placeholder, whether Done needs
+ *   a title (Dreams yes, Life no) and whether the emotion field shows.
  */
 export type ReviewScreenProps = {
   transcript: string;
@@ -55,6 +64,7 @@ export type ReviewScreenProps = {
   saving?: boolean;
   onBack: () => void;
   date?: string;
+  journal?: Journal;
 };
 
 export function ReviewScreen({
@@ -78,7 +88,11 @@ export function ReviewScreen({
   saving = false,
   onBack,
   date,
+  journal = BUILT_IN_JOURNALS[0],
 }: ReviewScreenProps) {
+  const copy = journalCopy(journal.kind);
+  const needsTitle = titleRequired(journal.kind);
+  const dateLine = date ? `${copy.datePrefix}${date}` : copy.dateFallback;
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [knownEmotions, setKnownEmotions] = useState<string[]>([]);
 
@@ -87,7 +101,7 @@ export function ReviewScreen({
     listEmotions().then(setKnownEmotions);
   }, []);
 
-  const canDone = title.trim().length > 0 && !saving;
+  const canDone = (!needsTitle || title.trim().length > 0) && !saving;
   const words = countWords(transcript);
   const wordLabel = `${words} ${words === 1 ? 'word' : 'words'}`;
   const firstLine =
@@ -121,7 +135,7 @@ export function ReviewScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <Text style={styles.date}>{date ? `Dream · ${date}` : 'Dream'}</Text>
+          {dateLine.length > 0 && <Text style={styles.date}>{dateLine}</Text>}
           <View style={styles.backButton} />
         </View>
 
@@ -136,10 +150,10 @@ export function ReviewScreen({
               value={title}
               onChangeText={onTitleChange}
               editable={!saving}
-              placeholder="Name this dream"
+              placeholder={copy.titlePlaceholder}
               placeholderTextColor={colors.faint}
               accessibilityLabel="Title"
-              autoFocus={title.length === 0}
+              autoFocus={needsTitle && title.length === 0}
               maxLength={80}
               returnKeyType="done"
               style={styles.titleInput}
@@ -166,20 +180,22 @@ export function ReviewScreen({
             </View>
           </Pressable>
 
-          <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>How did it feel?</Text>
-              <Text style={styles.optional}>Optional</Text>
+          {showsEmotion(journal.kind) && (
+            <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>How did it feel?</Text>
+                <Text style={styles.optional}>Optional</Text>
+              </View>
+              <EmotionInput
+                emotions={splitEmotions(emotion)}
+                onEmotionsChange={(list) => onEmotionChange(joinEmotions(list))}
+                draft={emotionDraft}
+                onDraftChange={onEmotionDraftChange}
+                suggestions={knownEmotions}
+                disabled={saving}
+              />
             </View>
-            <EmotionInput
-              emotions={splitEmotions(emotion)}
-              onEmotionsChange={(list) => onEmotionChange(joinEmotions(list))}
-              draft={emotionDraft}
-              onDraftChange={onEmotionDraftChange}
-              suggestions={knownEmotions}
-              disabled={saving}
-            />
-          </View>
+          )}
 
           <View style={styles.field} pointerEvents={saving ? 'none' : 'auto'}>
             <View style={styles.labelRow}>

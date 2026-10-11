@@ -1,5 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import { Dream, DreamDetails } from '../types/dream';
+import { DREAMS_JOURNAL, JournalId } from '../types/entry';
 import { splitEmotions } from '../utils/emotions';
 
 // Paths.document can change between app updates on iOS, so resolve it on every call
@@ -86,7 +87,10 @@ export async function getIndexStatus(): Promise<'ok' | 'unreadable'> {
 async function readIndex(): Promise<Dream[]> {
   try {
     const dreams = await readRawIndex();
-    // Entries saved before titles and tags existed lack those fields.
+    // Entries saved before titles and tags existed lack those fields. A missing journalId is NOT
+    // filled in: it stays absent and reads as 'dreams' wherever journals are matched
+    // (`entriesFor`), so display never differs from storage and the save path (raw index) never
+    // stamps it onto an old record.
     return dreams.map((d) => ({ ...d, title: d.title ?? '', tags: d.tags ?? [] }));
   } catch {
     return [];
@@ -193,6 +197,10 @@ export type SaveDreamInput = {
   details: DreamDetails;
   /** 'saved' needs a title; 'draft' does not. */
   status: 'draft' | 'saved';
+  /** Journal for a NEW entry (default 'dreams'). Ignored on update: an entry never changes journal. */
+  journalId?: JournalId;
+  /** Whether finishing needs a title (default true). Callers pass false for journals with optional titles. */
+  requireTitle?: boolean;
 };
 
 /**
@@ -204,7 +212,8 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
   const { details, status } = input;
   // Validate before touching any file so a rejected save leaves the recording in place.
   const title = details.title.trim();
-  if (status === 'saved' && !title) throw new Error('A title is required');
+  if (status === 'saved' && (input.requireTitle ?? true) && !title)
+    throw new Error('A title is required');
 
   return serialized(async () => {
     const dreams = await readRawIndex(true);
@@ -261,6 +270,8 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       title,
       tags: details.tags,
     };
+    // Only a new record is stamped; an existing one keeps whatever it stored (even nothing).
+    if (!existing) dream.journalId = input.journalId ?? DREAMS_JOURNAL;
     if (emotion) dream.emotion = emotion;
     else delete dream.emotion;
     if (transcript) dream.transcript = transcript;

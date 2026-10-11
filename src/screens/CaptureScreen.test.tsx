@@ -1,6 +1,14 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton } from 'react-native';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { CaptureScreen } from './CaptureScreen';
+
+const LIFE_TIPS = [
+  'Start anywhere',
+  'Say it as it comes',
+  'Note how you felt',
+  'Keep it short or long',
+];
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 jest.mock('../components/Waveform', () => ({ Waveform: () => null }));
@@ -568,5 +576,89 @@ describe('CaptureScreen Type instead', () => {
     await act(async () => {});
     expect(onRecorded).toHaveBeenCalledWith(recording, '');
     expect(mockDiscard).not.toHaveBeenCalled();
+  });
+});
+
+describe('CaptureScreen for the Life journal', () => {
+  const LIFE = BUILT_IN_JOURNALS[1];
+
+  it('shows the Life headline and tips, with no No dream pill and no dream wording', async () => {
+    await render(<CaptureScreen onRecorded={jest.fn()} onNoDream={jest.fn()} journal={LIFE} />);
+    expect(screen.getByText('What happened today?')).toBeTruthy();
+    for (const tip of LIFE_TIPS) expect(screen.getByText(tip)).toBeTruthy();
+    expect(screen.queryByText('No dream')).toBeNull();
+    expect(screen.getByText('Write instead')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+  });
+
+  it('keeps the Dreams wording and the No dream pill by default', async () => {
+    const onNoDream = jest.fn();
+    await render(<CaptureScreen onRecorded={jest.fn()} onNoDream={onNoDream} />);
+    expect(screen.getByText('What happened in my dream?')).toBeTruthy();
+    await fireEvent.press(screen.getByText('No dream'));
+    expect(onNoDream).toHaveBeenCalled();
+  });
+
+  it('labels the save button "Save entry" while listening', async () => {
+    await render(<CaptureScreen onRecorded={jest.fn()} journal={LIFE} />);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    expect(screen.getByText('Save entry')).toBeTruthy();
+    expect(screen.queryByText('Save dream')).toBeNull();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+  });
+
+  it('uses the Life microphone message when permission is refused', async () => {
+    mockRec.start.mockResolvedValue(false);
+    await render(<CaptureScreen onRecorded={jest.fn()} journal={LIFE} />);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Microphone access needed',
+      'Lucid needs the microphone to record your entry. You can allow it in Settings.',
+    );
+  });
+
+  it('keeps the Dreams microphone message by default', async () => {
+    mockRec.start.mockResolvedValue(false);
+    await render(<CaptureScreen onRecorded={jest.fn()} />);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Microphone access needed',
+      'Lucid needs the microphone to record your dream. You can allow it in Settings.',
+    );
+  });
+});
+
+describe('CaptureScreen back arrow', () => {
+  it('shows no back arrow without onBack', async () => {
+    await render(<CaptureScreen onRecorded={onRecordedStub} />);
+    expect(screen.queryByLabelText('Back')).toBeNull();
+  });
+
+  it('shows Back on the idle screen when onBack is given and calls it', async () => {
+    const onBack = jest.fn();
+    await render(
+      <CaptureScreen onRecorded={onRecordedStub} onBack={onBack} journal={BUILT_IN_JOURNALS[1]} />,
+    );
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Back while recording and reports the active state', async () => {
+    const onActiveChange = jest.fn();
+    await render(
+      <CaptureScreen
+        onRecorded={onRecordedStub}
+        onBack={jest.fn()}
+        onActiveChange={onActiveChange}
+      />,
+    );
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
   });
 });

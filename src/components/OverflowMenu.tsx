@@ -20,6 +20,9 @@ type Props = {
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
+  /** Wording for the item labels; defaults to the Dream wording ("Edit dream" / "Delete dream"). */
+  editLabel?: string;
+  deleteLabel?: string;
 };
 
 export function OverflowMenu({
@@ -27,6 +30,8 @@ export function OverflowMenu({
   onDelete,
   disabled = false,
   deleteDisabled = false,
+  editLabel = 'Edit dream',
+  deleteLabel = 'Delete dream',
 }: Props) {
   const [open, setOpen] = useState(false);
   const visible = open && !disabled;
@@ -75,7 +80,7 @@ export function OverflowMenu({
           <View style={styles.card}>
             <Pressable
               accessibilityRole="menuitem"
-              accessibilityLabel="Edit dream"
+              accessibilityLabel={editLabel}
               accessibilityState={{ disabled }}
               disabled={disabled}
               onPress={() => pick(onEdit)}
@@ -86,7 +91,7 @@ export function OverflowMenu({
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"
-                accessibilityLabel="Delete dream"
+                accessibilityLabel={deleteLabel}
                 accessibilityState={{ disabled: disabled || deleteDisabled }}
                 disabled={disabled || deleteDisabled}
                 onPress={() => pick(onDelete)}

@@ -1,20 +1,23 @@
 import { Alert } from 'react-native';
+import { EntryType } from '../types/entry';
+import { journalCopy } from './journals';
 
 type Options = {
   hasAudio: boolean;
+  /** Whose wording to use. Defaults to 'dream'. */
+  kind?: EntryType;
   /** The user chose "Delete". Called after `onClose`. */
   onConfirm: () => void;
   /** The dialog is gone however it ended (Keep, Delete or tapped outside). Release any "dialog open" guard here. */
   onClose: () => void;
 };
 
-/** The one "Delete this dream?" confirmation, shared by every place a dream can be deleted. */
-export function confirmDeleteDream({ hasAudio, onConfirm, onClose }: Options) {
+/** The one "Delete this dream?" (or "entry") confirmation, shared by every place an entry can be deleted. */
+export function confirmDeleteDream({ hasAudio, kind = 'dream', onConfirm, onClose }: Options) {
+  const copy = journalCopy(kind);
   Alert.alert(
-    'Delete this dream?',
-    hasAudio
-      ? "The recording and text will be permanently deleted. This can't be undone."
-      : "The text will be permanently deleted. This can't be undone.",
+    copy.deleteTitle,
+    hasAudio ? copy.deleteBodyWithAudio : copy.deleteBodyNoAudio,
     [
       { text: 'Keep', style: 'cancel', onPress: onClose },
       {

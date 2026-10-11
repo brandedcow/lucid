@@ -149,3 +149,19 @@ describe('OverflowMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 });
+
+describe('OverflowMenu labels', () => {
+  it('uses the given item labels', async () => {
+    await render(
+      <OverflowMenu
+        onEdit={jest.fn()}
+        onDelete={jest.fn()}
+        editLabel="Edit entry"
+        deleteLabel="Delete entry"
+      />,
+    );
+    await open();
+    expect(screen.getByRole('menuitem', { name: 'Edit entry' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Delete entry' })).toBeTruthy();
+  });
+});

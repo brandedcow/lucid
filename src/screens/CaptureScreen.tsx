@@ -6,6 +6,7 @@ import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
 import { useLiveTranscription } from '../hooks/useLiveTranscription';
 import { discardRecording } from '../services/dreamStorage';
 import { colors } from '../theme';
+import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { IdleView } from './capture/IdleView';
 import { ListeningView } from './capture/ListeningView';
 
@@ -51,10 +52,36 @@ type Props = {
   onWrite?: () => void;
   /** Type instead while recording: the recording is deleted, `text` is the live text so far. */
   onTypeInstead?: (text: string) => void;
+  /** Optional, defaults to Dreams. Sets the wording (headline, tips, "No dream", Save, microphone message). */
+  journal?: Journal;
+  /**
+   * Optional. When given, the idle screen shows a back arrow that calls it (Life capture; Dreams
+   * capture passes none). It is not shown while recording.
+   */
+  onBack?: () => void;
+  /** Optional. Called with true when recording starts and false when the screen is idle again, so the parent can hold Android back while recording. */
+  onActiveChange?: (active: boolean) => void;
 };
 
-export function CaptureScreen({ onRecorded, onNoDream, onWrite, onTypeInstead }: Props) {
+export function CaptureScreen({
+  onRecorded,
+  onNoDream,
+  onWrite,
+  onTypeInstead,
+  journal = BUILT_IN_JOURNALS[0],
+  onBack,
+  onActiveChange,
+}: Props) {
+  const copy = journalCopy(journal.kind);
   const [phase, setPhase] = useState<Phase>('idle');
+  const activeRef = useRef(onActiveChange);
+  useEffect(() => {
+    activeRef.current = onActiveChange;
+  });
+  useEffect(() => {
+    activeRef.current?.(phase !== 'idle');
+    return () => activeRef.current?.(false);
+  }, [phase]);
   const [stopping, setStopping] = useState(false);
   const recorder = useDreamRecorder();
   const transcription = useLiveTranscription();
@@ -145,10 +172,7 @@ export function CaptureScreen({ onRecorded, onNoDream, onWrite, onTypeInstead }:
       const started = await recorder.start();
       if (!started) {
         if (START_ORDER === 'speechFirst') void transcription.stop();
-        Alert.alert(
-          'Microphone access needed',
-          'Lucid needs the microphone to record your dream. You can allow it in Settings.',
-        );
+        Alert.alert('Microphone access needed', copy.microphoneMessage);
         return;
       }
       startedAt.current = Date.now();
@@ -215,7 +239,15 @@ export function CaptureScreen({ onRecorded, onNoDream, onWrite, onTypeInstead }:
   return (
     <SafeAreaView style={styles.container}>
       {phase === 'idle' ? (
-        <IdleView onStart={start} onSkip={() => onNoDream?.()} onWrite={() => onWrite?.()} />
+        <IdleView
+          onStart={start}
+          onSkip={() => onNoDream?.()}
+          onWrite={() => onWrite?.()}
+          headline={copy.captureHeadline}
+          tips={copy.tips}
+          skipLabel={copy.skipLabel}
+          onBack={onBack}
+        />
       ) : (
         <ListeningView
           durationMs={recorder.durationMs}
@@ -226,6 +258,7 @@ export function CaptureScreen({ onRecorded, onNoDream, onWrite, onTypeInstead }:
           transcript={transcription.transcript}
           transcriptNote={transcription.error}
           onSave={finish}
+          saveLabel={copy.saveButton}
           onTypeInstead={confirmTypeInstead}
         />
       )}

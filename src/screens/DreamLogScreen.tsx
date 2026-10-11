@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DreamChips } from '../components/DreamChips';
+import { EntryRow } from '../components/EntryRow';
 import { MicIcon } from '../components/MicIcon';
+import { SearchIcon } from '../components/SearchIcon';
 import { IndexStatus } from '../hooks/useDreamLibrary';
 import { LogView } from '../hooks/useLogView';
 import { colors, fonts, spacing } from '../theme';
@@ -23,14 +24,12 @@ import {
   buildLogItems,
   buildSearchIndex,
   buildTagChips,
-  DreamRow,
   dreamRow,
   filterDreams,
-  limitChips,
   LogItem,
   tagChipLabel,
 } from '../utils/dreamLog';
-import { formatEntryDateTime } from '../utils/format';
+import { BUILT_IN_JOURNALS, Journal, JournalCopy, journalCopy } from '../utils/journals';
 
 /**
  * Props:
@@ -41,9 +40,13 @@ import { formatEntryDateTime } from '../utils/format';
  * - `onOpenDream(id)`: a finished dream was tapped.
  * - `onOpenDraft(dream)`: a draft was tapped.
  * - `onNewDream()`: the "New dream" button was tapped.
- * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a finished row (or
+ * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a row, draft or finished (or
  *   the VoiceOver/TalkBack "Delete" action) and chose Delete in the confirmation shown here. The
  *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
+ * - `journal`: optional, defaults to Dreams. Sets the header and all wording (empty state, search,
+ *   New button, delete confirmation and labels, untitled).
+ * - `onBack`: optional. When given, a back arrow (top left, "Back") is shown in the title row and
+ *   calls it (App goes to the Journals home). Hidden while the search field is open.
  * - `deletingId`: the dream being deleted. Its row is dimmed and cannot be opened, and swiping is
  *   off on every row until the delete ends. Everything else on the screen stays usable.
  */
@@ -56,9 +59,10 @@ type Props = {
   onNewDream: () => void;
   onDeleteDream: (dream: Dream) => void;
   deletingId?: string | null;
+  journal?: Journal;
+  onBack?: () => void;
 };
 
-const UNREADABLE_MESSAGE = 'Your saved dreams could not be read. Your recordings are safe.';
 const FAB_CLEARANCE = 120;
 
 export function DreamLogScreen({
@@ -70,7 +74,11 @@ export function DreamLogScreen({
   onNewDream,
   onDeleteDream,
   deletingId = null,
+  journal = BUILT_IN_JOURNALS[0],
+  onBack,
 }: Props) {
+  const kind = journal.kind;
+  const copy = journalCopy(kind);
   const insets = useSafeAreaInsets();
   const { tags, query, searching, offsetRef } = view;
   const listRef = useRef<FlatList<LogItem>>(null);
@@ -132,18 +140,22 @@ export function DreamLogScreen({
     },
     [closeOpenRow],
   );
-  const handleDelete = useCallback((dream: Dream, closeRow: () => void) => {
-    if (confirmOpen.current) return;
-    confirmOpen.current = true;
-    confirmDeleteDream({
-      hasAudio: hasAudio(dream),
-      onClose: () => {
-        confirmOpen.current = false;
-        closeRow();
-      },
-      onConfirm: () => deleteDreamRef.current(dream),
-    });
-  }, []);
+  const handleDelete = useCallback(
+    (dream: Dream, closeRow: () => void) => {
+      if (confirmOpen.current) return;
+      confirmOpen.current = true;
+      confirmDeleteDream({
+        hasAudio: hasAudio(dream),
+        kind,
+        onClose: () => {
+          confirmOpen.current = false;
+          closeRow();
+        },
+        onConfirm: () => deleteDreamRef.current(dream),
+      });
+    },
+    [kind],
+  );
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -170,6 +182,7 @@ export function DreamLogScreen({
       ) : (
         <LogRow
           dream={item.dream}
+          copy={copy}
           onOpenDream={handleOpenDream}
           onOpenDraft={handleOpenDraft}
           onDelete={handleDelete}
@@ -186,6 +199,7 @@ export function DreamLogScreen({
       handleRowWillOpen,
       handleRowClosed,
       deletingId,
+      copy,
     ],
   );
   const keyExtractor = useCallback(
@@ -223,18 +237,18 @@ export function DreamLogScreen({
     body =
       indexStatus === 'unreadable' ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyBody}>{UNREADABLE_MESSAGE}</Text>
+          <Text style={styles.emptyBody}>{copy.unreadableLog}</Text>
         </View>
       ) : (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No dreams yet.</Text>
-          <Text style={styles.emptyBody}>Tap New dream to record one.</Text>
+          <Text style={styles.emptyTitle}>{copy.emptyTitle}</Text>
+          <Text style={styles.emptyBody}>{copy.emptyBody}</Text>
         </View>
       );
   } else {
     body = (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No dreams match</Text>
+        <Text style={styles.emptyTitle}>{copy.noMatchTitle}</Text>
         <Text style={styles.emptyBody}>{describeFilter(tags, query)}</Text>
         {filtering && (
           <Pressable
@@ -259,9 +273,9 @@ export function DreamLogScreen({
               autoFocus
               value={query}
               onChangeText={view.setQuery}
-              placeholder="Search dreams"
+              placeholder={copy.searchLabel}
               placeholderTextColor={colors.muted}
-              accessibilityLabel="Search dreams"
+              accessibilityLabel={copy.searchLabel}
               returnKeyType="search"
               autoCorrect={false}
               style={styles.searchInput}
@@ -289,12 +303,25 @@ export function DreamLogScreen({
         </View>
       ) : (
         <View style={styles.header}>
-          <Text style={styles.title} accessibilityRole="header">
-            Dreams
-          </Text>
+          <View style={styles.titleGroup}>
+            {onBack && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                onPress={onBack}
+                hitSlop={12}
+                style={styles.backButton}
+              >
+                <Text style={styles.back}>←</Text>
+              </Pressable>
+            )}
+            <Text style={styles.title} accessibilityRole="header">
+              {copy.logHeader}
+            </Text>
+          </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Search dreams"
+            accessibilityLabel={copy.searchLabel}
             onPress={view.openSearch}
             style={styles.searchButton}
           >
@@ -336,12 +363,12 @@ export function DreamLogScreen({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="New dream"
+            accessibilityLabel={copy.newButton}
             onPress={onNewDream}
             style={styles.fab}
           >
             <MicIcon color={colors.accentDark} size={20} />
-            <Text style={styles.fabLabel}>New dream</Text>
+            <Text style={styles.fabLabel}>{copy.newButton}</Text>
           </Pressable>
         </View>
       )}
@@ -379,29 +406,9 @@ function TagChipButton({
   );
 }
 
-/** Magnifier drawn with Views (no icon library). */
-function SearchIcon() {
-  return (
-    <View style={styles.iconBox} importantForAccessibility="no-hide-descendants">
-      <View style={styles.lens} />
-      <View style={styles.handle} />
-    </View>
-  );
-}
-
-function accessibleLabel(row: DreamRow, dream: Dream): string {
-  const date = formatEntryDateTime(new Date(dream.createdAt));
-  if (row.isDraft) {
-    return [`Draft: ${row.title}`, date, 'Tap to finish'].filter(Boolean).join('. ');
-  }
-  const parts = [row.title, date];
-  if (row.chips.emotions.length > 0) parts.push(`Feelings: ${row.chips.emotions.join(', ')}`);
-  if (row.chips.tags.length > 0) parts.push(`Tags: ${row.chips.tags.join(', ')}`);
-  return parts.filter(Boolean).join('. ');
-}
-
 const LogRow = memo(function LogRow({
   dream,
+  copy,
   onOpenDream,
   onOpenDraft,
   onDelete,
@@ -411,6 +418,7 @@ const LogRow = memo(function LogRow({
   swipeLocked,
 }: {
   dream: Dream;
+  copy: JournalCopy;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
   onDelete: (dream: Dream, closeRow: () => void) => void;
@@ -430,38 +438,7 @@ const LogRow = memo(function LogRow({
       if (row) onRowClosed(row);
     };
   }, [onRowClosed]);
-  const row = useMemo(() => dreamRow(dream), [dream]);
-  const label = useMemo(() => accessibleLabel(row, dream), [row, dream]);
-  const chips = useMemo(() => limitChips(row.chips), [row]);
-
-  if (row.isDraft) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPress={() => onOpenDraft(dream)}
-        style={[styles.card, styles.draftCard]}
-      >
-        <View style={styles.cardMain}>
-          <View style={styles.draftTitleRow}>
-            <Text style={[styles.cardTitle, styles.draftTitle]} numberOfLines={1}>
-              {row.title}
-            </Text>
-            {row.draftSuffix !== '' && (
-              <Text style={[styles.cardTitle, styles.draftSuffix]}>{row.draftSuffix}</Text>
-            )}
-          </View>
-          <Text style={styles.draftHint}>
-            <Text style={styles.draftLabel}>{row.draftLabel}</Text>
-            {row.draftDate !== '' && ` · ${row.draftDate}`}
-          </Text>
-        </View>
-        <Text style={styles.chevron} importantForAccessibility="no">
-          ›
-        </Text>
-      </Pressable>
-    );
-  }
+  const row = useMemo(() => dreamRow(dream, new Date(), copy.untitled), [dream, copy]);
 
   const swipeable = !swipeLocked && !deleting;
   const deleteDream = () => {
@@ -469,38 +446,15 @@ const LogRow = memo(function LogRow({
   };
 
   const card = (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={deleting ? { disabled: true } : undefined}
-      accessibilityActions={swipeable ? DELETE_ACTIONS : undefined}
-      onAccessibilityAction={
-        swipeable
-          ? (e) => {
-              if (e.nativeEvent.actionName === 'delete') deleteDream();
-            }
-          : undefined
-      }
-      disabled={deleting}
-      onPress={() => onOpenDream(dream.id)}
-      style={[styles.card, styles.swipeCard, deleting && styles.deleting]}
-    >
-      <View style={styles.dateCol}>
-        <Text style={styles.weekday}>{row.weekday}</Text>
-        <Text style={styles.day}>{row.day ?? ''}</Text>
-      </View>
-      <View style={styles.cardMain}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {row.title}
-        </Text>
-        {row.preview !== '' && (
-          <Text style={styles.preview} numberOfLines={2}>
-            {row.preview}
-          </Text>
-        )}
-        <DreamChips chips={chips.visible} overflow={chips.overflow} />
-      </View>
-    </Pressable>
+    <EntryRow
+      dream={dream}
+      untitled={copy.untitled}
+      onOpenDream={onOpenDream}
+      onOpenDraft={onOpenDraft}
+      deleting={deleting}
+      onAccessibilityDelete={swipeable ? deleteDream : undefined}
+      flush
+    />
   );
 
   return (
@@ -525,7 +479,7 @@ const LogRow = memo(function LogRow({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Delete dream: ${row.title}`}
+            accessibilityLabel={copy.deleteRowLabel(row.title)}
             onPress={deleteDream}
             style={styles.deleteAction}
           >
@@ -539,8 +493,6 @@ const LogRow = memo(function LogRow({
   );
 });
 
-const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
@@ -552,26 +504,17 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
     paddingTop: spacing.sm,
   },
+  titleGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  backButton: {
+    width: 44,
+    height: 44,
+    marginLeft: -spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  back: { color: colors.text, fontSize: 24 },
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 34 },
   searchButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  iconBox: { width: 22, height: 22 },
-  lens: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.muted,
-  },
-  handle: {
-    position: 'absolute',
-    right: 1,
-    bottom: 3,
-    width: 8,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.muted,
-    transform: [{ rotate: '45deg' }],
-  },
   searchField: {
     flex: 1,
     flexDirection: 'row',
@@ -624,22 +567,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
     paddingBottom: spacing.sm,
   },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: 72,
-    marginBottom: spacing.sm + 2,
-    padding: spacing.md,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
   // The margin sits on the swipe container, so the revealed action is exactly as tall as the card.
   swipeRow: { marginBottom: spacing.sm + 2, borderRadius: 16 },
-  swipeCard: { marginBottom: 0 },
-  deleting: { opacity: 0.45 },
   actionWrap: { width: 96, alignItems: 'stretch' },
   deleteAction: {
     flex: 1,
@@ -651,19 +580,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.draft,
   },
   deleteLabel: { color: colors.accentDark, fontSize: 16, fontWeight: '700' },
-  draftCard: { backgroundColor: 'transparent', borderColor: colors.faint },
-  dateCol: { width: 36, alignItems: 'center' },
-  weekday: { color: colors.muted, fontSize: 11, letterSpacing: 0.8 },
-  day: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
-  cardMain: { flex: 1, gap: spacing.xs },
-  cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 18 },
-  draftTitleRow: { flexDirection: 'row', alignItems: 'baseline' },
-  draftTitle: { flexShrink: 1 },
-  draftSuffix: { flexShrink: 0 },
-  preview: { color: colors.muted, fontSize: 14, lineHeight: 19 },
-  draftHint: { color: colors.muted, fontSize: 13 },
-  draftLabel: { color: colors.draft },
-  chevron: { color: colors.muted, fontSize: 24 },
   empty: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.sm },
   emptyTitle: { color: colors.text, fontSize: 18 },
   emptyBody: { color: colors.muted, fontSize: 16 },

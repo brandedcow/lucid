@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, BackHandler } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -9,39 +9,71 @@ import { useLogView } from './src/hooks/useLogView';
 import { CaptureScreen } from './src/screens/CaptureScreen';
 import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
+import { JournalsScreen } from './src/screens/JournalsScreen';
 import { ReadItBackScreen } from './src/screens/ReadItBackScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
+import { SearchScreen } from './src/screens/SearchScreen';
 import {
   discardRecording,
   isIndexUnreadableError,
   isSafetyCopyBlockedError,
 } from './src/services/dreamStorage';
 import type { Dream } from './src/types/dream';
+import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { formatToday } from './src/utils/format';
+import {
+  BUILT_IN_JOURNALS,
+  entriesFor,
+  journalById,
+  journalCopy,
+  journalOf,
+  kindOf,
+  titleRequired,
+  type Journal,
+  type JournalCopy,
+} from './src/utils/journals';
+import { journalCounts } from './src/utils/journalSearch';
 import {
   DISCARD_CHANGES_DISCARD,
   DISCARD_CHANGES_KEEP,
-  DISCARD_CHANGES_MESSAGE,
   DISCARD_CHANGES_TITLE,
+  backTarget,
+  discardChangesMessage,
   hasEdits,
   readItBackBack,
   reviewBack,
 } from './src/utils/sessionNavigation';
 
-type Screen = 'capture' | 'readItBack' | 'review' | 'log' | 'detail';
+type Screen = 'capture' | 'readItBack' | 'review' | 'log' | 'detail' | 'journals' | 'search';
+
+/** Where the entry screen was opened from, and so where its Back and a delete return to. */
+type DetailFrom = 'log' | 'search';
+
+// The screen the app opens on. A function so a later part can choose from stored state.
+function initialScreen(): Screen {
+  return 'capture';
+}
+
+const journalFor = (id: JournalId): Journal => journalById(id) ?? BUILT_IN_JOURNALS[0];
 
 // Retrying will not help in the safety-copy case, so that message does not say so.
-function deleteFailureMessage(e: unknown): string {
-  if (isIndexUnreadableError(e)) return 'Your saved dreams could not be read. Nothing was deleted.';
-  if (isSafetyCopyBlockedError(e)) {
-    return 'A saved copy of your dreams is damaged, so this dream was not deleted. Nothing was changed.';
-  }
+function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
+  if (isIndexUnreadableError(e)) return copy.deleteFailureUnreadable;
+  if (isSafetyCopyBlockedError(e)) return copy.deleteFailureSafetyCopy;
   return 'Please try again.';
 }
 
 // Temporary screen switch; replace with real navigation once that is decided.
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('capture');
+  const [screen, setScreen] = useState<Screen>(initialScreen);
+  // The journal whose log is open (or was last open): Dreams or Life.
+  const [journalId, setJournalId] = useState<JournalId>(DREAMS_JOURNAL);
+  // The journal a new entry is being captured for (Dreams from launch and the Dream log).
+  const [captureJournal, setCaptureJournal] = useState<JournalId>(DREAMS_JOURNAL);
+  // True while Life capture is recording, so Android back does not leave it mid-recording.
+  const [captureBusy, setCaptureBusy] = useState(false);
+  // Where the open entry came from: a journal log or the Search results.
+  const [detailFrom, setDetailFrom] = useState<DetailFrom>('log');
   // True only while Read it back was opened with Edit on Review, so its back arrow returns there.
   const [fromReview, setFromReview] = useState(false);
   // The finished dream shown on the detail screen.
@@ -51,6 +83,8 @@ export default function App() {
   const library = useDreamLibrary();
   // Created here so the filter, search and scroll position survive leaving the Dream log.
   const view = useLogView();
+  // Search across journals keeps its own query, tags and scroll while an entry is open.
+  const searchView = useLogView();
   // True from the start of a save until its refresh finishes, so a second tap or back cannot race it.
   const finishing = useRef(false);
   // The dream being deleted, held from the confirmed delete until it ends, and whether the delete
@@ -66,8 +100,10 @@ export default function App() {
   // from the Dream log blocks nothing, like Notes.
   const detailDeleting = useRef(false);
   // The latest screen and open entry, for the async delete to read after its await.
-  const nav = useRef({ screen, detailId });
-  nav.current = { screen, detailId };
+  const nav = useRef({ screen, detailId, detailFrom, journalId });
+  useEffect(() => {
+    nav.current = { screen, detailId, detailFrom, journalId };
+  });
   const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 
   // The detail screen needs a finished dream; otherwise the log shows.
@@ -75,16 +111,40 @@ export default function App() {
     (detailId ? library.dreams?.find((d) => d.id === detailId) : undefined) ??
     (detailDeletingDream && detailDeletingDream.id === detailId ? detailDeletingDream : undefined);
   const current: Screen =
-    screen === 'detail' && (!detailDream || detailDream.status === 'draft') ? 'log' : screen;
+    screen === 'detail' && (!detailDream || detailDream.status === 'draft')
+      ? detailFrom === 'search'
+        ? 'search'
+        : 'log'
+      : screen;
+
+  // Each log shows only its own journal's entries (drafts included), whatever else is stored.
+  const logEntries = useMemo(
+    () => (library.dreams ? entriesFor(library.dreams, journalId) : null),
+    [library.dreams, journalId],
+  );
+  const counts = useMemo(
+    () => (library.dreams ? journalCounts(library.dreams) : null),
+    [library.dreams],
+  );
+
+  // Opens a journal's log. The log's filter, search and scroll belong to one journal at a time, so
+  // they start fresh when the open log changes.
+  const showLog = (id: JournalId) => {
+    if (id !== nav.current.journalId) view.clearFilters();
+    setJournalId(id);
+    setScreen('log');
+  };
 
   const leaveToCapture = () => {
+    if (session) setCaptureJournal(session.journalId);
     dream.clear();
     setFromReview(false);
     setScreen('capture');
   };
 
   const confirmDiscard = () => {
-    Alert.alert('Discard this dream?', 'Your recording and text will be deleted.', [
+    const copy = journalCopy(kindOf(session?.journalId ?? DREAMS_JOURNAL));
+    Alert.alert(copy.discardTitle, copy.discardBody, [
       { text: 'Keep', style: 'cancel' },
       {
         text: 'Discard',
@@ -108,14 +168,15 @@ export default function App() {
     else if (target === 'capture') leaveToCapture();
     else {
       dream.clear();
-      setScreen('log');
+      showLog(session.journalId);
     }
   };
 
-  const leaveToLog = () => {
+  // After a save: the log of the journal the entry belongs to.
+  const leaveToLog = (id: JournalId) => {
     dream.clear();
     setFromReview(false);
-    setScreen('log');
+    showLog(id);
   };
 
   const showDetail = (id: string | null) => {
@@ -131,7 +192,9 @@ export default function App() {
   const saveAndLeave = async (status: 'draft' | 'saved') => {
     if (finishing.current || !session) return;
     const isEdit = session.origin === 'edit';
-    if (isEdit && (status === 'draft' || session.title.trim().length === 0)) return;
+    // Only a journal that requires titles blocks an untitled edit; an untitled Life entry saves.
+    const needsTitle = titleRequired(kindOf(session.journalId));
+    if (isEdit && (status === 'draft' || (needsTitle && session.title.trim().length === 0))) return;
     const id = session.id ?? detailId;
     if (isEdit && !hasEdits(session)) {
       showDetail(id);
@@ -142,7 +205,7 @@ export default function App() {
       if (!(await dream.save(status))) return;
       await library.refresh();
       if (isEdit) showDetail(id);
-      else leaveToLog();
+      else leaveToLog(session.journalId);
     } finally {
       finishing.current = false;
     }
@@ -159,12 +222,14 @@ export default function App() {
     try {
       await library.remove(target.id);
       if (nav.current.screen === 'detail' && nav.current.detailId === target.id) {
-        // The log keeps its filter, search and scroll: only the entry is left.
+        // The log or search keeps its filter, search and scroll: only the entry is left.
         setDetailId(null);
-        setScreen('log');
+        if (nav.current.detailFrom === 'search') setScreen('search');
+        else showLog(journalOf(target));
       }
     } catch (e) {
-      Alert.alert('Could not delete dream', deleteFailureMessage(e));
+      const copy = journalCopy(kindOf(journalOf(target)));
+      Alert.alert(copy.deleteFailureTitle, deleteFailureMessage(e, copy));
     } finally {
       deleting.current = false;
       detailDeleting.current = false;
@@ -179,7 +244,7 @@ export default function App() {
       showDetail(id);
       return;
     }
-    Alert.alert(DISCARD_CHANGES_TITLE, DISCARD_CHANGES_MESSAGE, [
+    Alert.alert(DISCARD_CHANGES_TITLE, discardChangesMessage(kindOf(session.journalId)), [
       { text: DISCARD_CHANGES_KEEP, style: 'cancel' },
       { text: DISCARD_CHANGES_DISCARD, style: 'destructive', onPress: () => showDetail(id) },
     ]);
@@ -211,61 +276,100 @@ export default function App() {
   // A reopened draft or edited dream shows when it was first stored; a new dream shows today.
   const dreamDate = formatToday(session?.createdAt ? new Date(session.createdAt) : new Date());
 
-  // Android hardware back mirrors the on-screen back arrows. Capture keeps the default (exit).
-  // The log closes an open search first, otherwise goes to capture.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (current === 'detail') {
-        if (detailDeleting.current) return true;
-        setScreen('log');
-        return true;
-      }
-      if (current === 'log') {
-        // Same transition as the New dream button: the log view state is kept.
-        if (view.searching) view.closeSearch();
-        else setScreen('capture');
-        return true;
-      }
-      if (current === 'readItBack' && session) {
-        backFromReadItBack();
-        return true;
-      }
-      if (current === 'review' && session) {
-        backFromReview();
-        return true;
-      }
-      return false;
+  // Back, for the on-screen arrows and Android hardware back alike. Returns false when the back
+  // should leave the app (Dreams capture and the Journals home), true when it was handled.
+  const performBack = (): boolean => {
+    const target = backTarget({
+      screen: current,
+      journalId:
+        current === 'capture'
+          ? captureJournal
+          : current === 'detail' && detailDream
+            ? journalOf(detailDream)
+            : journalId,
+      searchOpen: view.searching,
+      captureBusy,
+      detailFrom,
+      detailDeleting: detailDeleting.current,
     });
+    switch (target.to) {
+      case 'exit':
+        return false;
+      case 'none':
+        return true;
+      case 'closeSearch':
+        // Same transition as leaving the search field: the log view state is kept.
+        view.closeSearch();
+        return true;
+      case 'journals':
+        // Leaving Search starts it fresh next time.
+        if (current === 'search') searchView.clearFilters();
+        setScreen('journals');
+        return true;
+      case 'search':
+        setScreen('search');
+        return true;
+      case 'log':
+        showLog(target.journalId);
+        return true;
+      case 'chain':
+        if (!session) return false;
+        if (current === 'readItBack') backFromReadItBack();
+        else backFromReview();
+        return true;
+      default: {
+        const _exhaustive: never = target;
+        return _exhaustive;
+      }
+    }
+  };
+
+  // Android hardware back is registered once and always calls the latest `performBack` (through
+  // the ref), so it never sees stale screen, session or search state.
+  const performBackRef = useRef(performBack);
+  useEffect(() => {
+    performBackRef.current = performBack;
+  });
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => performBackRef.current());
     return () => sub.remove();
-    // The handlers close over the latest screen, session, fromReview, detailId and search state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, session, fromReview, detailId, view.searching]);
+  }, []);
+
+  const captureJournalInfo = journalFor(captureJournal);
+  const logJournal = journalFor(journalId);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         {current === 'capture' && (
           <CaptureScreen
+            journal={captureJournalInfo}
+            // Life capture has a back arrow to its log; Dreams capture has none (Android back exits).
+            onBack={captureJournal === DREAMS_JOURNAL ? undefined : () => void performBack()}
+            onActiveChange={setCaptureBusy}
             onRecorded={(recording, text) => {
-              dream.startFromRecording(recording, text);
+              dream.startFromRecording(recording, text, captureJournal);
               setFromReview(false);
               setScreen('readItBack');
             }}
             onWrite={() => {
-              dream.startWriting();
+              dream.startWriting('', captureJournal);
               setFromReview(false);
               setScreen('readItBack');
             }}
             onTypeInstead={(text) => {
-              dream.startWriting(text);
+              dream.startWriting(text, captureJournal);
               setFromReview(false);
               setScreen('readItBack');
             }}
-            onNoDream={() => setScreen('log')}
+            onNoDream={
+              captureJournal === DREAMS_JOURNAL ? () => showLog(DREAMS_JOURNAL) : undefined
+            }
           />
         )}
         {current === 'readItBack' && session && (
           <ReadItBackScreen
+            journal={journalFor(session.journalId)}
             text={session.transcript}
             onChangeText={dream.setTranscript}
             audio={session.audio}
@@ -281,6 +385,7 @@ export default function App() {
         )}
         {current === 'review' && session && (
           <ReviewScreen
+            journal={journalFor(session.journalId)}
             transcript={session.transcript}
             audio={session.audio}
             durationMs={session.audio?.durationMs ?? 0}
@@ -308,11 +413,14 @@ export default function App() {
         )}
         {current === 'log' && (
           <DreamLogScreen
-            dreams={library.dreams}
+            journal={logJournal}
+            onBack={() => void performBack()}
+            dreams={logEntries}
             indexStatus={library.indexStatus}
             view={view}
             onOpenDream={(id) => {
               setDetailId(id);
+              setDetailFrom('log');
               setScreen('detail');
             }}
             onOpenDraft={(draft) => {
@@ -320,7 +428,10 @@ export default function App() {
               setFromReview(false);
               setScreen('review');
             }}
-            onNewDream={() => setScreen('capture')}
+            onNewDream={() => {
+              setCaptureJournal(journalId);
+              setScreen('capture');
+            }}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.dream.id ?? null}
           />
@@ -328,9 +439,8 @@ export default function App() {
         {current === 'detail' && detailDream && (
           <DreamDetailScreen
             dream={detailDream}
-            onBack={() => {
-              if (!detailDeleting.current) setScreen('log');
-            }}
+            journal={journalFor(journalOf(detailDream))}
+            onBack={() => void performBack()}
             onEdit={() => {
               if (detailDeleting.current) return;
               dream.openDream(detailDream);
@@ -343,6 +453,27 @@ export default function App() {
             }}
             deleteBlocked={deletingDream !== null}
             deleting={detailDeletingDream !== null && detailDeletingDream.id === detailDream.id}
+          />
+        )}
+        {current === 'journals' && (
+          <JournalsScreen
+            counts={counts}
+            unreadable={library.indexStatus === 'unreadable'}
+            onOpenJournal={showLog}
+            onSearch={() => setScreen('search')}
+          />
+        )}
+        {current === 'search' && (
+          <SearchScreen
+            records={library.dreams}
+            indexStatus={library.indexStatus}
+            view={searchView}
+            onBack={() => void performBack()}
+            onOpenDream={(id) => {
+              setDetailId(id);
+              setDetailFrom('search');
+              setScreen('detail');
+            }}
           />
         )}
         <StatusBar style="light" />

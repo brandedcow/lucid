@@ -9,7 +9,8 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream, hasAudio } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { dreamRow, limitChips } from '../utils/dreamLog';
-import { formatEntryDateTime } from '../utils/format';
+import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
+import { formatToday } from '../utils/format';
 import { splitParagraphs } from '../utils/paragraphs';
 
 /**
@@ -21,6 +22,7 @@ import { splitParagraphs } from '../utils/paragraphs';
  *   parent does the deleting (this screen never touches storage). Without it, the menu has no
  *   Delete. If it rejects, the screen resets and the parent shows the error.
  * - deleting: the parent is deleting; the menu is disabled and the player is released.
+ * - journal: optional, defaults to Dreams. Sets the wording (menu labels, delete confirmation, untitled).
  * - deleteBlocked: optional (default false). Another delete is in flight; Delete is disabled and
  *   cannot be confirmed (Edit and the player are unaffected).
  */
@@ -31,6 +33,7 @@ export type DreamDetailScreenProps = {
   onDelete?: () => Promise<void>;
   deleting?: boolean;
   deleteBlocked?: boolean;
+  journal?: Journal;
 };
 
 export function DreamDetailScreen({
@@ -40,7 +43,9 @@ export function DreamDetailScreen({
   onDelete,
   deleting = false,
   deleteBlocked = false,
+  journal = BUILT_IN_JOURNALS[0],
 }: DreamDetailScreenProps) {
+  const copy = journalCopy(journal.kind);
   // `confirmed` unmounts the player first; onDelete then runs from an effect after that commit.
   const [confirmed, setConfirmed] = useState(false);
   const alertOpen = useRef(false);
@@ -71,8 +76,14 @@ export function DreamDetailScreen({
     wasDeleting.current = deleting;
   }, [deleting]);
 
-  const row = dreamRow(dream);
-  const date = formatEntryDateTime(new Date(dream.createdAt));
+  const row = dreamRow(dream, new Date(), copy.untitled);
+  // An untitled Life entry has no heading: the header carries its date, and the body leads.
+  const untitledLife = journal.kind === 'journal' && row.ownTitle === '';
+  const created = new Date(dream.createdAt);
+  // Same date format as Read it back and Review's header.
+  const headerDate = Number.isNaN(created.getTime())
+    ? copy.dateFallback
+    : `${copy.datePrefix}${formatToday(created)}`;
   // Show every chip: no limit on the count and no "+N".
   const { visible } = limitChips(row.chips, Infinity, Infinity);
   const audioUri = hasAudio(dream) ? dreamAudioUri(dream) : null;
@@ -81,6 +92,7 @@ export function DreamDetailScreen({
     alertOpen.current = true;
     confirmDeleteDream({
       hasAudio: audioUri !== null,
+      kind: journal.kind,
       onClose: () => {
         alertOpen.current = false;
       },
@@ -104,13 +116,16 @@ export function DreamDetailScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
+          <Text style={styles.headerDate}>{headerDate}</Text>
+          <View style={styles.headerSide} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
-          {date !== '' && <Text style={styles.date}>{date}</Text>}
-          <Text accessibilityRole="header" style={styles.title}>
-            {row.title}
-          </Text>
+          {!untitledLife && (
+            <Text accessibilityRole="header" style={styles.title}>
+              {row.title}
+            </Text>
+          )}
           {visible.length > 0 && (
             <View style={styles.section}>
               <DreamChips chips={visible} />
@@ -143,6 +158,8 @@ export function DreamDetailScreen({
           onDelete={onDelete ? confirmDelete : undefined}
           disabled={busy}
           deleteDisabled={deleteBlocked}
+          editLabel={copy.editLabel}
+          deleteLabel={copy.deleteLabel}
         />
       </View>
     </SafeAreaView>
@@ -155,14 +172,14 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
   },
   backButton: { width: 44, height: 44, justifyContent: 'center' },
+  headerSide: { width: 44 },
   back: { color: colors.text, fontSize: 24 },
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
-  date: { color: colors.muted, fontSize: 13 },
+  headerDate: { flex: 1, textAlign: 'center', color: colors.muted, fontSize: 13 },
   title: {
     color: colors.text,
     fontFamily: fonts.serif,

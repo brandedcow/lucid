@@ -3,21 +3,53 @@ import { MicIcon } from '../../components/MicIcon';
 import { colors, fonts, spacing } from '../../theme';
 import { formatToday } from '../../utils/format';
 
-const TIPS = ['Stay still', 'Work backwards', 'Record the emotion', 'Think in the present tense'];
+import { journalCopy } from '../../utils/journals';
 
-type Props = { onStart: () => void; onSkip: () => void; onWrite: () => void };
+const DREAM_COPY = journalCopy('dream');
 
-export function IdleView({ onStart, onSkip, onWrite }: Props) {
+type Props = {
+  onStart: () => void;
+  onSkip: () => void;
+  onWrite: () => void;
+  /** Wording; defaults to the Dreams copy. */
+  headline?: string;
+  tips?: readonly string[];
+  /** The skip pill's label; null hides the pill. Defaults to "No dream". */
+  skipLabel?: string | null;
+  /** Shows a back arrow (top left) that calls it. Omitted for Dreams capture. */
+  onBack?: () => void;
+};
+
+export function IdleView({
+  onStart,
+  onSkip,
+  onWrite,
+  headline = DREAM_COPY.captureHeadline,
+  tips = DREAM_COPY.tips,
+  skipLabel = DREAM_COPY.skipLabel,
+  onBack,
+}: Props) {
   return (
     <>
-      <View style={styles.header}>
+      <View style={[styles.header, onBack && styles.headerWithBack]}>
+        {onBack && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={onBack}
+            hitSlop={12}
+            style={styles.backButton}
+          >
+            <Text style={styles.back}>←</Text>
+          </Pressable>
+        )}
         <Text style={styles.small}>{formatToday()}</Text>
       </View>
 
       <View style={styles.hero}>
-        <Text style={styles.headline}>What happened in my dream?</Text>
+        <Text style={styles.headline}>{headline}</Text>
         <View style={styles.tips}>
-          {TIPS.map((tip) => (
+          {tips.map((tip) => (
             <View key={tip} style={styles.tipRow}>
               <View style={styles.tipDot} />
               <Text style={styles.tip}>{tip}</Text>
@@ -46,10 +78,12 @@ export function IdleView({ onStart, onSkip, onWrite }: Props) {
             <Text style={styles.pillIcon}>⌨</Text>
             <Text style={styles.pillLabel}>Write instead</Text>
           </Pressable>
-          <Pressable onPress={onSkip} style={styles.pill}>
-            <Text style={styles.pillIcon}>☾</Text>
-            <Text style={styles.pillLabel}>No dream</Text>
-          </Pressable>
+          {skipLabel !== null && (
+            <Pressable onPress={onSkip} style={styles.pill}>
+              <Text style={styles.pillIcon}>☾</Text>
+              <Text style={styles.pillLabel}>{skipLabel}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </>
@@ -63,6 +97,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+  headerWithBack: { alignItems: 'center', paddingLeft: spacing.sm, paddingTop: spacing.sm },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  back: { color: colors.text, fontSize: 24 },
   small: { color: colors.muted, fontSize: 13 },
   hero: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
   headline: {

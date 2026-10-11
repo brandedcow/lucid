@@ -1,6 +1,7 @@
 import { Alert, AlertButton } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { DreamDetailScreen } from './DreamDetailScreen';
 
 const mockPlayer = { play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() };
@@ -49,9 +50,10 @@ beforeEach(() => {
 });
 
 describe('DreamDetailScreen', () => {
-  it('shows the date line and title as a header', async () => {
+  it('shows "Dream · <date>" centered in the header and the title as a heading', async () => {
     await setup();
-    expect(screen.getByText('Sunday, October 4 · 6:42 AM')).toBeTruthy();
+    expect(screen.getByText('Dream · Sunday, October 4')).toBeTruthy();
+    expect(screen.queryByText(/6:42/)).toBeNull();
     expect(screen.getByRole('header', { name: 'The endless hallway' })).toBeTruthy();
   });
 
@@ -158,7 +160,8 @@ describe('DreamDetailScreen', () => {
   it('survives an invalid date', async () => {
     await setup({ ...base, createdAt: 'nonsense' });
     expect(screen.getByText('The endless hallway')).toBeTruthy();
-    expect(screen.queryByText(/ · /)).toBeNull();
+    expect(screen.getByText('Dream')).toBeTruthy();
+    expect(screen.queryByText(/Invalid/)).toBeNull();
   });
 
   it('calls onBack and onEdit from labeled buttons', async () => {
@@ -407,5 +410,66 @@ describe('DreamDetailScreen delete', () => {
       await press('Delete');
       expect(onDelete).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('DreamDetailScreen for the Life journal', () => {
+  let alertSpy: jest.SpyInstance;
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alertSpy.mockRestore());
+
+  const life: Dream = { ...base, title: 'A slow Sunday', journalId: 'life' };
+  const ui = (dream: Dream) => (
+    <DreamDetailScreen
+      dream={dream}
+      journal={BUILT_IN_JOURNALS[1]}
+      onBack={jest.fn()}
+      onEdit={jest.fn()}
+      onDelete={jest.fn().mockResolvedValue(undefined)}
+    />
+  );
+
+  it('labels the menu items Edit entry and Delete entry', async () => {
+    await render(ui(life));
+    await fireEvent.press(screen.getByLabelText('More options'));
+    expect(screen.getByRole('menuitem', { name: 'Edit entry' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Delete entry' })).toBeTruthy();
+    expect(screen.queryByLabelText('Delete dream')).toBeNull();
+  });
+
+  it('confirms deletion with the entry wording', async () => {
+    await render(ui(life));
+    await fireEvent.press(screen.getByLabelText('More options'));
+    await fireEvent.press(screen.getByLabelText('Delete entry'));
+    expect(alertSpy.mock.calls[0][0]).toBe('Delete this entry?');
+  });
+
+  it('shows the date in the header but no heading for an untitled finished Life entry, with body and chips', async () => {
+    await render(ui({ ...life, title: '' }));
+    expect(screen.queryByRole('header', { name: 'Oct 4' })).toBeNull();
+    expect(screen.queryByRole('header')).toBeNull();
+    expect(screen.queryByText('Untitled entry')).toBeNull();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
+    expect(screen.getByText('First paragraph.')).toBeTruthy();
+  });
+
+  it('still shows date and heading for a titled Life entry', async () => {
+    await render(ui(life));
+    expect(screen.getByRole('header', { name: 'A slow Sunday' })).toBeTruthy();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
+  });
+
+  it('keeps the date heading for an untitled Dream', async () => {
+    await render(
+      <DreamDetailScreen
+        dream={{ ...base, title: '' }}
+        onBack={jest.fn()}
+        onEdit={jest.fn()}
+        onDelete={jest.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(screen.getByRole('header', { name: 'Oct 4' })).toBeTruthy();
   });
 });

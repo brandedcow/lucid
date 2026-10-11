@@ -69,6 +69,15 @@ describe('deleteDream', () => {
     expect(__fs.has(audioUri('1002.m4a'))).toBe(true);
   });
 
+  it('deletes a draft with audio and its audio file', async () => {
+    const draft = dream('1004', { status: 'draft', title: '', audioFileName: '1004.m4a' });
+    seed([X, draft]);
+    await deleteDream('1004');
+    expect(await ids()).toEqual(['1001']);
+    expect(__fs.has(audioUri('1004.m4a'))).toBe(false);
+    expect(__fs.read(audioUri('1001.m4a'))).toBe('audio-1001');
+  });
+
   it('writes [] (never a zero-length file) to the index and backup for the last dream, and it stays gone', async () => {
     seed([X]);
     await deleteDream('1001');

@@ -197,6 +197,8 @@ export type DreamRow = {
   id: string;
   /** The title, or "Sep 23" (finished, untitled) or "Untitled dream" (draft, or no usable date). */
   title: string;
+  /** The entry's own title, trimmed; "" when it has none (whatever `title` falls back to). */
+  ownTitle: string;
   isDraft: boolean;
   hasAudio: boolean;
   /** " · 0:34" for a draft with audio, else "". Shown after the title. */
@@ -219,17 +221,22 @@ export type DreamRow = {
   chips: { emotions: string[]; tags: string[] };
 };
 
-export function dreamRow(dream: Dream, now: Date = new Date()): DreamRow {
+export function dreamRow(
+  dream: Dream,
+  now: Date = new Date(),
+  untitledLabel: string = 'Untitled dream',
+): DreamRow {
   const draft = isDraft(dream);
   const audio = hasAudio(dream);
   const date = dateOf(dream);
   const dateLabel = date ? formatShortDate(date, now) : '';
   const own = textOf(dream.title).trim();
   const seconds = Number.isFinite(dream.durationMs) ? Math.round(dream.durationMs / 1000) : 0;
-  const untitled = draft ? 'Untitled dream' : dateLabel || 'Untitled dream';
+  const untitled = draft ? untitledLabel : dateLabel || untitledLabel;
   return {
     id: dream.id,
     title: own || untitled,
+    ownTitle: own,
     isDraft: draft,
     hasAudio: audio,
     draftSuffix: draft && audio ? ` · ${formatDuration(Math.max(0, seconds))}` : '',

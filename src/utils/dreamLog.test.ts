@@ -370,3 +370,27 @@ describe('theme tokens', () => {
     expect(ratio(colors.emotionChipText, colors.emotionChipBg)).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe('dreamRow untitled label', () => {
+  it('defaults to Untitled dream and takes a custom label', () => {
+    const draft = dream({ title: '', status: 'draft', at: new Date(2026, 9, 4, 6, 42) });
+    expect(dreamRow(draft, NOW).title).toBe('Untitled dream');
+    expect(dreamRow(draft, NOW, 'Untitled entry').title).toBe('Untitled entry');
+  });
+
+  it('still prefers the short date for a finished untitled entry', () => {
+    const finished = dream({ title: '', at: new Date(2026, 9, 4, 6, 42) });
+    expect(dreamRow(finished, NOW, 'Untitled entry').title).toBe('Oct 4');
+  });
+});
+
+describe('dreamRow ownTitle', () => {
+  it('is the trimmed own title, or empty when there is none', () => {
+    expect(dreamRow(dream({ title: '  Hallway ' }), NOW).ownTitle).toBe('Hallway');
+    expect(dreamRow(dream({ title: '   ' }), NOW).ownTitle).toBe('');
+    const finished = dream({ title: '', at: new Date(2026, 9, 4, 6, 42) });
+    const row = dreamRow(finished, NOW);
+    expect(row.ownTitle).toBe('');
+    expect(row.title).toBe('Oct 4');
+  });
+});

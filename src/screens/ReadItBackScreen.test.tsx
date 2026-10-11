@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { ComponentProps } from 'react';
 import { Keyboard, Platform } from 'react-native';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { ReadItBackScreen } from './ReadItBackScreen';
 
 jest.mock('expo-audio', () => ({
@@ -178,5 +179,46 @@ describe('ReadItBackScreen', () => {
     expect(dismiss).toHaveBeenCalledTimes(1);
     expect(onContinue).toHaveBeenCalledTimes(1);
     dismiss.mockRestore();
+  });
+
+  it('shows "Hide keyboard" only while the keyboard is showing, and it dismisses the keyboard', async () => {
+    const handlers: Record<string, () => void> = {};
+    const add = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: () => void,
+    ) => {
+      handlers[event] = handler;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    await setup({ audio });
+    expect(screen.queryByRole('button', { name: 'Hide keyboard' })).toBeNull();
+    await act(async () => handlers.keyboardWillShow());
+    const button = screen.getByRole('button', { name: 'Hide keyboard' });
+    expect(button.props.style).toEqual(expect.objectContaining({ minHeight: 44 }));
+    await fireEvent.press(button);
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    await act(async () => handlers.keyboardWillHide());
+    expect(screen.queryByRole('button', { name: 'Hide keyboard' })).toBeNull();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    add.mockRestore();
+    dismiss.mockRestore();
+  });
+});
+
+describe('ReadItBackScreen for the Life journal', () => {
+  const LIFE = BUILT_IN_JOURNALS[1];
+
+  it('shows "Life · date" with no title', async () => {
+    await setup({ journal: LIFE, text: 'hi' });
+    expect(screen.getByText('Life · Tuesday, October 6')).toBeTruthy();
+    expect(screen.queryByText(/dream/i)).toBeNull();
+    expect(screen.getByLabelText('Entry text')).toBeTruthy();
+  });
+
+  it('keeps "Dream · date" for Dreams', async () => {
+    await setup();
+    expect(screen.getByText('Dream · Tuesday, October 6')).toBeTruthy();
+    expect(screen.getByLabelText('Dream text')).toBeTruthy();
   });
 });
