@@ -52,16 +52,16 @@ const emit = (s: AppStateStatus) => act(() => handler!(s));
 describe('useToday', () => {
   it('starts from now() and exposes no change', async () => {
     const { result } = await renderHook(() => useToday());
-    expect(result.current).toEqual({ todayKey: '2026-10-10', dayChangedWhileAway: false });
+    expect(result.current).toEqual({ todayKey: '2026-10-10', resumeNewDayToken: 0 });
   });
 
-  it('rolls over at local midnight in the foreground and re-arms, without the away flag', async () => {
+  it('rolls over at local midnight in the foreground and re-arms, without bumping the token', async () => {
     const { result } = await renderHook(() => useToday());
     await act(async () => {
       jest.advanceTimersByTime(60 * 1000 + 1000);
     });
     expect(result.current.todayKey).toBe('2026-10-11');
-    expect(result.current.dayChangedWhileAway).toBe(false);
+    expect(result.current.resumeNewDayToken).toBe(0);
     expect(timers()).toBe(1);
     await act(async () => {
       jest.advanceTimersByTime(24 * 3600 * 1000);
@@ -70,30 +70,42 @@ describe('useToday', () => {
     expect(timers()).toBe(1);
   });
 
-  it('clears the timer in the background; returning on a new day updates and flags', async () => {
+  it('clears the timer in the background; returning on a new day updates and bumps the token', async () => {
     const { result } = await renderHook(() => useToday());
     await emit('background');
     expect(timers()).toBe(0);
     jest.setSystemTime(new Date(2026, 9, 11, 8, 0, 0));
     await emit('active');
-    expect(result.current).toEqual({ todayKey: '2026-10-11', dayChangedWhileAway: true });
+    expect(result.current).toEqual({ todayKey: '2026-10-11', resumeNewDayToken: 1 });
     expect(timers()).toBe(1);
   });
 
-  it('returning on the same day does not flag, and resets an earlier flag', async () => {
+  it('a same-day return does not bump; a second return on the same new day does not bump again', async () => {
     const { result } = await renderHook(() => useToday());
     await emit('background');
     await emit('active');
-    expect(result.current.dayChangedWhileAway).toBe(false);
+    expect(result.current.resumeNewDayToken).toBe(0);
 
     await emit('background');
     jest.setSystemTime(new Date(2026, 9, 11, 8, 0, 0));
     await emit('active');
-    expect(result.current.dayChangedWhileAway).toBe(true);
+    expect(result.current.resumeNewDayToken).toBe(1);
 
     await emit('background');
     await emit('active');
-    expect(result.current).toEqual({ todayKey: '2026-10-11', dayChangedWhileAway: false });
+    expect(result.current).toEqual({ todayKey: '2026-10-11', resumeNewDayToken: 1 });
+  });
+
+  it('a multi-day absence bumps once; a later foreground midnight does not bump', async () => {
+    const { result } = await renderHook(() => useToday());
+    await emit('background');
+    jest.setSystemTime(new Date(2026, 9, 13, 8, 0, 0));
+    await emit('active');
+    expect(result.current).toEqual({ todayKey: '2026-10-13', resumeNewDayToken: 1 });
+    await act(async () => {
+      jest.advanceTimersByTime(16 * 3600 * 1000 + 1000);
+    });
+    expect(result.current).toEqual({ todayKey: '2026-10-14', resumeNewDayToken: 1 });
   });
 
   it('inactive counts as away', async () => {
@@ -102,14 +114,21 @@ describe('useToday', () => {
     expect(timers()).toBe(0);
     jest.setSystemTime(new Date(2026, 9, 11, 0, 5, 0));
     await emit('active');
-    expect(result.current.dayChangedWhileAway).toBe(true);
+    expect(result.current.resumeNewDayToken).toBe(1);
   });
 
-  it('a redundant active event with a new day updates the key but does not flag', async () => {
+  it('inactive then active on the same day does not bump', async () => {
+    const { result } = await renderHook(() => useToday());
+    await emit('inactive');
+    await emit('active');
+    expect(result.current.resumeNewDayToken).toBe(0);
+  });
+
+  it('a redundant active event with a new day updates the key but does not bump', async () => {
     const { result } = await renderHook(() => useToday());
     jest.setSystemTime(new Date(2026, 9, 11, 0, 0, 0));
     await emit('active');
-    expect(result.current).toEqual({ todayKey: '2026-10-11', dayChangedWhileAway: false });
+    expect(result.current).toEqual({ todayKey: '2026-10-11', resumeNewDayToken: 0 });
     expect(timers()).toBe(1);
   });
 

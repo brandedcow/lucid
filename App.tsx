@@ -105,7 +105,7 @@ export default function App() {
   const library = useDreamLibrary();
   const dayMarker = useDayMarker();
   const settings = useSettings();
-  const { todayKey } = useToday();
+  const { todayKey, resumeNewDayToken } = useToday();
   // Created here so the filter, search and scroll position survive leaving the Dream log.
   const view = useLogView();
   // Search across journals keeps its own query, tags and scroll while an entry is open.
@@ -134,34 +134,77 @@ export default function App() {
   // Dream capture or Today. If they are not ready in time, Dream capture opens and the late data
   // never moves the user.
   const ready = library.dreams !== null && dayMarker.loaded && settings.loaded;
+  // True once the launch is decided (by the rule or by the cap), so only one of them acts.
+  const launchResolved = useRef(false);
   useEffect(() => {
-    if (screen !== null || !ready) return;
+    if (launchResolved.current || !ready) return;
+    launchResolved.current = true;
     const status = dayStatus(library.dreams ?? [], dayMarker.noDreamDate, todayKey);
     const target = launchScreen({ ...status, autoOpen: settings.autoOpenDreamCapture });
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setScreen(target);
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (target === 'capture') {
       setCaptureLaunch(true);
       setFlowReturn('today');
     }
-  }, [
-    screen,
-    ready,
-    library.dreams,
-    dayMarker.noDreamDate,
-    todayKey,
-    settings.autoOpenDreamCapture,
-  ]);
+    setScreen(target);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [ready, library.dreams, dayMarker.noDreamDate, todayKey, settings.autoOpenDreamCapture]);
   useEffect(() => {
     if (screen !== null) return;
     const timer = setTimeout(() => {
+      if (launchResolved.current) return;
+      launchResolved.current = true;
       setCaptureJournal(DREAMS_JOURNAL);
       setCaptureLaunch(true);
       setFlowReturn('today');
-      setScreen((s) => s ?? 'capture');
+      setScreen('capture');
     }, LAUNCH_CAP_MS);
     return () => clearTimeout(timer);
   }, [screen]);
+
+  // Resume after a new day: `resumeNewDayToken` increases once each time the app returns to the
+  // foreground on a different day than it left on (never on a foreground midnight rollover, and
+  // not twice on the same new day). If nothing is done yet, jump to the launch Dream capture (when
+  // auto-open is on and the user is not mid-flow).
+  // Everything the resume rule reads, as of the latest render (never stale).
+  const resumeInputs = useRef({
+    screen,
+    ready,
+    dreams: library.dreams,
+    noDreamDate: dayMarker.noDreamDate,
+    autoOpen: settings.autoOpenDreamCapture,
+    sessionOpen: session !== null,
+    deleteRunning: deletingDream !== null,
+  });
+  useEffect(() => {
+    resumeInputs.current = {
+      screen,
+      ready,
+      dreams: library.dreams,
+      noDreamDate: dayMarker.noDreamDate,
+      autoOpen: settings.autoOpenDreamCapture,
+      sessionOpen: session !== null,
+      deleteRunning: deletingDream !== null,
+    };
+  });
+  useEffect(() => {
+    if (resumeNewDayToken === 0) return;
+    const r = resumeInputs.current;
+    // Not launched yet (the launch rule decides), data not loaded, or the user is mid-flow.
+    if (r.screen === null || !r.ready || r.dreams === null) return;
+    if (r.sessionOpen || r.deleteRunning || deleting.current) return;
+    if (r.screen === 'capture' || r.screen === 'readItBack' || r.screen === 'review') return;
+    const status = dayStatus(r.dreams, r.noDreamDate, todayKey);
+    if (launchScreen({ ...status, autoOpen: r.autoOpen }) !== 'capture') return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setCaptureJournal(DREAMS_JOURNAL);
+    setCaptureLaunch(true);
+    setFlowReturn('today');
+    setFromReview(false);
+    setScreen('capture');
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the token only; the rest is read fresh
+  }, [resumeNewDayToken]);
 
   const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 

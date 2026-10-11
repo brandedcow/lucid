@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, AlertButton, BackHandler } from 'react-native';
+import { Alert, AlertButton, AppState, AppStateStatus, BackHandler } from 'react-native';
 import App from './App';
 import { __fs } from './src/test/fakeFileSystem';
 import { localDateKey } from './src/utils/today';
@@ -1855,6 +1855,20 @@ describe('App captures opened from Today and the log', () => {
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
   });
 
+  it('the launch capture saved lands on Today; "New dream" there has a back arrow and no "No dream"', async () => {
+    mockLibrary.dreams = [oldDream];
+    await renderApp();
+    expect(screen.getByText('stub-no-dream')).toBeTruthy();
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    expectToday();
+    await press('New dream');
+    expect(screen.getByText('stub-capture-back')).toBeTruthy();
+    expect(screen.queryByText('stub-no-dream')).toBeNull();
+  });
+
   it('Life capture from Today returns to Today by arrow, Android back and save', async () => {
     await renderApp();
     await press('New Life entry');
@@ -1909,7 +1923,7 @@ describe('App captures opened from Today and the log', () => {
     expectToday();
   });
 
-  it('a draft opened from Today then Read it back (Edit) and back returns to Today', async () => {
+  it('a draft opened from Today then Read it back (Edit) and back returns to Review', async () => {
     mockLibrary.dreams = [todayDraft];
     putSettings(false);
     await renderApp();
@@ -1918,5 +1932,334 @@ describe('App captures opened from Today and the log', () => {
     expect(screen.getByText('Read it back')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(screen.getByText('review-screen')).toBeTruthy();
+  });
+});
+
+describe('App launch cap timer', () => {
+  it('is cleared on unmount', async () => {
+    jest.useFakeTimers();
+    try {
+      const capIds: unknown[] = [];
+      const realSet = globalThis.setTimeout;
+      jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+        const id = realSet(fn, ms);
+        if (ms === 1000) capIds.push(id);
+        return id;
+      }) as never);
+      const clear = jest.spyOn(globalThis, 'clearTimeout');
+      mockLibrary.dreams = null;
+      const view = await render(<App />);
+      expect(capIds).toHaveLength(1);
+      await view.unmount();
+      expect(clear).toHaveBeenCalledWith(capIds[0]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a late fire after the launch decided sets no capture state', async () => {
+    jest.useFakeTimers();
+    try {
+      mockLibrary.dreams = [todayDream];
+      await render(<App />);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2000);
+      });
+      expectToday();
+      await press('New dream');
+      // Not a launch capture: it has a back arrow and no "No dream".
+      expect(screen.getByText('stub-capture-back')).toBeTruthy();
+      expect(screen.queryByText('stub-no-dream')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('App resume on a new day', () => {
+  const DAY1 = new Date(2026, 9, 10, 12, 0, 0);
+  const DAY2 = new Date(2026, 9, 11, 9, 0, 0);
+  const at = (d: Date, h = 12) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate(), h).toISOString();
+  const day1Dream = { ...finishedDream, id: 'd1', createdAt: at(DAY1), title: 'Day one dream' };
+  const day0Dream = {
+    ...finishedDream,
+    id: 'd0',
+    createdAt: new Date(2026, 9, 8, 12).toISOString(),
+    title: 'Older dream',
+  };
+  let handlers: Array<(s: AppStateStatus) => void>;
+  let appState: AppStateStatus;
+
+  const emit = (s: AppStateStatus) =>
+    act(async () => {
+      appState = s;
+      handlers.forEach((h) => h(s));
+    });
+  /** Leave the app, let the clock pass to `to`, return. */
+  const awayUntil = async (to: Date) => {
+    await emit('background');
+    jest.setSystemTime(to);
+    await emit('active');
+  };
+  const settle = () =>
+    act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+  const launch = async () => {
+    await render(<App />);
+    await settle();
+  };
+  const expectLaunchCapture = () => {
+    expect(screen.getByText('capture-screen')).toBeTruthy();
+    expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
+    expect(screen.getByText('stub-no-dream')).toBeTruthy();
+    expect(screen.queryByText('stub-capture-back')).toBeNull();
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: DAY1 });
+    handlers = [];
+    appState = 'active';
+    Object.defineProperty(AppState, 'currentState', { configurable: true, get: () => appState });
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, h: never) => {
+      handlers.push(h);
+      return { remove: () => (handlers = handlers.filter((x) => x !== h)) };
+    }) as never);
+    mockLibrary.dreams = [day1Dream];
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('from Today with nothing done on the new day: launch capture, then No dream lands on Today', async () => {
+    await launch();
+    expectToday();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    await press('stub-no-dream');
+    expectToday();
+    expect(screen.getByText('No dream today')).toBeTruthy();
+  });
+
+  it('the jump is a launch capture: saving returns to Today', async () => {
+    await launch();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-set-title');
+    await press('stub-done');
+    expectToday();
+  });
+
+  it.each([
+    ['Journals', async () => pressLabel('Open Journals'), 'journals-screen'],
+    [
+      'the Dream log',
+      async () => {
+        await pressLabel('Open Journals');
+        await press('stub-open-dreams');
+      },
+      'log-screen',
+    ],
+    [
+      'the Life log',
+      async () => {
+        await pressLabel('Open Journals');
+        await press('stub-open-life');
+      },
+      'log-screen',
+    ],
+    ['an entry', async () => press('Day one dream'), 'detail-screen'],
+    ['Settings', async () => pressLabel('Open Settings'), 'Settings'],
+    [
+      'Search',
+      async () => {
+        await pressLabel('Open Journals');
+        await press('stub-journals-search');
+      },
+      'search-screen',
+    ],
+  ] as const)('from %s: launch capture', async (_n, open, marker) => {
+    await launch();
+    await open();
+    expect(screen.getByText(marker)).toBeTruthy();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+  });
+
+  it('stays when a finished dream exists on the new day', async () => {
+    const day2Dream = { ...finishedDream, id: 'd2', createdAt: at(DAY2, 8), title: 'Day two' };
+    mockLibrary.dreams = [day1Dream, day2Dream];
+    await launch();
+    await awayUntil(DAY2);
+    expectToday();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('stays when No dream was chosen for the new day', async () => {
+    putMarker('2026-10-11');
+    await launch();
+    await awayUntil(DAY2);
+    expectToday();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('with auto-open off it does nothing at all, even from another screen', async () => {
+    putSettings(false);
+    await launch();
+    await pressLabel('Open Journals');
+    await awayUntil(DAY2);
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('uses the setting as changed in Settings, not the one read at launch', async () => {
+    await launch();
+    await pressLabel('Open Settings');
+    await fireEvent(screen.getByLabelText('Open dream capture on launch'), 'valueChange', false);
+    await awayUntil(DAY2);
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('stays mid-capture (a Life capture from Today)', async () => {
+    await launch();
+    await press('New Life entry');
+    await awayUntil(DAY2);
+    expect(screen.getByText('capture-journal:life')).toBeTruthy();
+    expect(screen.getByText('stub-capture-back')).toBeTruthy();
+  });
+
+  it('stays on Read it back', async () => {
+    await launch();
+    await press('New dream');
+    await press('stub-type-instead');
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    await awayUntil(DAY2);
+    expect(screen.getByText('Read it back')).toBeTruthy();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('stays on Review', async () => {
+    await launch();
+    await press('New dream');
+    await press('stub-type-instead');
+    await press('Continue');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    await awayUntil(DAY2);
+    expect(screen.getByText('review-screen')).toBeTruthy();
+  });
+
+  it('stays while a delete is in flight', async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    mockLibrary.onRemove = () => gate;
+    await launch();
+    await fireEvent.press(
+      screen.getByLabelText('Delete dream: Day one dream', { includeHiddenElements: true }),
+    );
+    await alertDelete();
+    await awayUntil(DAY2);
+    expect(screen.queryByText('capture-screen')).toBeNull();
+    await act(async () => resolve());
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('stays on a same-day resume', async () => {
+    mockLibrary.dreams = [day0Dream];
+    putMarker('2026-10-10');
+    await launch();
+    expectToday();
+    await awayUntil(new Date(2026, 9, 10, 20, 0, 0));
+    expectToday();
+  });
+
+  it('never redirects on a foreground midnight rollover; Today just re-filters', async () => {
+    await launch();
+    expect(screen.getByText('Day one dream')).toBeTruthy();
+    await act(async () => {
+      jest.setSystemTime(new Date(2026, 9, 11, 0, 0, 0));
+      await jest.advanceTimersByTimeAsync(13 * 3600_000);
+    });
+    expectToday();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('Day one dream')).toBeNull();
+  });
+
+  it('a foreground rollover after an earlier resume jump does not redirect either', async () => {
+    await launch();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    await press('stub-no-dream');
+    expectToday();
+    expect(screen.getByText('No dream today')).toBeTruthy();
+    // The next midnight happens in the foreground (the pending timer fires ~15 h later).
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(16 * 3600_000);
+    });
+    // The day really rolled (the skip belonged to the earlier day) and nothing redirected.
+    expectToday();
+    expect(screen.queryByText('No dream today')).toBeNull();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('an edit session opened from an entry blocks the resume jump', async () => {
+    await launch();
+    await press('Day one dream');
+    await press('stub-detail-edit');
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    await awayUntil(DAY2);
+    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('inactive then active on the same day does not jump', async () => {
+    mockLibrary.dreams = [day0Dream];
+    putMarker('2026-10-10');
+    await launch();
+    await emit('inactive');
+    await emit('active');
+    expectToday();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+  });
+
+  it('inactive then active across midnight jumps', async () => {
+    await launch();
+    await emit('inactive');
+    jest.setSystemTime(DAY2);
+    await emit('active');
+    expectLaunchCapture();
+  });
+
+  it('two quick away/return cycles on the same new day jump at most once', async () => {
+    await launch();
+    await emit('background');
+    jest.setSystemTime(DAY2);
+    await emit('active');
+    await emit('background');
+    await emit('active');
+    expectLaunchCapture();
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-finish-later');
+    expectToday();
+    await emit('background');
+    await emit('active');
+    expectToday();
+  });
+
+  it('jumps once per new day, and again only when the day changes again', async () => {
+    await launch();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    // Finish later leaves nothing done, so only the once-per-day rule keeps capture away.
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-finish-later');
+    expectToday();
+    await awayUntil(new Date(2026, 9, 11, 21, 0, 0));
+    expectToday();
+    expect(screen.queryByText('capture-screen')).toBeNull();
+    await awayUntil(new Date(2026, 9, 12, 8, 0, 0));
+    expectLaunchCapture();
   });
 });

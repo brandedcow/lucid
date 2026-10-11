@@ -10,21 +10,21 @@ const MIDNIGHT_SLACK_MS = 1000;
  * the next local midnight (+1 s) recomputes it and re-arms itself; the timer is cleared when the
  * app leaves the foreground and on unmount. Returning to the foreground recomputes too. No polling.
  *
- * `dayChangedWhileAway` is true after a return to the foreground that found a different day than
- * the one shown when the app left. It is recomputed on every such return, so it is false again after
- * the next return on an unchanged day. A midnight timer fire in the foreground changes `todayKey`
- * but never sets or clears it. The hook only exposes state; it never navigates.
+ * `resumeNewDayToken` starts at 0 and increases by one each time the app returns to the foreground
+ * on a different day than the one shown when it left (an absence of several days counts once; a
+ * same-day return, a redundant active event and a foreground midnight timer fire never bump it).
+ * The hook only exposes state; it never navigates.
  */
 export function useToday(now: () => Date = () => new Date()): {
   todayKey: string;
-  dayChangedWhileAway: boolean;
+  resumeNewDayToken: number;
 } {
   const nowRef = useRef(now);
   useEffect(() => {
     nowRef.current = now;
   });
   const [todayKey, setTodayKey] = useState(() => localDateKey(now()));
-  const [dayChangedWhileAway, setDayChangedWhileAway] = useState(false);
+  const [resumeNewDayToken, setResumeNewDayToken] = useState(0);
 
   useEffect(() => {
     const now = () => nowRef.current();
@@ -64,7 +64,7 @@ export function useToday(now: () => Date = () => new Date()): {
       if (state === 'active') {
         active = true;
         const changed = update();
-        if (away) setDayChangedWhileAway(changed);
+        if (away && changed) setResumeNewDayToken((n) => n + 1);
         away = false;
         arm();
       } else {
@@ -80,5 +80,5 @@ export function useToday(now: () => Date = () => new Date()): {
     };
   }, []);
 
-  return { todayKey, dayChangedWhileAway };
+  return { todayKey, resumeNewDayToken };
 }
