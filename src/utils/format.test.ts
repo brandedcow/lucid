@@ -3,6 +3,7 @@ import {
   formatDuration,
   formatEntryDateTime,
   formatShortDate,
+  formatTimeOfDay,
   formatToday,
   plainSpaces,
 } from './format';
@@ -43,6 +44,27 @@ describe('formatEntryDateTime', () => {
   });
   it('gives an empty string for an invalid date', () => {
     expect(formatEntryDateTime(new Date('nope'))).toBe('');
+  });
+});
+
+describe('formatTimeOfDay', () => {
+  it.each([
+    [new Date(2026, 9, 4, 6, 22), '6:22 AM'],
+    [new Date(2026, 9, 4, 18, 5), '6:05 PM'],
+    [new Date(2026, 9, 4, 12, 0), '12:00 PM'],
+    [new Date(2026, 9, 4, 0, 0), '12:00 AM'],
+    [new Date(2026, 9, 4, 9, 7), '9:07 AM'],
+  ])('formats %s as %s', (date, expected) => {
+    expect(formatTimeOfDay(date)).toBe(expected);
+  });
+  it('gives an empty string for an invalid date', () => {
+    expect(formatTimeOfDay(new Date('nope'))).toBe('');
+  });
+  it('uses plain spaces even when the engine does not', () => {
+    jest.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('6:22\u202fAM');
+    const out = formatTimeOfDay(new Date(2026, 9, 4, 6, 22));
+    jest.restoreAllMocks();
+    expect(out).toBe('6:22 AM');
   });
 });
 

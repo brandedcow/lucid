@@ -3,7 +3,14 @@ import { Alert } from 'react-native';
 import { dreamAudioUri, isIndexUnreadableError, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
-import { journalCopy, journalOf, kindOf, titleRequired } from '../utils/journals';
+import {
+  BUILT_IN_JOURNALS,
+  Journal,
+  journalOf,
+  kindCopy,
+  kindOf,
+  titleRequired,
+} from '../utils/journals';
 import { withPendingEmotion } from '../utils/emotions';
 import { addTag } from '../utils/tags';
 import { hasSomethingToKeep } from '../utils/sessionNavigation';
@@ -167,7 +174,8 @@ export function sessionFromDraft(dream: Dream): Session {
 
 export type SaveStatus = 'draft' | 'saved';
 
-export function useDreamSession() {
+/** `journals` is the registry, used only to tell a session's kind when it is saved. */
+export function useDreamSession(journals: readonly Journal[] = BUILT_IN_JOURNALS) {
   const [session, dispatch] = useReducer(sessionReducer, null);
   const [saving, setSaving] = useState(false);
   // The ref is the real guard: two taps in the same frame both see the same stale `saving` state.
@@ -176,6 +184,10 @@ export function useDreamSession() {
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+  const journalsRef = useRef(journals);
+  useEffect(() => {
+    journalsRef.current = journals;
+  }, [journals]);
 
   const actions = useMemo(
     () => ({
@@ -210,7 +222,7 @@ export function useDreamSession() {
   const save = useCallback(async (status: SaveStatus): Promise<boolean> => {
     const current = sessionRef.current;
     if (!current || savingRef.current) return false;
-    const kind = kindOf(current.journalId);
+    const kind = kindOf(journalsRef.current, current.journalId);
     if (status === 'saved' && titleRequired(kind) && current.title.trim().length === 0)
       return false;
     // An edit must never turn a finished dream into a draft. Return false so the session is kept.
@@ -248,7 +260,7 @@ export function useDreamSession() {
       });
       return true;
     } catch (e) {
-      const copy = journalCopy(kind);
+      const copy = kindCopy(kind);
       Alert.alert(
         copy.saveFailureTitle,
         isIndexUnreadableError(e) ? copy.saveFailureUnreadable : copy.saveFailureMessage,

@@ -23,16 +23,27 @@ export const BUILT_IN_JOURNALS: readonly Journal[] = [
   { id: LIFE_JOURNAL, name: 'Life', kind: 'journal' },
 ];
 
-export function journalById(id: JournalId): Journal | undefined {
-  return BUILT_IN_JOURNALS.find((j) => j.id === id);
+/** Whether the id is one of the journals the app ships with (as opposed to a user-created one). */
+export function isBuiltInJournal(id: JournalId): boolean {
+  return BUILT_IN_JOURNALS.some((j) => j.id === id);
+}
+
+/** The journal with this id in the given registry; undefined when the registry does not know it. */
+export function journalById(journals: readonly Journal[], id: JournalId): Journal | undefined {
+  return journals.find((j) => j.id === id);
+}
+
+/** The journal with this id, or Dreams (the same fallback kindOf uses) for an id the registry does not know. */
+export function journalOrDefault(journals: readonly Journal[], id: JournalId): Journal {
+  return journalById(journals, id) ?? BUILT_IN_JOURNALS[0];
 }
 
 /**
- * The kind of a journal. An id this version does not know falls back to 'dream', which keeps
+ * The kind of a journal. An id the registry does not know falls back to 'dream', which keeps
  * today's strict behavior (a title is required) for entries it cannot classify.
  */
-export function kindOf(id: JournalId): EntryType {
-  return journalById(id)?.kind ?? 'dream';
+export function kindOf(journals: readonly Journal[], id: JournalId): EntryType {
+  return journalById(journals, id)?.kind ?? 'dream';
 }
 
 /** Whether finishing an entry of this kind needs a title. */
@@ -156,5 +167,40 @@ const JOURNAL_COPY: JournalCopy = {
     'Lucid needs the microphone to record your entry. You can allow it in Settings.',
 };
 
-export const journalCopy = (kind: EntryType): JournalCopy =>
+/** The copy shared by every journal of a kind (names are not filled in). */
+export const kindCopy = (kind: EntryType): JournalCopy =>
   kind === 'dream' ? DREAM_COPY : JOURNAL_COPY;
+
+// Name-filled copy of user-created journals, kept per journal object so memoized rows see a stable value.
+const customCopy = new WeakMap<Journal, JournalCopy>();
+
+/**
+ * The copy for one journal: the kind's copy with the name-bearing fields (log header, date line,
+ * search label, empty state) filled from the journal's name. The built-in Dreams and Life keep
+ * their hand-written strings exactly; a user-created journal gets the name-filled versions.
+ */
+export function journalCopy(journal: Journal): JournalCopy {
+  const base = kindCopy(journal.kind);
+  if (isBuiltInJournal(journal.id)) return base;
+  const cached = customCopy.get(journal);
+  if (cached) return cached;
+  const { name } = journal;
+  const copy: JournalCopy = {
+    ...base,
+    logHeader: name,
+    datePrefix: `${name} · `,
+    dateFallback: name,
+    searchLabel: `Search ${name}`,
+    emptyTitle: `No ${name} entries yet.`,
+    emptyBody: `Tap ${base.newButton} to record one.`,
+  };
+  customCopy.set(journal, copy);
+  return copy;
+}
+
+/** Singular noun for one entry of this kind, e.g. "Dream" or "Life". Keyed by kind so a new kind is a type error. */
+const ENTRY_NOUNS: Record<EntryType, string> = { dream: 'Dream', journal: 'Life' };
+
+/** The word for one entry of this journal in labels, e.g. the Today row label: "Dream", "Life", or a custom journal's name. */
+export const entryNoun = (journal: Journal): string =>
+  isBuiltInJournal(journal.id) ? ENTRY_NOUNS[journal.kind] : journal.name;

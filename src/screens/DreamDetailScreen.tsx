@@ -45,7 +45,7 @@ export function DreamDetailScreen({
   deleteBlocked = false,
   journal = BUILT_IN_JOURNALS[0],
 }: DreamDetailScreenProps) {
-  const copy = journalCopy(journal.kind);
+  const copy = journalCopy(journal);
   // `confirmed` unmounts the player first; onDelete then runs from an effect after that commit.
   const [confirmed, setConfirmed] = useState(false);
   const alertOpen = useRef(false);

@@ -239,4 +239,143 @@ describe('useDreamLibrary', () => {
       errors.mockRestore();
     });
   });
+
+  describe('removeMany', () => {
+    async function loaded(ids: string[]) {
+      mockList.mockResolvedValueOnce(ids.map(dream));
+      const view = await renderHook(() => useDreamLibrary());
+      await waitFor(() => expect(view.result.current.dreams).toHaveLength(ids.length));
+      mockList.mockClear();
+      return view;
+    }
+
+    it('deletes every entry in order with one refresh', async () => {
+      const { result } = await loaded(['a', 'b', 'c', 'keep']);
+      mockList.mockResolvedValueOnce([dream('keep')]);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany(['a', 'b', 'c']);
+      });
+      expect(out).toEqual({ deleted: ['a', 'b', 'c'], remaining: [] });
+      expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['a', 'b', 'c']);
+      expect(mockList).toHaveBeenCalledTimes(1);
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['keep']);
+    });
+
+    it('runs deletes one at a time', async () => {
+      const { result } = await loaded(['a', 'b']);
+      const gate = deferred<void>();
+      mockDelete.mockReturnValueOnce(gate.promise);
+      let done!: Promise<unknown>;
+      await act(async () => {
+        done = result.current.removeMany(['a', 'b']);
+        await Promise.resolve();
+      });
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        gate.resolve();
+        await done;
+      });
+      expect(mockDelete).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops at the first failure, reports what remains, refreshes once', async () => {
+      const { result } = await loaded(['a', 'b', 'c', 'keep']);
+      const failure = new Error('boom');
+      mockDelete.mockResolvedValueOnce(undefined).mockRejectedValueOnce(failure);
+      mockList.mockResolvedValueOnce([dream('b'), dream('c'), dream('keep')]);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany(['a', 'b', 'c']);
+      });
+      expect(out).toEqual({ deleted: ['a'], remaining: ['b', 'c'], failedId: 'b', error: failure });
+      expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+      expect(mockList).toHaveBeenCalledTimes(1);
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['b', 'c', 'keep']);
+    });
+
+    it('when the first fails nothing is deleted, still one refresh', async () => {
+      const { result } = await loaded(['a', 'b']);
+      const failure = new Error('first');
+      mockDelete.mockRejectedValueOnce(failure);
+      mockList.mockResolvedValueOnce([dream('a'), dream('b')]);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany(['a', 'b']);
+      });
+      expect(out).toEqual({ deleted: [], remaining: ['a', 'b'], failedId: 'a', error: failure });
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      expect(mockList).toHaveBeenCalledTimes(1);
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['a', 'b']);
+    });
+
+    it('is a no-op for no ids', async () => {
+      const { result } = await loaded(['a']);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany([]);
+      });
+      expect(out).toEqual({ deleted: [], remaining: [] });
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(mockList).not.toHaveBeenCalled();
+    });
+
+    it('deletes a repeated id once', async () => {
+      const { result } = await loaded(['a', 'b']);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany(['a', 'b', 'a']);
+      });
+      expect(out).toEqual({ deleted: ['a', 'b'], remaining: [] });
+      expect(mockDelete).toHaveBeenCalledTimes(2);
+    });
+
+    it('counts an unknown id as deleted (deleteDream resolves for it)', async () => {
+      const { result } = await loaded(['a']);
+      let out: unknown;
+      await act(async () => {
+        out = await result.current.removeMany(['ghost']);
+      });
+      expect(out).toEqual({ deleted: ['ghost'], remaining: [] });
+    });
+
+    it('never throws, even when the refresh fails too', async () => {
+      const { result } = await loaded(['a']);
+      mockDelete.mockRejectedValueOnce(new Error('x'));
+      mockList.mockRejectedValueOnce(new Error('refresh boom'));
+      let out: { failedId?: string } | undefined;
+      await act(async () => {
+        out = await result.current.removeMany(['a']);
+      });
+      expect(out?.failedId).toBe('a');
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['a']);
+    });
+
+    it('keeps deleted entries gone when the refresh fails', async () => {
+      const { result } = await loaded(['a', 'b']);
+      mockList.mockRejectedValueOnce(new Error('boom'));
+      await act(async () => {
+        await result.current.removeMany(['a']);
+      });
+      expect(result.current.dreams?.map((d) => d.id)).toEqual(['b']);
+    });
+
+    it('does not update state after unmount', async () => {
+      const { result, unmount } = await loaded(['a']);
+      const gate = deferred<void>();
+      mockDelete.mockReturnValueOnce(gate.promise);
+      const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+      let done!: Promise<unknown>;
+      await act(async () => {
+        done = result.current.removeMany(['a']);
+      });
+      await unmount();
+      await act(async () => {
+        gate.resolve();
+        await done;
+      });
+      expect(errors).not.toHaveBeenCalled();
+      errors.mockRestore();
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS, Journal } from './journals';
 import { buildLogItems, buildTagChips, dreamRow, EARLIER_LABEL, filterDreams } from './dreamLog';
 import {
   journalCounts,
@@ -36,7 +37,7 @@ const fixtures = (): Dream[] => [
 
 describe('searchableEntries', () => {
   it('keeps finished entries of known journals, newest first, undated last', () => {
-    expect(searchableEntries(fixtures()).map((r) => r.id)).toEqual([
+    expect(searchableEntries(BUILT_IN_JOURNALS, fixtures()).map((r) => r.id)).toEqual([
       'life-new',
       'life-sep',
       'legacy',
@@ -45,7 +46,7 @@ describe('searchableEntries', () => {
     ]);
   });
   it('excludes drafts and unknown journals', () => {
-    const ids = searchableEntries(fixtures()).map((r) => r.id);
+    const ids = searchableEntries(BUILT_IN_JOURNALS, fixtures()).map((r) => r.id);
     expect(ids).not.toContain('draft-dream');
     expect(ids).not.toContain('draft-life');
     expect(ids).not.toContain('future');
@@ -53,45 +54,49 @@ describe('searchableEntries', () => {
   it('does not mutate the input', () => {
     const input = fixtures();
     const copy = JSON.parse(JSON.stringify(input));
-    searchableEntries(input);
-    searchModel(input);
+    searchableEntries(BUILT_IN_JOURNALS, input);
+    searchModel(BUILT_IN_JOURNALS, input);
     expect(input).toEqual(copy);
   });
   it('returns an empty list for no records', () => {
-    expect(searchableEntries([])).toEqual([]);
+    expect(searchableEntries(BUILT_IN_JOURNALS, [])).toEqual([]);
   });
 });
 
 describe('journalLabel and untitledLabelOf', () => {
   it('labels Dreams, legacy (Dreams) and Life; unknown is empty', () => {
-    expect(journalLabel(mk('a', 'x', { journalId: 'dreams' }))).toBe('Dreams');
-    expect(journalLabel(mk('b', 'x'))).toBe('Dreams');
-    expect(journalLabel(mk('c', 'x', { journalId: 'life' }))).toBe('Life');
-    expect(journalLabel(mk('d', 'x', { journalId: 'zen' }))).toBe('');
+    expect(journalLabel(BUILT_IN_JOURNALS, mk('a', 'x', { journalId: 'dreams' }))).toBe('Dreams');
+    expect(journalLabel(BUILT_IN_JOURNALS, mk('b', 'x'))).toBe('Dreams');
+    expect(journalLabel(BUILT_IN_JOURNALS, mk('c', 'x', { journalId: 'life' }))).toBe('Life');
+    expect(journalLabel(BUILT_IN_JOURNALS, mk('d', 'x', { journalId: 'zen' }))).toBe('');
   });
   it('gives the per-journal untitled label', () => {
-    expect(untitledLabelOf(mk('a', 'x'))).toBe('Untitled dream');
-    expect(untitledLabelOf(mk('b', 'x', { journalId: 'life' }))).toBe('Untitled entry');
+    expect(untitledLabelOf(BUILT_IN_JOURNALS, mk('a', 'x'))).toBe('Untitled dream');
+    expect(untitledLabelOf(BUILT_IN_JOURNALS, mk('b', 'x', { journalId: 'life' }))).toBe(
+      'Untitled entry',
+    );
   });
   it('an untitled dated Life entry row uses the short date', () => {
     const life = fixtures().find((r) => r.id === 'life-new')!;
-    expect(dreamRow(life, NOW, untitledLabelOf(life)).title).toBe('Oct 5');
+    expect(dreamRow(life, NOW, untitledLabelOf(BUILT_IN_JOURNALS, life)).title).toBe('Oct 5');
     const undated = fixtures().find((r) => r.id === 'undated')!;
-    expect(dreamRow({ ...undated, title: '' }, NOW, untitledLabelOf(undated)).title).toBe(
-      'Untitled entry',
-    );
+    expect(
+      dreamRow({ ...undated, title: '' }, NOW, untitledLabelOf(BUILT_IN_JOURNALS, undated)).title,
+    ).toBe('Untitled entry');
   });
 });
 
 describe('search across journals', () => {
-  const model = () => searchModel(fixtures());
+  const model = () => searchModel(BUILT_IN_JOURNALS, fixtures());
 
   it('matches text across journals', () => {
     const { entries, searchIndex } = model();
     expect(entries).toHaveLength(5);
     const hits = filterDreams(searchIndex, { tags: [], query: 'water' });
     expect(hits.map((r) => r.id)).toEqual(['life-new', 'legacy', 'd-old', 'undated']);
-    expect(new Set(hits.map(journalLabel))).toEqual(new Set(['Dreams', 'Life']));
+    expect(new Set(hits.map((r) => journalLabel(BUILT_IN_JOURNALS, r)))).toEqual(
+      new Set(['Dreams', 'Life']),
+    );
   });
   it('never finds drafts or unknown-journal entries', () => {
     const { searchIndex } = model();
@@ -142,7 +147,7 @@ describe('journalCounts', () => {
   const rec = (over: Partial<Dream>) => mk(over.id ?? 'x', '2026-10-01T10:00:00', over);
 
   it('counts finished entries per journal; legacy records are Dreams; drafts and unknown journals are not counted', () => {
-    const counts = journalCounts([
+    const counts = journalCounts(BUILT_IN_JOURNALS, [
       rec({ id: '1' }),
       rec({ id: '2', journalId: 'dreams' }),
       rec({ id: '3', journalId: 'life' }),
@@ -154,7 +159,7 @@ describe('journalCounts', () => {
   });
 
   it('ignores journal ids that name Object.prototype members', () => {
-    const counts = journalCounts([
+    const counts = journalCounts(BUILT_IN_JOURNALS, [
       rec({ id: '1', journalId: 'toString' }),
       rec({ id: '2', journalId: 'constructor' }),
       rec({ id: '3', journalId: '__proto__' }),
@@ -166,6 +171,37 @@ describe('journalCounts', () => {
   });
 
   it('has a zero for every built-in journal when empty', () => {
-    expect(journalCounts([])).toEqual({ dreams: 0, life: 0 });
+    expect(journalCounts(BUILT_IN_JOURNALS, [])).toEqual({ dreams: 0, life: 0 });
+  });
+});
+
+describe('with a custom journal in the registry', () => {
+  const gratitude: Journal = { id: 'j_x', name: 'Gratitude', kind: 'journal' };
+  const registry = [...BUILT_IN_JOURNALS, gratitude];
+  const custom = mk('c1', '2026-10-06T10:00:00.000Z', {
+    journalId: 'j_x',
+    title: '',
+    transcript: 'thankful for water',
+  });
+
+  it('searches and counts the custom journal only when it is registered', () => {
+    const records = [...fixtures(), custom];
+    expect(searchableEntries(registry, records).map((r) => r.id)).toContain('c1');
+    expect(searchableEntries(BUILT_IN_JOURNALS, records).map((r) => r.id)).not.toContain('c1');
+    expect(searchModel(registry, records).entries.map((r) => r.id)).toContain('c1');
+    expect(journalCounts(registry, records)).toEqual({ dreams: 2, life: 3, j_x: 1 });
+    expect(journalCounts(BUILT_IN_JOURNALS, records)).toEqual({ dreams: 2, life: 3 });
+  });
+
+  it('labels the custom journal by name, and an unregistered one is empty', () => {
+    expect(journalLabel(registry, custom)).toBe('Gratitude');
+    expect(journalLabel(BUILT_IN_JOURNALS, custom)).toBe('');
+    expect(untitledLabelOf(registry, custom)).toBe('Untitled entry');
+  });
+
+  it('counts only registered ids, even for prototype-named ids', () => {
+    const records = [custom, mk('p', 'x', { journalId: 'toString' })];
+    expect(journalCounts(registry, records)).toEqual({ dreams: 0, life: 0, j_x: 1 });
+    expect(journalCounts([gratitude], records)).toEqual({ j_x: 1 });
   });
 });

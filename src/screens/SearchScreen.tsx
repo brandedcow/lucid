@@ -24,7 +24,7 @@ import {
   LogItem,
   tagChipLabel,
 } from '../utils/dreamLog';
-import { journalCopy } from '../utils/journals';
+import { Journal, kindCopy } from '../utils/journals';
 import { journalLabel, searchModel, untitledLabelOf } from '../utils/journalSearch';
 
 /** All wording of the cross-journal search, in one place. */
@@ -42,6 +42,7 @@ export const SEARCH_COPY = {
  * entries of known journals only; no drafts, no deleting.
  *
  * Props:
+ * - `journals`: the journal registry; only entries of these journals are searched.
  * - `records`: every stored record (all journals, drafts included). `null` while loading.
  * - `indexStatus`: 'unreadable' when the saved entries could not be read.
  * - `view`: this screen's own `useLogView()` instance (tags, query, scroll offset), owned by the
@@ -50,6 +51,7 @@ export const SEARCH_COPY = {
  * - `onOpenDream(id)`: a result was tapped.
  */
 type Props = {
+  journals: readonly Journal[];
   records: Entry[] | null;
   indexStatus: IndexStatus;
   view: LogView;
@@ -59,12 +61,12 @@ type Props = {
 
 const NO_DRAFT = () => {};
 
-export function SearchScreen({ records, indexStatus, view, onBack, onOpenDream }: Props) {
+export function SearchScreen({ journals, records, indexStatus, view, onBack, onOpenDream }: Props) {
   const { tags, query, offsetRef } = view;
   const listRef = useRef<FlatList<LogItem>>(null);
   const restored = useRef(false);
 
-  const model = useMemo(() => searchModel(records ?? []), [records]);
+  const model = useMemo(() => searchModel(journals, records ?? []), [journals, records]);
   const filtered = useMemo(
     () => filterDreams(model.searchIndex, { tags, query }),
     [model, tags, query],
@@ -112,13 +114,14 @@ export function SearchScreen({ records, indexStatus, view, onBack, onOpenDream }
       ) : (
         <EntryRow
           dream={item.dream}
-          untitled={untitledLabelOf(item.dream)}
-          journalLabel={journalLabel(item.dream)}
+          journals={journals}
+          untitled={untitledLabelOf(journals, item.dream)}
+          journalLabel={journalLabel(journals, item.dream)}
           onOpenDream={handleOpen}
           onOpenDraft={NO_DRAFT}
         />
       ),
-    [handleOpen],
+    [handleOpen, journals],
   );
   const keyExtractor = useCallback(
     (item: LogItem) => (item.type === 'header' ? `h:${item.key}` : `d:${item.dream.id}`),
@@ -154,7 +157,7 @@ export function SearchScreen({ records, indexStatus, view, onBack, onOpenDream }
     body =
       indexStatus === 'unreadable' ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyBody}>{journalCopy('journal').unreadableLog}</Text>
+          <Text style={styles.emptyBody}>{kindCopy('journal').unreadableLog}</Text>
         </View>
       ) : (
         <View style={styles.empty}>

@@ -47,6 +47,7 @@ const MAX_REPAUSES = 3;
 type Props = {
   /** `text` is the final live transcript; '' when live text is unsupported or empty. */
   onRecorded: (recording: FinishedRecording, text: string) => void;
+  /** Optional. Without it the "No dream" button is hidden (only the launch capture offers it). */
   onNoDream?: () => void;
   /** Write instead: start a dream with no recording. Never touches the microphone. */
   onWrite?: () => void;
@@ -55,10 +56,16 @@ type Props = {
   /** Optional, defaults to Dreams. Sets the wording (headline, tips, "No dream", Save, microphone message). */
   journal?: Journal;
   /**
-   * Optional. When given, the idle screen shows a back arrow that calls it (Life capture; Dreams
-   * capture passes none). It is not shown while recording.
+   * Optional. When given, a back arrow is shown (idle and while recording). Idle it calls this;
+   * while recording it asks to discard first (see `confirmLeave`).
    */
   onBack?: () => void;
+  /** Optional. Called after the user discards a recording to leave. Never called for Keep recording. */
+  onLeave?: () => void;
+  /** Optional. Set to the screen's `confirmLeave` while mounted (null after), for Android hardware back. */
+  leaveRef?: React.MutableRefObject<(() => void) | null>;
+  /** Optional, defaults to "Back". Accessibility label of the back arrow. */
+  backLabel?: string;
   /** Optional. Called with true when recording starts and false when the screen is idle again, so the parent can hold Android back while recording. */
   onActiveChange?: (active: boolean) => void;
 };
@@ -70,9 +77,12 @@ export function CaptureScreen({
   onTypeInstead,
   journal = BUILT_IN_JOURNALS[0],
   onBack,
+  onLeave,
+  leaveRef,
+  backLabel = 'Back',
   onActiveChange,
 }: Props) {
-  const copy = journalCopy(journal.kind);
+  const copy = journalCopy(journal);
   const [phase, setPhase] = useState<Phase>('idle');
   const activeRef = useRef(onActiveChange);
   useEffect(() => {
@@ -236,6 +246,73 @@ export function CaptureScreen({
     }
   };
 
+  const confirmOpenRef = useRef(false);
+
+  // Asks before leaving a live recording. Keep recording changes nothing; Discard stops
+  // everything, deletes the unsaved cache file and leaves. The live text is dropped with the screen.
+  const confirmLeave = () => {
+    if (finishingRef.current || stopping || confirmOpenRef.current) return;
+    confirmOpenRef.current = true;
+    Alert.alert('Discard this recording?', 'Your recording and the text so far will be deleted.', [
+      {
+        text: 'Keep recording',
+        style: 'cancel',
+        onPress: () => {
+          confirmOpenRef.current = false;
+        },
+      },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          confirmOpenRef.current = false;
+          void discardAndLeave();
+        },
+      },
+    ]);
+  };
+
+  // Mirrors typeInstead, but hands nothing off. If the recorder cannot be stopped nothing is
+  // deleted and the screen stays.
+  const discardAndLeave = async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setStopping(true);
+    try {
+      try {
+        await transcription.stop();
+      } catch (e) {
+        logRecording('live text stop failed', e);
+      }
+      const recording = await recorder.stop();
+      if (recording) {
+        try {
+          discardRecording(recording.uri);
+        } catch {
+          // A leftover cache file is harmless.
+        }
+      }
+    } catch {
+      Alert.alert('Could not finish recording', 'Please try again.');
+      finishingRef.current = false;
+      setStopping(false);
+      return;
+    }
+    onLeave?.();
+  };
+
+  const confirmLeaveRef = useRef(confirmLeave);
+  useEffect(() => {
+    confirmLeaveRef.current = confirmLeave;
+  });
+  useEffect(() => {
+    if (!leaveRef) return;
+    leaveRef.current = () => confirmLeaveRef.current();
+    return () => {
+      leaveRef.current = null;
+    };
+  }, [leaveRef]);
+
   return (
     <SafeAreaView style={styles.container}>
       {phase === 'idle' ? (
@@ -245,8 +322,9 @@ export function CaptureScreen({
           onWrite={() => onWrite?.()}
           headline={copy.captureHeadline}
           tips={copy.tips}
-          skipLabel={copy.skipLabel}
+          skipLabel={onNoDream ? copy.skipLabel : null}
           onBack={onBack}
+          backLabel={backLabel}
         />
       ) : (
         <ListeningView
@@ -260,6 +338,8 @@ export function CaptureScreen({
           onSave={finish}
           saveLabel={copy.saveButton}
           onTypeInstead={confirmTypeInstead}
+          onBack={onBack ? confirmLeave : undefined}
+          backLabel={backLabel}
         />
       )}
     </SafeAreaView>

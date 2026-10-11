@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogView, useLogView } from '../hooks/useLogView';
 import { Dream } from '../types/dream';
 import { SearchIcon } from '../components/SearchIcon';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { SearchScreen } from './SearchScreen';
 
 const METRICS = {
@@ -45,6 +46,7 @@ async function setup(records: Dream[] | null = RECORDS, status: 'ok' | 'unreadab
     return (
       <SafeAreaProvider initialMetrics={METRICS}>
         <SearchScreen
+          journals={BUILT_IN_JOURNALS}
           records={records}
           indexStatus={status}
           view={logView}
@@ -288,5 +290,41 @@ describe('SearchIcon', () => {
     expect(screen.toJSON()).toMatchObject({
       props: { importantForAccessibility: 'no-hide-descendants' },
     });
+  });
+});
+
+describe('SearchScreen with a custom journal', () => {
+  const gratitude = { id: 'j_g', name: 'Gratitude', kind: 'journal' as const };
+
+  it('finds its entries and labels them with the journal name', async () => {
+    const view: { current: LogView } = { current: undefined as unknown as LogView };
+    function Harness() {
+      const logView = useLogView();
+      view.current = logView;
+      return (
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <SearchScreen
+            journals={[...BUILT_IN_JOURNALS, gratitude]}
+            records={[
+              mk('Thankful for tea', '2026-10-09T10:00:00', {
+                journalId: 'j_g',
+                transcript: 'a warm cup',
+              }),
+              mk('Old river', '2026-08-02T10:00:00'),
+            ]}
+            indexStatus="ok"
+            view={logView}
+            onBack={jest.fn()}
+            onOpenDream={jest.fn()}
+          />
+        </SafeAreaProvider>
+      );
+    }
+    await render(<Harness />);
+    expect(screen.getByText('Thankful for tea')).toBeTruthy();
+    expect(screen.getByText('Gratitude')).toBeTruthy();
+    await act(async () => view.current.setQuery('warm cup'));
+    expect(screen.getByText('Thankful for tea')).toBeTruthy();
+    expect(screen.queryByText('Old river')).toBeNull();
   });
 });

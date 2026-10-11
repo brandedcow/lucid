@@ -397,9 +397,10 @@ describe('CaptureScreen No dream', () => {
     expect(mockRec.start).not.toHaveBeenCalled();
   });
 
-  it('does nothing when no onNoDream is given', async () => {
+  it('hides No dream when no onNoDream is given', async () => {
     await render(<CaptureScreen onRecorded={jest.fn()} />);
-    await fireEvent.press(screen.getByText('No dream'));
+    expect(screen.queryByText('No dream')).toBeNull();
+    expect(screen.getByText('Write instead')).toBeTruthy();
     expect(mockRec.start).not.toHaveBeenCalled();
   });
 });
@@ -646,7 +647,19 @@ describe('CaptureScreen back arrow', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('hides Back while recording and reports the active state', async () => {
+  it('Dreams capture: Back and No dream are independent (arrow with no No dream; No dream with no arrow)', async () => {
+    const onBack = jest.fn();
+    const view = await render(<CaptureScreen onRecorded={onRecordedStub} onBack={onBack} />);
+    expect(screen.getByLabelText('Back')).toBeTruthy();
+    expect(screen.queryByText('No dream')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    await view.rerender(<CaptureScreen onRecorded={onRecordedStub} onNoDream={jest.fn()} />);
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    expect(screen.getByText('No dream')).toBeTruthy();
+  });
+
+  it('reports the active state while recording', async () => {
     const onActiveChange = jest.fn();
     await render(
       <CaptureScreen
@@ -658,7 +671,186 @@ describe('CaptureScreen back arrow', () => {
     expect(onActiveChange).toHaveBeenLastCalledWith(false);
     await fireEvent.press(screen.getByLabelText('Tap to talk'));
     await act(async () => {});
-    expect(screen.queryByLabelText('Back')).toBeNull();
     expect(onActiveChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('applies backLabel to the arrow', async () => {
+    await render(<CaptureScreen onRecorded={onRecordedStub} onBack={jest.fn()} backLabel="Go" />);
+    expect(screen.getByLabelText('Go')).toBeTruthy();
+    expect(screen.queryByLabelText('Back')).toBeNull();
+  });
+});
+
+describe('CaptureScreen leave while recording', () => {
+  const buttons = () => (jest.mocked(Alert.alert).mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
+  const press = async (text: string) => {
+    await act(async () => {
+      buttons()
+        .find((b) => b.text === text)
+        ?.onPress?.();
+    });
+  };
+  const setupLeave = async (extra: { leaveRef?: { current: (() => void) | null } } = {}) => {
+    const onLeave = jest.fn();
+    const onBack = jest.fn();
+    const onRecorded = jest.fn();
+    const ui = (
+      <CaptureScreen onRecorded={onRecorded} onBack={onBack} onLeave={onLeave} {...extra} />
+    );
+    const view = await render(ui);
+    await fireEvent.press(screen.getByLabelText('Tap to talk'));
+    await act(async () => {});
+    mockRec.isRecording = true;
+    await view.rerender(ui);
+    return { onLeave, onBack, onRecorded, view };
+  };
+  const tapArrow = async () => {
+    await fireEvent.press(screen.getByLabelText('Back'));
+    await act(async () => {});
+  };
+
+  it('shows the arrow while listening and paused, only when onBack is given', async () => {
+    await setupLeave();
+    expect(screen.getByLabelText('Back')).toBeTruthy();
+    await tapPause();
+    expect(screen.getByText(/^Paused ·/)).toBeTruthy();
+    expect(screen.getByLabelText('Back')).toBeTruthy();
+  });
+
+  it('shows no arrow while listening without onBack', async () => {
+    await setup();
+    expect(screen.queryByLabelText('Back')).toBeNull();
+  });
+
+  it('idle arrow calls onBack with no alert', async () => {
+    const onBack = jest.fn();
+    await render(<CaptureScreen onRecorded={jest.fn()} onBack={onBack} />);
+    await tapArrow();
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('listening arrow asks first and does not call onBack', async () => {
+    const { onBack } = await setupLeave();
+    await tapArrow();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Discard this recording?',
+      'Your recording and the text so far will be deleted.',
+      expect.any(Array),
+    );
+    expect(buttons().map((b) => b.style)).toEqual(['cancel', 'destructive']);
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it('Keep recording leaves everything running and does not leave', async () => {
+    const { onLeave } = await setupLeave();
+    await tapArrow();
+    await press('Keep recording');
+    expect(mockRec.stop).not.toHaveBeenCalled();
+    expect(mockTx.stop).not.toHaveBeenCalled();
+    expect(mockDiscard).not.toHaveBeenCalled();
+    expect(onLeave).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Pause')).toBeTruthy();
+    // The confirm can be opened again.
+    await tapArrow();
+    expect(Alert.alert).toHaveBeenCalledTimes(2);
+  });
+
+  it('Discard stops both, deletes the cache file, and leaves once without handing off', async () => {
+    const { onLeave, onRecorded } = await setupLeave();
+    await tapArrow();
+    await press('Discard');
+    expect(mockTx.stop).toHaveBeenCalledTimes(1);
+    expect(mockRec.stop).toHaveBeenCalledTimes(1);
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    expect(onRecorded).not.toHaveBeenCalled();
+  });
+
+  it('Discard works while paused', async () => {
+    const { onLeave } = await setupLeave();
+    await tapPause();
+    await tapArrow();
+    await press('Discard');
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it('still stops the recorder when live text fails to stop', async () => {
+    mockTx.stop.mockRejectedValue(new Error('speech'));
+    const { onLeave } = await setupLeave();
+    await tapArrow();
+    await press('Discard');
+    expect(mockRec.stop).toHaveBeenCalledTimes(1);
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a failed delete and still leaves', async () => {
+    mockDiscard.mockImplementation(() => {
+      throw new Error('fs');
+    });
+    const { onLeave } = await setupLeave();
+    await tapArrow();
+    await press('Discard');
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes nothing, stays and stays usable when the recorder will not stop', async () => {
+    mockRec.stop.mockRejectedValueOnce(new Error('boom'));
+    const { onLeave } = await setupLeave();
+    await tapArrow();
+    await press('Discard');
+    expect(mockDiscard).not.toHaveBeenCalled();
+    expect(onLeave).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not finish recording', 'Please try again.');
+    expect(screen.getByLabelText('Pause')).toBeTruthy();
+    await tapArrow();
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      'Discard this recording?',
+      expect.any(String),
+      expect.any(Array),
+    );
+    await press('Discard');
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+  });
+
+  it('is blocked while finishing', async () => {
+    mockRec.stop.mockReturnValue(new Promise(() => {}));
+    await setupLeave();
+    await pressWithoutWaiting(screen.getByRole('button', { name: 'Save dream' }));
+    await tapArrow();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('is blocked while a discard is stopping', async () => {
+    mockRec.stop.mockReturnValue(new Promise(() => {}));
+    await setupLeave();
+    await tapArrow();
+    await press('Discard');
+    await tapArrow();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a second confirmLeave while the alert is open', async () => {
+    await setupLeave();
+    await tapArrow();
+    await tapArrow();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets leaveRef while mounted, clears it on unmount, and behaves like the arrow', async () => {
+    const leaveRef: { current: (() => void) | null } = { current: null };
+    const { onLeave, view } = await setupLeave({ leaveRef });
+    expect(leaveRef.current).toBeInstanceOf(Function);
+    await act(async () => leaveRef.current?.());
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+    await press('Discard');
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    expect(mockDiscard).toHaveBeenCalledWith(recording.uri);
+    await view.unmount();
+    expect(leaveRef.current).toBeNull();
   });
 });

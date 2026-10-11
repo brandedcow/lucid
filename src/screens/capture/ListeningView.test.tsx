@@ -205,3 +205,34 @@ describe('ListeningView save label', () => {
     expect(screen.getByText('Saving…')).toBeTruthy();
   });
 });
+
+describe('ListeningView back arrow', () => {
+  it('renders no arrow without onBack', async () => {
+    await render(<ListeningView {...props} />);
+    expect(screen.queryByText('←')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+  });
+
+  it('renders one arrow with the default label and calls onBack', async () => {
+    const onBack = jest.fn();
+    await render(<ListeningView {...props} onBack={onBack} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText('←')).toHaveLength(1);
+    expect(screen.getByText('Listening · 0:42')).toBeTruthy();
+  });
+
+  it('uses a custom label', async () => {
+    await render(<ListeningView {...props} onBack={jest.fn()} backLabel="Leave" />);
+    expect(screen.getByRole('button', { name: 'Leave' })).toBeTruthy();
+  });
+
+  it('is disabled and does nothing while saving', async () => {
+    const onBack = jest.fn();
+    await render(<ListeningView {...props} saving onBack={onBack} />);
+    const arrow = screen.getByRole('button', { name: 'Back' });
+    expect(arrow.props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(arrow);
+    expect(onBack).not.toHaveBeenCalled();
+  });
+});

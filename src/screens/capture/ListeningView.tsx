@@ -4,7 +4,7 @@ import { Waveform } from '../../components/Waveform';
 import { colors, fonts, spacing } from '../../theme';
 import { fadeTail } from '../../utils/fadeTail';
 import { formatDuration, formatToday } from '../../utils/format';
-import { journalCopy } from '../../utils/journals';
+import { kindCopy } from '../../utils/journals';
 
 type Props = {
   durationMs: number;
@@ -22,6 +22,10 @@ type Props = {
   saveLabel?: string;
   /** Stop recording, delete it and keep the text so far; the screen confirms first. */
   onTypeInstead?: () => void;
+  /** Shows a back arrow at the start of the header row; the screen confirms before leaving. */
+  onBack?: () => void;
+  /** Accessibility label of the back arrow; defaults to "Back". */
+  backLabel?: string;
 };
 
 function PauseGlyph({ paused }: { paused: boolean }) {
@@ -43,8 +47,10 @@ export function ListeningView({
   transcript = '',
   transcriptNote = null,
   onSave,
-  saveLabel = journalCopy('dream').saveButton,
+  saveLabel = kindCopy('dream').saveButton,
   onTypeInstead,
+  onBack,
+  backLabel = 'Back',
 }: Props) {
   const time = formatDuration(Math.floor(durationMs / 1000));
   const tail = useMemo(() => fadeTail(transcript), [transcript]);
@@ -52,10 +58,25 @@ export function ListeningView({
 
   return (
     <>
-      <View style={styles.header}>
-        <View style={styles.status}>
-          <View style={[styles.dot, paused && styles.dotHollow]} />
-          <Text style={styles.statusText}>{`${paused ? 'Paused' : 'Listening'} · ${time}`}</Text>
+      <View style={[styles.header, onBack && styles.headerWithBack]}>
+        <View style={styles.lead}>
+          {onBack && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={backLabel}
+              accessibilityState={{ disabled: saving }}
+              disabled={saving}
+              onPress={onBack}
+              hitSlop={12}
+              style={[styles.backButton, saving && styles.disabled]}
+            >
+              <Text style={styles.back}>←</Text>
+            </Pressable>
+          )}
+          <View style={styles.status}>
+            <View style={[styles.dot, paused && styles.dotHollow]} />
+            <Text style={styles.statusText}>{`${paused ? 'Paused' : 'Listening'} · ${time}`}</Text>
+          </View>
         </View>
         <Text style={styles.small}>{formatToday()}</Text>
       </View>
@@ -127,6 +148,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+  headerWithBack: { paddingLeft: spacing.sm, paddingTop: spacing.sm },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  back: { color: colors.text, fontSize: 24 },
+  lead: { flexDirection: 'row', alignItems: 'center' },
   small: { color: colors.muted, fontSize: 13 },
   status: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
