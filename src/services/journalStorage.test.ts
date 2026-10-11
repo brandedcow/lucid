@@ -337,6 +337,15 @@ describe('renameJournal', () => {
     expect(file.journals[1]).toEqual(j('j_b', 'B'));
   });
 
+  it('returns a new journal object, not the old one changed (copy is cached by object identity)', async () => {
+    __fs.put(FILE, JSON.stringify({ version: 1, journals: [j('j_a', 'A')] }));
+    const [before] = await loadJournals();
+    const { journal, journals } = await renameJournal('j_a', 'B');
+    expect(journal).not.toBe(before);
+    expect(journals[0]).toBe(journal);
+    expect(before.name).toBe('A');
+  });
+
   it('allows keeping or recasing its own name but not taking another journal name', async () => {
     __fs.put(FILE, JSON.stringify({ version: 1, journals: [j('j_a', 'A'), j('j_b', 'B')] }));
     await expect(renameJournal('j_a', 'a')).resolves.toBeDefined();

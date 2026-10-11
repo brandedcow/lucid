@@ -32,6 +32,15 @@ jest.mock('expo-audio', () => ({
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
 }));
+// journals.json is read through the real storage (and the fake file system); a test can swap the read.
+let mockLoadJournals: (() => Promise<unknown[]>) | null = null;
+jest.mock('./src/services/journalStorage', () => {
+  const actual = jest.requireActual('./src/services/journalStorage');
+  return {
+    ...actual,
+    loadJournals: () => (mockLoadJournals ? mockLoadJournals() : actual.loadJournals()),
+  };
+});
 jest.mock('./src/services/dreamStorage', () => ({
   discardRecording: jest.fn(),
   dreamAudioUri: jest.fn(),
@@ -286,9 +295,17 @@ jest.mock('./src/screens/DreamDetailScreen', () => {
 jest.mock('./src/screens/JournalsScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    JournalsScreen: ({ counts, unreadable, onOpenJournal, onSearch, onBack }: any) => (
+    JournalsScreen: ({ journals, counts, unreadable, onOpenJournal, onSearch, onBack }: any) => (
       <>
         <Text>journals-screen</Text>
+        <Text>{`journal-cards:${journals.map((j: any) => j.name).join(',')}`}</Text>
+        {journals
+          .filter((j: any) => j.id !== 'dreams' && j.id !== 'life')
+          .map((j: any) => (
+            <Pressable key={j.id} onPress={() => onOpenJournal(j.id)}>
+              <Text>{`stub-open-${j.id}`}</Text>
+            </Pressable>
+          ))}
         {onBack && (
           <Pressable onPress={onBack}>
             <Text>stub-journals-back</Text>
@@ -312,9 +329,10 @@ jest.mock('./src/screens/JournalsScreen', () => {
 jest.mock('./src/screens/SearchScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    SearchScreen: ({ records, view, onBack, onOpenDream }: any) => (
+    SearchScreen: ({ journals, records, view, onBack, onOpenDream }: any) => (
       <>
         <Text>search-screen</Text>
+        <Text>{`search-journals:${journals.map((j: any) => j.name).join(',')}`}</Text>
         <Text>{`search-count:${(records ?? []).length}`}</Text>
         <Text>{`search-query:${view.query}`}</Text>
         <Text>{`search-tags:${view.tags.join(',')}`}</Text>
@@ -443,6 +461,7 @@ beforeEach(() => {
   mockLibrary.onRefresh = undefined;
   mockLibrary.onRemove = undefined;
   mockLibrary.afterRemoveFilter = undefined;
+  mockLoadJournals = null;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as any);
   liveBackHandlers = [];
@@ -2555,5 +2574,143 @@ describe('App leaving a capture', () => {
     expectToday();
     expect(saveDream).toHaveBeenCalled();
     expect(marker()).toBeUndefined();
+  });
+});
+
+describe('App custom journals', () => {
+  const gratitude = {
+    id: 'j_g1',
+    name: 'Gratitude',
+    kind: 'journal',
+    createdAt: '2026-10-09T08:00:00Z',
+  };
+  const putJournals = () =>
+    __fs.put(`${DOC}/journals.json`, JSON.stringify({ version: 1, journals: [gratitude] }));
+  const gratitudeEntry = {
+    ...finishedDream,
+    id: 'g1',
+    journalId: 'j_g1',
+    title: 'Thankful for tea',
+    createdAt: iso(),
+    tags: [],
+  };
+
+  beforeEach(() => {
+    putJournals();
+    putSettings(false);
+    mockLibrary.dreams = [finishedDream, lifeEntry, gratitudeEntry];
+  });
+
+  it('puts a card for the custom journal after Dreams and Life, with its count', async () => {
+    await renderApp();
+    await pressLabel('Open Journals');
+    expect(screen.getByText('journal-cards:Dreams,Life,Gratitude')).toBeTruthy();
+    expect(screen.getByText('counts:{"dreams":1,"life":1,"j_g1":1}')).toBeTruthy();
+    await press('stub-open-j_g1');
+    expect(screen.getByText('log-journal:j_g1')).toBeTruthy();
+  });
+
+  it('lists the custom journal in the Add entry sheet and captures for it', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    expect(screen.getByRole('menuitem', { name: /^Dreams,/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /^Life,/ })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
+    expect(screen.getByText('capture-journal:j_g1')).toBeTruthy();
+    expect(screen.queryByText('stub-no-dream')).toBeNull();
+  });
+
+  it('shows the custom entry on Today and saves a new one into its journal, back to Today', async () => {
+    await renderApp();
+    expect(screen.getByText('Thankful for tea')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
+    await press('stub-save-recording');
+    await press('Continue');
+    expect(screen.getByText('review-journal:j_g1')).toBeTruthy();
+    // No title needed: a custom journal is Life-like.
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'j_g1' }));
+    expectToday();
+  });
+
+  it('saves from the custom journal log back into that log', async () => {
+    await renderApp();
+    await pressLabel('Open Journals');
+    await press('stub-open-j_g1');
+    await press('stub-new-dream');
+    expect(screen.getByText('capture-journal:j_g1')).toBeTruthy();
+    await press('stub-save-recording');
+    await press('Continue');
+    await press('stub-done');
+    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'j_g1' }));
+    expect(screen.getByText('log-journal:j_g1')).toBeTruthy();
+  });
+
+  it('gives Search the custom journal and its entries', async () => {
+    await renderApp();
+    await pressLabel('Open Journals');
+    await press('stub-journals-search');
+    expect(screen.getByText('search-journals:Dreams,Life,Gratitude')).toBeTruthy();
+    expect(screen.getByText('search-count:3')).toBeTruthy();
+  });
+
+  it('opens a custom entry with the custom journal', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByText('Thankful for tea'));
+    expect(screen.getByText('detail-journal:j_g1')).toBeTruthy();
+  });
+
+  it('leaves Dreams and Life as they were', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await renderApp();
+    await pressLabel('Open Journals');
+    expect(screen.getByText('counts:{"dreams":1,"life":1,"j_g1":0}')).toBeTruthy();
+    await press('stub-open-dreams');
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+  });
+
+  describe('launch gate', () => {
+    it('waits for the journals before it decides', async () => {
+      mockLibrary.dreams = [todayDream];
+      let resolve!: (list: unknown[]) => void;
+      mockLoadJournals = () => new Promise((r) => (resolve = r));
+      await render(<App />);
+      await flush();
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
+      await act(async () => resolve([{ id: 'j_g1', name: 'Gratitude', kind: 'journal' }]));
+      expectToday();
+      await fireEvent.press(screen.getByLabelText('Add entry'));
+      expect(screen.getByRole('menuitem', { name: /^Gratitude,/ })).toBeTruthy();
+    });
+
+    it('opens Dream capture at 1000 ms when the journals never load, with built-ins only', async () => {
+      jest.useFakeTimers();
+      try {
+        mockLibrary.dreams = [todayDream];
+        mockLoadJournals = () => new Promise(() => {});
+        await render(<App />);
+        await act(async () => {
+          jest.advanceTimersByTime(999);
+        });
+        expect(screen.queryByText('capture-screen')).toBeNull();
+        await act(async () => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
+        expect(screen.getByText('stub-no-dream')).toBeTruthy();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('treats a failed journals read as built-ins only and still launches', async () => {
+      mockLibrary.dreams = [todayDream];
+      mockLoadJournals = () => Promise.reject(new Error('boom'));
+      await renderApp();
+      expectToday();
+      await fireEvent.press(screen.getByLabelText('Add entry'));
+      expect(screen.queryByRole('menuitem', { name: /^Gratitude,/ })).toBeNull();
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { BUILT_IN_JOURNALS } from '../utils/journals';
+import { BUILT_IN_JOURNALS, type Journal } from '../utils/journals';
 import { JournalsScreen } from './JournalsScreen';
 
 const METRICS = {
@@ -119,5 +119,28 @@ describe('JournalsScreen', () => {
     await setup({ onBack });
     await fireEvent.press(screen.getByLabelText('Back to Today'));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a card for a custom journal after Dreams and Life, same look, and opens it', async () => {
+    const gratitude: Journal = { id: 'j_g', name: 'Gratitude', kind: 'journal' };
+    const { onOpenJournal } = await setup({
+      journals: [...BUILT_IN_JOURNALS, gratitude],
+      counts: { dreams: 12, life: 5, j_g: 3 },
+    });
+    const names = screen
+      .getAllByRole('button')
+      .map((b) => b.props['aria-label'] ?? b.props.accessibilityLabel ?? '')
+      .filter((l: string) => /^(Dreams|Life|Gratitude)/.test(l));
+    expect(names).toEqual(['Dreams, 12 dreams', 'Life, 5 entries', 'Gratitude, 3 entries']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Gratitude, 3 entries' }));
+    expect(onOpenJournal).toHaveBeenCalledWith('j_g');
+  });
+
+  it('shows the empty wording for a custom journal with no entries', async () => {
+    await setup({
+      journals: [...BUILT_IN_JOURNALS, { id: 'j_g', name: 'Gratitude', kind: 'journal' }],
+      counts: { dreams: 1, life: 1, j_g: 0 },
+    });
+    expect(screen.getByRole('button', { name: 'Gratitude, No entries yet' })).toBeOnTheScreen();
   });
 });

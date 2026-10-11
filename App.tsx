@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDayMarker } from './src/hooks/useDayMarker';
 import { useDreamSession } from './src/hooks/useDreamSession';
+import { useJournals } from './src/hooks/useJournals';
 import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
 import { useToday } from './src/hooks/useToday';
@@ -28,7 +29,6 @@ import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
 import { formatToday } from './src/utils/format';
 import {
-  BUILT_IN_JOURNALS,
   entriesFor,
   journalOrDefault,
   journalCopy,
@@ -100,8 +100,9 @@ export default function App() {
   const [fromReview, setFromReview] = useState(false);
   // The finished dream shown on the detail screen.
   const [detailId, setDetailId] = useState<string | null>(null);
-  // The journal registry. Built-ins only for now; custom journals will replace this one line.
-  const journals = BUILT_IN_JOURNALS;
+  // The journal registry: the built-in journals, then the user's own.
+  const journalRegistry = useJournals();
+  const { journals } = journalRegistry;
   const journalFor = (id: JournalId): Journal => journalOrDefault(journals, id);
   const dream = useDreamSession(journals);
   const { session } = dream;
@@ -133,10 +134,11 @@ export default function App() {
     nav.current = { screen, detailId, detailFrom, journalId };
   });
 
-  // Launch: once the library, the No dream marker and the settings are read, the launch rule picks
+  // Launch: once the library, the No dream marker, the settings and the journals are read, the launch rule picks
   // Dream capture or Today. If they are not ready in time, Dream capture opens and the late data
   // never moves the user.
-  const ready = library.dreams !== null && dayMarker.loaded && settings.loaded;
+  const ready =
+    library.dreams !== null && dayMarker.loaded && settings.loaded && journalRegistry.loaded;
   // True once the launch is decided (by the rule or by the cap), so only one of them acts.
   const launchResolved = useRef(false);
   useEffect(() => {

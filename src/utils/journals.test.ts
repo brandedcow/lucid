@@ -229,6 +229,15 @@ describe('a custom journal', () => {
       deleteTitle: 'Delete this entry?',
     });
   });
+  it('has no Dream wording in any string, and no skip control', () => {
+    const c = journalCopy(gratitude);
+    for (const value of Object.values(c)) {
+      const text = typeof value === 'function' ? value('x') : [value].flat().join(' ');
+      expect(text ?? '').not.toMatch(/dream/i);
+    }
+    expect(c.skipLabel).toBeNull();
+    expect(c.titlePlaceholder).toBe('Title (optional)');
+  });
   it('uses its name as the entry noun', () => {
     expect(entryNoun(gratitude)).toBe('Gratitude');
   });
