@@ -10,7 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { TagInput } from '../components/TagInput';
 import { listTags } from '../services/dreamStorage';
@@ -36,9 +37,10 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  * - autoFocus: focus the title on open (a new entry).
  * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
  * - attachment: slot above the title for the voice attachment card (see AddEntryWithVoice).
- * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits inside the
- *   KeyboardAvoidingView, so it rides above the keyboard on iOS, and above the bottom safe-area
- *   inset when the keyboard is closed.
+ * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits in the
+ *   bottom dock, which is lifted above the keyboard (explicit padding on Android, where edge-to-edge
+ *   means the window does not resize; KeyboardAvoidingView on iOS) and above the bottom safe-area
+ *   inset when the keyboard is closed. A suggestion bar can later go in the dock above the toolbar.
  * - onBodyBlur: the body lost focus (ends a typing step in the undo history).
  * - tagsVisible: false hides the tag row (the toolbar's # shows it); defaults to shown.
  * - tagFocusSignal: focuses the tag input each time this number changes (the # button).
@@ -103,6 +105,20 @@ export function AddEntryScreen({
     // 0 is the initial value, not a request.
     if (tagFocusSignal > 0) tagInputRef.current?.focus();
   }, [tagFocusSignal]);
+  const keyboard = useKeyboardInset();
+  const { bottom: bottomInset } = useSafeAreaInsets();
+  // The dock's bottom padding. Android: the keyboard height plus the system bar inset while open (the
+  // window does not resize under edge-to-edge, and RN reports the IME height minus the system bar
+  // inset), else the system bar inset. iOS: KeyboardAvoidingView already lifts the
+  // page, so only the home-indicator inset while the keyboard is closed.
+  const dockPadding =
+    Platform.OS === 'android'
+      ? keyboard.visible
+        ? keyboard.height + bottomInset
+        : bottomInset
+      : keyboard.visible
+        ? 0
+        : bottomInset;
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);
   const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
@@ -115,7 +131,7 @@ export function AddEntryScreen({
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -204,7 +220,10 @@ export function AddEntryScreen({
             </View>
           )}
         </ScrollView>
-        {toolbar}
+        <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
+          {/* Suggestion bar slot: goes here, directly above the toolbar. */}
+          {toolbar}
+        </View>
         {showMenu && (
           <JournalMenu
             journals={journals}

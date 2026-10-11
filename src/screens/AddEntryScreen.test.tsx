@@ -1,11 +1,17 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Text } from 'react-native';
+import { Platform, StyleSheet, Text } from 'react-native';
 import { entryJournalLocked, useEntrySession } from '../hooks/useEntrySession';
 import { saveDream } from '../services/dreamStorage';
+import { fakeKeyboard } from '../test/fakeKeyboard';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS, Journal, journalOrDefault } from '../utils/journals';
 import { AddEntryScreen } from './AddEntryScreen';
+
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
+}));
 
 jest.mock('../services/dreamStorage', () => ({
   listTags: jest.fn().mockResolvedValue(['water']),
@@ -240,6 +246,67 @@ describe('AddEntryScreen', () => {
     );
     expect(screen.getByText('slot-attachment')).toBeTruthy();
     expect(screen.getByText('slot-toolbar')).toBeTruthy();
+  });
+
+  describe('bottom dock', () => {
+    const originalOS = Platform.OS;
+    const setOS = (os: 'ios' | 'android') =>
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => os });
+    afterEach(() =>
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS }),
+    );
+    const dockPadding = () =>
+      StyleSheet.flatten(screen.getByTestId('entry-bottom-dock').props.style).paddingBottom;
+    const renderDock = () =>
+      render(
+        <AddEntryScreen
+          title=""
+          onTitleChange={jest.fn()}
+          body=""
+          onBodyChange={jest.fn()}
+          tags={[]}
+          onTagsChange={jest.fn()}
+          tagDraft=""
+          onTagDraftChange={jest.fn()}
+          date="d"
+          onSave={jest.fn()}
+          onBack={jest.fn()}
+          toolbar={<Text>slot-toolbar</Text>}
+        />,
+      );
+    let emit: ReturnType<typeof fakeKeyboard>['emit'];
+    beforeEach(() => {
+      ({ emit } = fakeKeyboard());
+    });
+
+    it('holds the toolbar', async () => {
+      await renderDock();
+      expect(screen.getByTestId('entry-bottom-dock')).toContainElement(
+        screen.getByText('slot-toolbar'),
+      );
+    });
+
+    it('Android: bottom inset when closed, keyboard height plus inset when open, inset again after', async () => {
+      setOS('android');
+      await renderDock();
+      expect(dockPadding()).toBe(34);
+      await emit('keyboardDidShow', 300);
+      expect(dockPadding()).toBe(334);
+      await emit('keyboardDidShow', 340);
+      expect(dockPadding()).toBe(374);
+      await emit('keyboardDidHide');
+      expect(dockPadding()).toBe(34);
+    });
+
+    it('iOS: bottom inset when closed, none while open (KeyboardAvoidingView lifts the page)', async () => {
+      setOS('ios');
+      await renderDock();
+      expect(dockPadding()).toBe(34);
+      await emit('keyboardWillShow', 336);
+      expect(dockPadding()).toBe(0);
+      await emit('keyboardWillHide');
+      expect(dockPadding()).toBe(34);
+    });
   });
 
   describe('journal picker', () => {

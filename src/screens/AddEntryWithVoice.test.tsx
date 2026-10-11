@@ -7,6 +7,11 @@ import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { AddEntryWithVoice } from './AddEntryWithVoice';
 
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
+}));
+
 jest.mock('../services/dreamStorage', () => ({
   listTags: jest.fn().mockResolvedValue([]),
   saveDream: jest.fn(),
