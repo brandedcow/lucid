@@ -96,6 +96,15 @@ async function readIndex(): Promise<Dream[]> {
       const dream: Dream = { ...d, title: d.title ?? '', tags: d.tags ?? [] };
       // An unusable waveform is ignored for display; the stored record is left alone.
       if ('waveform' in dream && !isValidWaveform(dream.waveform)) delete dream.waveform;
+      // Same for each recording's waveform; the rest of the list is left as stored.
+      if (Array.isArray(dream.recordings)) {
+        dream.recordings = dream.recordings.map((r) => {
+          if (typeof r !== 'object' || r === null || !('waveform' in r)) return r;
+          if (isValidWaveform(r.waveform)) return r;
+          const { waveform: _unused, ...rest } = r;
+          return rest;
+        });
+      }
       return dream;
     });
   } catch {
@@ -200,10 +209,22 @@ export async function listEmotions(): Promise<string[]> {
     .map(([word]) => word);
 }
 
+/** A finished recording to copy from the cache into permanent storage when saving. */
+export type NewRecording = {
+  uri: string;
+  durationMs: number;
+  /** Loudness peaks (0..1); an invalid list is dropped (the recording still saves). */
+  waveform?: number[];
+};
+
 export type SaveDreamInput = {
   /** Existing dream to update. Omit to create one. */
   id?: string;
-  /** A finished recording to copy into permanent storage (the original is deleted once saved) (only used if the dream has no audio yet). */
+  /**
+   * Single-recording input, kept for existing callers: a finished recording to copy into
+   * permanent storage (the original is deleted once saved). Only used when the entry has no
+   * recording left after removals; otherwise ignored. Prefer `addRecordings`.
+   */
   recordingUri?: string;
   durationMs?: number;
   /**
@@ -211,6 +232,17 @@ export type SaveDreamInput = {
    * invalid list is dropped (the entry still saves). Ignored when no recording is copied.
    */
   waveform?: number[];
+  /**
+   * Recordings to copy in and add to the entry (after the ones it keeps). Each source is deleted
+   * once the index is written. No cap.
+   */
+  addRecordings?: NewRecording[];
+  /**
+   * Stored file names of this entry's recordings to forget (the entry itself is kept). Every name
+   * must belong to the entry, else the save throws before anything changes. Each file is deleted
+   * after the index is written without it (CLAUDE.md deletion case 5).
+   */
+  removeRecordings?: string[];
   details: DreamDetails;
   /** 'saved' needs a title; 'draft' does not. */
   status: 'draft' | 'saved';
@@ -219,17 +251,18 @@ export type SaveDreamInput = {
   /** Whether finishing needs a title (default true). Callers pass false for journals with optional titles. */
   requireTitle?: boolean;
   /**
-   * Forget the stored recording of the entry being updated (the entry itself is kept). Only on an
-   * update of a record that has audio; otherwise ignored. The file is deleted after the index is
-   * written without it (CLAUDE.md deletion case 5). A `recordingUri` in the same call replaces it.
+   * Forget ALL stored recordings of the entry being updated (the entry itself is kept); same as
+   * listing every one in `removeRecordings`. Ignored when the entry has none. Added recordings in
+   * the same call are kept.
    */
   removeAudio?: boolean;
 };
 
 /**
- * Creates or updates a dream (by id), copying the recording into permanent storage the first time.
- * Order matters for safety: copy the audio, back up and write the index, and only then delete the
- * original, so a failure at any step leaves the recording in place.
+ * Creates or updates a dream (by id), copying new recordings into permanent storage. Order matters
+ * for safety: copy the audio (one file at a time, under free names), back up and write the index
+ * (the commit), then rewrite the backup and delete removed files, and only then delete the
+ * originals, so a failure at any step leaves the recordings in place.
  */
 export async function saveDream(input: SaveDreamInput): Promise<Dream> {
   const { details, status } = input;
@@ -250,38 +283,79 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       id = String(n);
     }
 
-    // Removing the stored recording: remember its file (judged against the list as it is now),
-    // then carry on as if the entry had none, so a replacement recording is copied in normally.
-    const removing = input.removeAudio === true && !!existing?.audioFileName;
-    const removedAudio = removing && existing ? deletableAudio(existing, dreams) : null;
+    // Which stored recordings go: all of them (removeAudio) or the named ones. Unknown names throw
+    // before any file is touched.
+    const current = existing ? recordingsOf(existing) : [];
+    const removeNames = new Set<string>(
+      input.removeAudio === true ? current.map((r) => r.fileName) : [],
+    );
+    for (const name of input.removeRecordings ?? []) {
+      if (!current.some((r) => r.fileName === name)) {
+        throw new Error('That recording does not belong to this entry');
+      }
+      removeNames.add(name);
+    }
+    const removed = current.filter((r) => removeNames.has(r.fileName));
+    const kept = current.filter((r) => !removeNames.has(r.fileName));
 
-    let audioFileName = removing ? undefined : existing?.audioFileName;
-    let copied: File | null = null;
-    if (input.recordingUri && !audioFileName) {
-      const source = new File(input.recordingUri);
-      if (!source.exists) throw new Error('The recording could not be found');
+    // The recordings to copy in. The single-recording input only counts when none is kept.
+    const additions: NewRecording[] = [];
+    if (input.recordingUri && kept.length === 0) {
+      additions.push({
+        uri: input.recordingUri,
+        durationMs: input.durationMs ?? 0,
+        waveform: input.waveform,
+      });
+    }
+    additions.push(...(input.addRecordings ?? []));
+    for (const add of additions) {
+      if (!new File(add.uri).exists) throw new Error('The recording could not be found');
+    }
+
+    // Copy one at a time under names nobody uses. The sources stay where they are until the index
+    // is written. No overwrite option: a stale file can never be clobbered.
+    const copies: File[] = [];
+    const added: StoredRecording[] = [];
+    const undoCopies = () => {
+      for (const copy of copies) {
+        try {
+          if (copy.exists) copy.delete();
+        } catch {
+          // Leaving an orphaned copy is harmless.
+        }
+      }
+    };
+    if (additions.length > 0) {
       const dir = audioDir();
       dir.create({ intermediates: true, idempotent: true });
-      // Never reuse a name that is already taken (an orphan from an earlier failed save, say).
-      let name = `${id}.m4a`;
-      for (let k = 1; new File(dir, name).exists; k += 1) name = `${id}-${k}.m4a`;
-      audioFileName = name;
-      const destination = new File(dir, name);
-      // The recording stays where it is until the index is written. No overwrite option: a stale
-      // file can never be clobbered.
-      try {
-        await source.copy(destination);
-      } catch (error) {
-        // A failed copy can leave a partial file; it is ours (the name was free) and nothing
-        // indexes it. Never touch the source.
-        try {
-          if (destination.exists) destination.delete();
-        } catch {
-          // Leaving it is harmless; the copy error is what matters.
-        }
-        throw error;
+      const referenced = new Set<string>(kept.map((r) => r.fileName));
+      for (const d of dreams) {
+        if (d !== existing) for (const r of recordingsOf(d)) referenced.add(r.fileName);
       }
-      copied = destination;
+      for (const add of additions) {
+        let name = `${id}.m4a`;
+        for (let k = 1; new File(dir, name).exists || referenced.has(name); k += 1) {
+          name = `${id}-${k}.m4a`;
+        }
+        const destination = new File(dir, name);
+        try {
+          await new File(add.uri).copy(destination);
+        } catch (error) {
+          // A failed copy can leave a partial file; it is ours (the name was free) and nothing
+          // indexes it. Never touch the sources.
+          copies.push(destination);
+          undoCopies();
+          throw error;
+        }
+        copies.push(destination);
+        referenced.add(name);
+        const waveform = sanitizeWaveform(add.waveform);
+        added.push({
+          fileName: name,
+          durationMs: Number.isFinite(add.durationMs) ? add.durationMs : 0,
+          ...(waveform ? { waveform } : {}),
+        });
+      }
     }
 
     // undefined keeps the stored value on update; '' clears it. On create, omitted means none.
@@ -293,16 +367,28 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       ...existing,
       id,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
-      durationMs: input.durationMs ?? (removing ? 0 : (existing?.durationMs ?? 0)),
-      ...(audioFileName ? { audioFileName } : {}),
+      durationMs: input.durationMs ?? existing?.durationMs ?? 0,
       title,
       tags: details.tags,
     };
-    if (removing) {
-      // Drop what the spread of the old record brought along; a replacement is set again below.
+    if (removed.length > 0 || added.length > 0) {
+      // The recordings changed: the list becomes the truth (a legacy entry converts here) and its
+      // first recording is mirrored into the legacy fields for older builds.
+      const list = [...kept, ...added];
       delete dream.audioFileName;
       delete dream.waveform;
-      if (audioFileName) dream.audioFileName = audioFileName;
+      delete dream.recordings;
+      dream.durationMs = 0;
+      if (list.length > 0) {
+        const [first] = list;
+        dream.recordings = list;
+        dream.audioFileName = first.fileName;
+        dream.durationMs = first.durationMs;
+        if (first.waveform) dream.waveform = first.waveform;
+      }
+    } else if ('waveform' in dream && !isValidWaveform(dream.waveform)) {
+      // The recordings are untouched; an unusable legacy waveform is dropped.
+      delete dream.waveform;
     }
     // Only a new record is stamped; an existing one keeps whatever it stored (even nothing).
     if (!existing) dream.journalId = input.journalId ?? DREAMS_JOURNAL;
@@ -312,13 +398,19 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     else delete dream.transcript;
     if (status === 'draft') dream.status = 'draft';
     else delete dream.status;
-    // The waveform belongs to the recording copied in by this save; an existing entry keeps its
-    // own. Whatever ends up stored is valid or absent.
-    if (copied) {
-      const waveform = sanitizeWaveform(input.waveform);
-      if (waveform) dream.waveform = waveform;
-      else delete dream.waveform;
-    } else if ('waveform' in dream && !isValidWaveform(dream.waveform)) delete dream.waveform;
+
+    // Files to delete after the commit, judged now: never one that another record, or a recording
+    // this entry keeps or adds, still references (the new record is among the "others" here).
+    let removedFiles: File[] = [];
+    if (existing && removed.length > 0) {
+      const leaving: Dream = { ...existing, recordings: removed };
+      delete leaving.audioFileName;
+      removedFiles = deletableAudioFiles(leaving, [
+        leaving,
+        ...dreams.filter((d) => d !== existing),
+        dream,
+      ]);
+    }
 
     // Best effort: keep the previous index. Not atomic with the write below (the overwrite copy
     // removes the old backup first). A zero-length index is never copied over the backup.
@@ -341,45 +433,39 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     try {
       writeIndex(newList);
     } catch (error) {
-      // The recording is still in the cache. Undo this save's side effects, each step on its own,
-      // then always rethrow the original error.
-      if (copied) {
-        try {
-          if (copied.exists) copied.delete();
-        } catch {
-          // Leaving an orphaned copy is harmless.
-        }
-      }
+      // The recordings are still in the cache. Undo this save's side effects, each step on its
+      // own, then always rethrow the original error.
+      undoCopies();
       await repairIndex(index, dreams, hadContent, backedUp);
       throw error;
     }
 
-    if (input.recordingUri && copied) {
-      try {
-        new File(input.recordingUri).delete();
-      } catch {
-        // The dream is saved; a leftover cache file is harmless.
-      }
-    }
-
-    if (removing) {
-      // Only now that the index no longer names the file: scrub the backup (which still holds the
-      // previous index), then delete the file. Never write a zero-length backup.
+    if (removed.length > 0) {
+      // Only now that the index no longer names the files: scrub the backup (which still holds the
+      // previous index), then delete the files one by one. Never write a zero-length backup.
       try {
         backupFile().write(JSON.stringify(newList));
       } catch {
         try {
           if (backupFile().exists) backupFile().delete();
         } catch {
-          // Nothing more to do; the file is deleted below either way.
+          // Nothing more to do; the files are deleted below either way.
         }
       }
+      for (const file of removedFiles) {
+        try {
+          if (file.exists) file.delete();
+        } catch {
+          // The entry is saved without the recording; an orphaned file is accepted.
+        }
+      }
+    }
+
+    for (const add of additions) {
       try {
-        // Never delete the file the new record points to: with the old file missing, a freshly
-        // copied replacement can have taken the old name.
-        if (removedAudio?.exists && removedAudio.uri !== copied?.uri) removedAudio.delete();
+        new File(add.uri).delete();
       } catch {
-        // The entry is saved without the recording; an orphaned file is accepted.
+        // The dream is saved; a leftover cache file is harmless.
       }
     }
     return dream;
@@ -396,22 +482,10 @@ export function isSafetyCopyBlockedError(error: unknown): boolean {
 
 const CORRUPT_COPY_NAME = /^dreams\.corrupt-\d+\.json$/;
 
-/** The audio file to delete for this dream, or null when it has none or the name is not safe. */
-function deletableAudio(dream: Dream, dreams: Dream[]): File | null {
-  const name = dream.audioFileName;
-  // A plain file name only: no separators, parent references, scheme or URI escapes.
-  if (!name || !/^[^/\\:%]+$/.test(name) || name.includes('..') || name === '.') return null;
-  if (dreams.some((d) => d !== dream && d.audioFileName === name)) return null;
-  const dir = audioDir();
-  const file = new File(dir, name);
-  const prefix = dir.uri.endsWith('/') ? dir.uri : `${dir.uri}/`;
-  return file.uri.startsWith(prefix) ? file : null;
-}
-
 /**
  * The files to delete with this record: one per recording whose stored name is plain, resolves
  * inside the dreams directory and is used by no recording of any OTHER record. Failing names are
- * skipped. Not yet called by any delete path.
+ * skipped.
  */
 export function deletableAudioFiles(dream: Dream, dreams: Dream[]): File[] {
   const others = new Set<string>();
@@ -440,7 +514,9 @@ const MIN_TEXT_NEEDLE = 8;
 /** Read-only: does this text hold anything that identifies the dream (id, audio name, text)? */
 function mentionsDream(text: string, dream: Dream): boolean {
   const needles = [JSON.stringify(dream.id)];
-  if (dream.audioFileName) needles.push(JSON.stringify(dream.audioFileName));
+  const names = new Set(recordingsOf(dream).map((r) => r.fileName));
+  if (dream.audioFileName) names.add(dream.audioFileName);
+  for (const name of names) needles.push(JSON.stringify(name));
   for (const value of [dream.title, dream.transcript]) {
     if (value && value.trim().length >= MIN_TEXT_NEEDLE) needles.push(JSON.stringify(value));
   }
@@ -660,7 +736,7 @@ export async function deleteDream(id: string): Promise<void> {
     const dream = dreams.find((d) => d.id === id);
     if (!dream) return;
     const remaining = dreams.filter((d) => d !== dream);
-    const audio = deletableAudio(dream, dreams);
+    const audio = deletableAudioFiles(dream, dreams);
     const index = indexFile();
     const hadContent = index.exists && index.size !== 0;
 
@@ -699,8 +775,9 @@ export async function deleteDream(id: string): Promise<void> {
     }
 
     for (const copy of duplicates) copy.delete();
-    // A missing file counts as deleted (an earlier attempt got this far).
-    if (audio?.exists) audio.delete();
+    // A missing file counts as deleted (an earlier attempt got this far). A failing delete throws
+    // here, before the index write, so a retry finishes the job.
+    for (const file of audio) if (file.exists) file.delete();
 
     // The commit.
     try {
