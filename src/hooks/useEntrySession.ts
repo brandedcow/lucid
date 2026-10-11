@@ -138,16 +138,17 @@ export function entrySessionReducer(
       };
     }
     case 'removeAudio':
-      // Only a new, unsaved recording can be closed. A stored recording has no removal path yet
-      // (CLAUDE.md lists every case the app may delete a file in), so the card cannot close it.
-      if (!state.audio || state.audio.persisted || state.audio.removed) return state;
+      // Closing only marks the recording; nothing is deleted here. A stored recording's file goes
+      // only when the user saves (saveDream's removeAudio, CLAUDE.md deletion case 5).
+      if (!state.audio || state.audio.removed) return state;
       return { ...state, audio: { ...state.audio, removed: true } };
     case 'restoreAudio':
       if (!state.audio?.removed) return state;
       return { ...state, audio: { ...state.audio, removed: false } };
     case 'markSaved': {
       // The entry now exists: a second save updates it. A new recording now lives in permanent
-      // storage (the save deleted its cache file); one that was closed or shelved is gone.
+      // storage (the save deleted its cache file); one that was closed or shelved is gone, a
+      // stored one included (the save removed it).
       const { audio, shelved: _shelved, ...rest } = state;
       let kept: EntryAudio | undefined = audio;
       if (audio && !audio.persisted) {
@@ -155,6 +156,8 @@ export function entrySessionReducer(
           !audio.removed && action.audioUri
             ? { ...audio, uri: action.audioUri, persisted: true }
             : undefined;
+      } else if (audio?.removed) {
+        kept = undefined;
       }
       return {
         ...rest,
@@ -215,6 +218,16 @@ export function visibleAudio(session: EntrySession): EntryAudio | undefined {
   return session.audio && !session.audio.removed ? session.audio : undefined;
 }
 
+/**
+ * True when the user closed a STORED recording and has not saved yet. The save then passes
+ * `removeAudio`; leaving without saving forgets the mark and deletes nothing.
+ */
+export function hasPendingAudioRemoval(session: EntrySession): boolean {
+  return [...(session.shelved ?? []), ...(session.audio ? [session.audio] : [])].some(
+    (audio) => audio.persisted && audio.removed,
+  );
+}
+
 /** True when the page holds anything the user typed or recorded: a title, body text, a tag, tag text or a recording. */
 export function entryHasContent(session: EntrySession): boolean {
   return (
@@ -234,6 +247,7 @@ export function entryHasContent(session: EntrySession): boolean {
 export function entryHasEdits(session: EntrySession): boolean {
   const { baseline } = session;
   if (!baseline) return false;
+  if (hasPendingAudioRemoval(session)) return true;
   if (session.tagDraft.trim().length > 0) return true;
   const added = visibleAudio(session);
   if (added && !added.persisted) return true;
@@ -342,6 +356,9 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
           ? { recordingUri: audio.uri, ...(audio.waveform ? { waveform: audio.waveform } : {}) }
           : {}),
         durationMs: audio?.durationMs ?? 0,
+        // A stored recording the user closed is forgotten by this save (an explicit Done or Save
+        // draft; back never saves). Its file is deleted by the storage layer after the commit.
+        ...(hasPendingAudioRemoval(current) ? { removeAudio: true } : {}),
         // Always strings: undefined would keep the stored value instead of clearing it. The
         // emotion is not on the page, so it is passed back as it was.
         details: {

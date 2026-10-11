@@ -212,6 +212,12 @@ export type SaveDreamInput = {
   journalId?: JournalId;
   /** Whether finishing needs a title (default true). Callers pass false for journals with optional titles. */
   requireTitle?: boolean;
+  /**
+   * Forget the stored recording of the entry being updated (the entry itself is kept). Only on an
+   * update of a record that has audio; otherwise ignored. The file is deleted after the index is
+   * written without it (CLAUDE.md deletion case 5). A `recordingUri` in the same call replaces it.
+   */
+  removeAudio?: boolean;
 };
 
 /**
@@ -238,7 +244,12 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       id = String(n);
     }
 
-    let audioFileName = existing?.audioFileName;
+    // Removing the stored recording: remember its file (judged against the list as it is now),
+    // then carry on as if the entry had none, so a replacement recording is copied in normally.
+    const removing = input.removeAudio === true && !!existing?.audioFileName;
+    const removedAudio = removing && existing ? deletableAudio(existing, dreams) : null;
+
+    let audioFileName = removing ? undefined : existing?.audioFileName;
     let copied: File | null = null;
     if (input.recordingUri && !audioFileName) {
       const source = new File(input.recordingUri);
@@ -276,11 +287,17 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       ...existing,
       id,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
-      durationMs: input.durationMs ?? existing?.durationMs ?? 0,
+      durationMs: input.durationMs ?? (removing ? 0 : (existing?.durationMs ?? 0)),
       ...(audioFileName ? { audioFileName } : {}),
       title,
       tags: details.tags,
     };
+    if (removing) {
+      // Drop what the spread of the old record brought along; a replacement is set again below.
+      delete dream.audioFileName;
+      delete dream.waveform;
+      if (audioFileName) dream.audioFileName = audioFileName;
+    }
     // Only a new record is stamped; an existing one keeps whatever it stored (even nothing).
     if (!existing) dream.journalId = input.journalId ?? DREAMS_JOURNAL;
     if (emotion) dream.emotion = emotion;
@@ -314,8 +331,9 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       }
     }
 
+    const newList = existing ? dreams.map((d) => (d === existing ? dream : d)) : [...dreams, dream];
     try {
-      writeIndex(existing ? dreams.map((d) => (d === existing ? dream : d)) : [...dreams, dream]);
+      writeIndex(newList);
     } catch (error) {
       // The recording is still in the cache. Undo this save's side effects, each step on its own,
       // then always rethrow the original error.
@@ -335,6 +353,27 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
         new File(input.recordingUri).delete();
       } catch {
         // The dream is saved; a leftover cache file is harmless.
+      }
+    }
+
+    if (removing) {
+      // Only now that the index no longer names the file: scrub the backup (which still holds the
+      // previous index), then delete the file. Never write a zero-length backup.
+      try {
+        backupFile().write(JSON.stringify(newList));
+      } catch {
+        try {
+          if (backupFile().exists) backupFile().delete();
+        } catch {
+          // Nothing more to do; the file is deleted below either way.
+        }
+      }
+      try {
+        // Never delete the file the new record points to: with the old file missing, a freshly
+        // copied replacement can have taken the old name.
+        if (removedAudio?.exists && removedAudio.uri !== copied?.uri) removedAudio.delete();
+      } catch {
+        // The entry is saved without the recording; an orphaned file is accepted.
       }
     }
     return dream;

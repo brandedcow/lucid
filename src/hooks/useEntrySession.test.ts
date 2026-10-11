@@ -6,6 +6,7 @@ import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
 import {
   entryHasContent,
+  hasPendingAudioRemoval,
   visibleAudio,
   entryHasEdits,
   entryJournalLocked,
@@ -168,6 +169,65 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
     const hook = await renderHook(() => useEntrySession(journals));
     return hook;
   };
+
+  describe('removing a stored recording', () => {
+    const seedStored = (extra: Partial<Dream> = {}) => {
+      __fs.put(INDEX, JSON.stringify([{ ...finished, ...extra }]));
+      __fs.put(AUDIO, 'old-audio');
+    };
+
+    it.each([
+      ['an edit saved as Done', 'edit', 'saved'],
+      ['a reopened draft saved as a draft', 'draft', 'draft'],
+      ['a reopened draft finished', 'draft', 'saved'],
+    ] as const)('%s deletes the file and keeps the entry', async (_label, origin, status) => {
+      seedStored(origin === 'draft' ? { status: 'draft' } : {});
+      const { result } = await open();
+      const [dream] = await listDreams();
+      await act(async () =>
+        origin === 'edit' ? result.current.openEntry(dream) : result.current.openDraft(dream),
+      );
+      await act(async () => result.current.removeAudio());
+      let ok = false;
+      await act(async () => {
+        ok = await result.current.save(status);
+      });
+      expect(ok).toBe(true);
+      const [saved] = await listDreams();
+      expect(saved).not.toHaveProperty('audioFileName');
+      expect(saved).toMatchObject({
+        title: 'Old title',
+        transcript: 'old text',
+        emotion: 'uneasy',
+      });
+      expect(__fs.has(AUDIO)).toBe(false);
+      expect(result.current.session?.audio).toBeUndefined();
+    });
+
+    it('a restored recording is kept by the save', async () => {
+      seedStored();
+      const { result } = await open();
+      const [dream] = await listDreams();
+      await act(async () => result.current.openEntry(dream));
+      await act(async () => result.current.removeAudio());
+      await act(async () => result.current.restoreAudio());
+      await act(async () => result.current.setBody('changed'));
+      await act(async () => void (await result.current.save('saved')));
+      expect((await listDreams())[0].audioFileName).toBe('7.m4a');
+      expect(__fs.has(AUDIO)).toBe(true);
+    });
+
+    it('clearing the session (leaving) deletes nothing', async () => {
+      seedStored();
+      const { result } = await open();
+      const [dream] = await listDreams();
+      await act(async () => result.current.openEntry(dream));
+      await act(async () => result.current.removeAudio());
+      await act(async () => result.current.clear());
+      expect(__fs.has(AUDIO)).toBe(true);
+      expect((await listDreams())[0].audioFileName).toBe('7.m4a');
+    });
+  });
 
   it('creates a finished entry in the chosen journal with the body as the transcript', async () => {
     const { result } = await open([...BUILT_IN_JOURNALS, custom]);
@@ -401,10 +461,25 @@ describe('the voice attachment in session state', () => {
     expect(again.shelved).toEqual([expect.objectContaining({ uri: CACHE, removed: true })]);
   });
 
-  it('cannot close a stored recording (no removal path exists yet)', () => {
+  it('closing a stored recording only marks it; restore brings it back; it counts as an edit', () => {
     const edit = entrySessionFromDream(finished, 'edit');
-    expect(entrySessionReducer(edit, { type: 'removeAudio' })).toBe(edit);
-    expect(visibleAudio(edit)).toBeDefined();
+    expect(hasPendingAudioRemoval(edit)).toBe(false);
+    const removed = entrySessionReducer(edit, { type: 'removeAudio' })!;
+    expect(removed.audio).toMatchObject({ persisted: true, removed: true });
+    expect(visibleAudio(removed)).toBeUndefined();
+    expect(hasPendingAudioRemoval(removed)).toBe(true);
+    expect(entryHasEdits(removed)).toBe(true);
+    const restored = entrySessionReducer(removed, { type: 'restoreAudio' })!;
+    expect(restored).toEqual(edit);
+    expect(entryHasEdits(restored)).toBe(false);
+  });
+
+  it('a stored recording closed and replaced by a new one still has a pending removal', () => {
+    const edit = entrySessionFromDream(finished, 'edit');
+    const removed = entrySessionReducer(edit, { type: 'removeAudio' })!;
+    const again = attach(removed, CACHE2);
+    expect(hasPendingAudioRemoval(again)).toBe(true);
+    expect(again.shelved).toEqual([expect.objectContaining({ persisted: true, removed: true })]);
   });
 
   it('refuses a second recording on an entry that already has a stored one', () => {

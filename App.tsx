@@ -9,6 +9,7 @@ import { useDreamSession } from './src/hooks/useDreamSession';
 import {
   entryHasContent,
   entryHasEdits,
+  hasPendingAudioRemoval,
   entryJournalLocked,
   useEntrySession,
 } from './src/hooks/useEntrySession';
@@ -494,7 +495,8 @@ export default function App() {
       if (asNoDream) handleNoDream();
       else leaveFlow(current.journalId);
     };
-    if (!entryHasContent(current)) {
+    // A closed stored recording is an unsaved change even when nothing else is on the page.
+    if (!entryHasContent(current) && !hasPendingAudioRemoval(current)) {
       leave(current.origin === 'new' && captureLaunch && current.journalId === DREAMS_JOURNAL);
       return;
     }

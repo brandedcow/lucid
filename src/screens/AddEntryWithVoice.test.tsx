@@ -354,17 +354,42 @@ describe('leaving while recording', () => {
 
 describe('a stored recording', () => {
   it.each(['edit', 'draft'] as const)(
-    'shows a reopened %s recording in a playable card with no close button, mic off',
+    'shows a reopened %s recording in a playable card with a close button, mic off',
     async (as) => {
       await renderPage({ open: { dream: stored, as } });
       expect(screen.getByLabelText('Play recording')).toBeTruthy();
       expect(screen.getAllByTestId('wave-bar')).toHaveLength(3);
-      expect(screen.queryByLabelText('Remove recording')).toBeNull();
+      expect(screen.getByLabelText('Remove recording')).toBeTruthy();
       expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
         true,
       );
     },
   );
+
+  it('closing a stored recording hides the card, deletes nothing and sends removeAudio on save', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await fireEvent.press(screen.getByLabelText('Remove recording'));
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
+      false,
+    );
+    await act(async () => void (await sessionApi?.save('saved')));
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({ id: '7', removeAudio: true, durationMs: 0 }),
+    );
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+  });
+
+  it('restoring a closed stored recording brings the card back and saves without removeAudio', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await fireEvent.press(screen.getByLabelText('Remove recording'));
+    await act(async () => sessionApi?.restoreAudio());
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    await act(async () => void (await sessionApi?.save('saved')));
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeAudio');
+  });
 
   it('falls back to a plain progress bar for an entry with no waveform', async () => {
     await renderPage({ open: { dream: { ...stored, waveform: undefined }, as: 'edit' } });

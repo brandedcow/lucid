@@ -274,11 +274,11 @@ describe('App voice entry', () => {
   });
 
   describe('editing a saved entry', () => {
-    it('shows its audio in a playable card with no close button, and saving keeps the file', async () => {
+    it('shows its audio in a playable card with a close button, and saving keeps the file', async () => {
       await openEdit(/Thankful for tea/);
       expect(byLabel('Play recording')).toBeTruthy();
       expect(screen.getAllByTestId('wave-bar')).toHaveLength(3);
-      expect(screen.queryByLabelText('Remove recording')).toBeNull();
+      expect(byLabel('Remove recording')).toBeTruthy();
       await fireEvent.changeText(byLabel('Entry text'), 'tea and toast');
       await press(byLabel('Save entry'));
       const saved = index().find((d) => d.id === 'g1');
@@ -318,11 +318,128 @@ describe('App voice entry', () => {
       expect(index().find((d) => d.id === 'g2')).not.toHaveProperty('audioFileName');
     });
 
+    it('closing the recording then Done removes it: entry kept, file deleted', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      expect(screen.queryByLabelText('Play recording')).toBeNull();
+      // Nothing is deleted before Done.
+      expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+      expect(index().find((d) => d.id === 'g1')?.audioFileName).toBe('g1.m4a');
+      await press(byLabel('Save entry'));
+      const saved = index().find((d) => d.id === 'g1');
+      expect(saved).not.toHaveProperty('audioFileName');
+      expect(saved).not.toHaveProperty('waveform');
+      expect(saved).toMatchObject({ title: 'Thankful for tea', transcript: 'tea', durationMs: 0 });
+      expect(saved?.status).toBeUndefined();
+      expect(__fs.has(STORED_AUDIO)).toBe(false);
+    });
+
+    it('closing then recording again replaces the stored recording on Done', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      await record();
+      await press(byLabel('Save entry'));
+      const saved = index().find((d) => d.id === 'g1');
+      expect(saved?.audioFileName).toBeDefined();
+      expect(saved?.audioFileName).not.toBe('g1.m4a');
+      expect(saved?.durationMs).toBe(4000);
+      expect(__fs.has(STORED_AUDIO)).toBe(false);
+      expect(__fs.read(`${DOC}/dreams/${saved?.audioFileName}`)).toBe('new-audio');
+    });
+
+    it('back with only a removal asks Discard changes; Discard deletes nothing', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Back'));
+      expect(Alert.alert).toHaveBeenLastCalledWith(
+        'Discard changes?',
+        expect.any(String),
+        expect.any(Array),
+      );
+      await choose('Discard');
+      expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+      expect(index().find((d) => d.id === 'g1')?.audioFileName).toBe('g1.m4a');
+    });
+
+    it('Keep editing after back keeps the mark; Android back asks too and commits nothing', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      expect(await hardwareBack()).toBe(true);
+      expect(Alert.alert).toHaveBeenCalledTimes(1);
+      expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+      expect(index().find((d) => d.id === 'g1')?.audioFileName).toBe('g1.m4a');
+      expect(screen.queryByLabelText('Play recording')).toBeNull();
+    });
+
+    it('a record whose audio file is missing still opens on the page', async () => {
+      __fs.reset();
+      __fs.put(`${DOC}/journals.json`, JSON.stringify({ version: 1, journals: [gratitude] }));
+      __fs.put(`${DOC}/settings.json`, JSON.stringify({ autoOpenDreamCapture: false }));
+      __fs.put(`${DOC}/dreams.json`, JSON.stringify([WITH_AUDIO]));
+      await openEdit(/Thankful for tea/);
+      expect(byLabel('Play recording')).toBeTruthy();
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Save entry'));
+      expect(index()[0]).not.toHaveProperty('audioFileName');
+    });
+
     it('an edit never saves a draft, even with a recording', async () => {
       await openEdit(/Plain words/);
       await record();
       await press(byLabel('Save entry'));
       expect(index().find((d) => d.id === 'g2')?.status).toBeUndefined();
+    });
+  });
+
+  describe('reopening a draft with a recording', () => {
+    const DRAFT = rec('g3', 'Half done', {
+      journalId: 'j_g1',
+      transcript: 'draft words',
+      status: 'draft',
+      audioFileName: 'g3.m4a',
+      durationMs: 6000,
+    });
+    const DRAFT_AUDIO = `${DOC}/dreams/g3.m4a`;
+    const openDraft = async () => {
+      __fs.put(`${DOC}/dreams.json`, JSON.stringify([DRAFT]));
+      __fs.put(DRAFT_AUDIO, 'draft-audio');
+      await render(<App />);
+      await settle();
+      await press(byLabel('Open Journals'));
+      await press(byLabel(/^Gratitude, /));
+      await press(byLabel(/Half done/));
+    };
+
+    it('back with a removal asks Save draft / Discard / Keep writing and commits nothing', async () => {
+      await openDraft();
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Back'));
+      expect(lastButtons().map((b) => b.text)).toEqual(['Save draft', 'Discard', 'Keep writing']);
+      expect(__fs.read(DRAFT_AUDIO)).toBe('draft-audio');
+      await choose('Discard');
+      expect(__fs.read(DRAFT_AUDIO)).toBe('draft-audio');
+      expect(index().find((d) => d.id === 'g3')?.audioFileName).toBe('g3.m4a');
+    });
+
+    it('Save draft removes the recording and stays a draft', async () => {
+      await openDraft();
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Back'));
+      await choose('Save draft');
+      const saved = index().find((d) => d.id === 'g3');
+      expect(saved).not.toHaveProperty('audioFileName');
+      expect(saved?.status).toBe('draft');
+      expect(__fs.has(DRAFT_AUDIO)).toBe(false);
+    });
+
+    it('Done removes the recording and finishes the draft', async () => {
+      await openDraft();
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Save entry'));
+      const saved = index().find((d) => d.id === 'g3');
+      expect(saved).not.toHaveProperty('audioFileName');
+      expect(saved?.status).toBeUndefined();
+      expect(__fs.has(DRAFT_AUDIO)).toBe(false);
     });
   });
 });

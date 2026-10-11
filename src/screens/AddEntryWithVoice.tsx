@@ -12,8 +12,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * Prop contract (everything else is AddEntryScreen's):
  * - audio: the entry's attachment from the session (a closed one is not shown).
  * - onRecorded: a recording stopped; the parent stores it as the attachment.
- * - onRemoveAudio: the card's close button. Offered only for a new, unsaved recording: a stored
- *   one has no removal path yet, so its card has no close button.
+ * - onRemoveAudio: the card's close button, for a new recording and a stored one alike. It only
+ *   marks the recording as removed in the session; nothing is deleted until the user saves.
  * - onRecordingChange: true while the recorder is starting or running, false otherwise. Fired
  *   synchronously (the parent keeps it in a ref for Android back).
  * - leaveRef: set to the "Discard this recording?" confirmation while recording.
@@ -86,7 +86,7 @@ export function AddEntryWithVoice({
       uri={shown.uri}
       durationMs={shown.durationMs}
       waveform={shown.waveform}
-      onRemove={!shown.persisted && !saving ? onRemoveAudio : undefined}
+      onRemove={!saving ? onRemoveAudio : undefined}
     />
   ) : undefined;
 
