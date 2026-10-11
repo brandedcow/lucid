@@ -26,23 +26,24 @@ The idea behind it: the journal reflects the conscious mind, dreams reflect the 
 
 Use these terms consistently in UI copy, code and data models.
 
-| Term          | Meaning                                                                                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Journal       | A container of entries. The app has two built-in journals, Dreams and Life; user-created journals are planned for later. Every entry lives in one journal.          |
-| Entry         | One piece of writing in a journal. Existing dreams are entries of type Dream in the Dreams journal.                                                                 |
-| Life entry    | A free-form daily writing entry, kept in the Life journal. (Formerly called a "Journal entry".)                                                                     |     |
-| Dream         | A dream capture, usually made right after waking.                                                                                                                   |
-| Title         | A short name the user gives a dream so it can be found later. Required to finish a dream (a Draft needs no title).                                                  |
-| Emotion       | Free text about how a dream felt, entered like tags. Optional, never a fixed list or rating.                                                                        |
-| Tag           | A label the user applies to entries (dreams and Life entries).                                                                                                      |
-| No dream      | The one-tap option on dream capture for a morning with nothing to record. Intended to count as done for the day (not built yet: today it only opens the Dream log). |
-| Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                   |
-| Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.                                                                         |
-| Dream log     | The screen that lists the Dreams journal's dreams and drafts by month, with a tag filter and search.                                                                |
-| Life log      | The same kind of screen for the Life journal: its entries and drafts by month, with a tag filter and search.                                                        |
-| Journals home | The screen with a card for each journal. Tapping a card opens that journal's log.                                                                                   |
-| Search        | Search across all journals at once, by words and tags. Entered from the Journals home.                                                                              |
-| Dream entry   | One finished dream shown for reading: date, title, emotion, tags, the recording and the transcript. Opened from the Dream log.                                      |
+| Term          | Meaning                                                                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Journal       | A container of entries. The app has two built-in journals, Dreams and Life; user-created journals are planned for later. Every entry lives in one journal.                      |
+| Entry         | One piece of writing in a journal. Existing dreams are entries of type Dream in the Dreams journal.                                                                             |
+| Life entry    | A free-form daily writing entry, kept in the Life journal. (Formerly called a "Journal entry".)                                                                                 |
+| Dream         | A dream capture, usually made right after waking.                                                                                                                               |
+| Title         | A short name the user gives a dream so it can be found later. Required to finish a dream (a Draft needs no title).                                                              |
+| Emotion       | Free text about how a dream felt, entered like tags. Optional, never a fixed list or rating.                                                                                    |
+| Tag           | A label the user applies to entries (dreams and Life entries).                                                                                                                  |
+| No dream      | The one-tap option on dream capture for a morning with nothing to record. Counts as done for the day: the app then opens to Today, not Dream capture, for the rest of that day. |
+| Today         | The main screen: lists only today's entries, from every journal (drafts included), newest first, with buttons to start a Dream or a Life entry.                                 |
+| Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                               |
+| Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.                                                                                     |
+| Dream log     | The screen that lists the Dreams journal's dreams and drafts by month, with a tag filter and search.                                                                            |
+| Life log      | The same kind of screen for the Life journal: its entries and drafts by month, with a tag filter and search.                                                                    |
+| Journals home | The screen with a card for each journal. Tapping a card opens that journal's log.                                                                                               |
+| Search        | Search across all journals at once, by words and tags. Entered from the Journals home.                                                                                          |
+| Dream entry   | One finished dream shown for reading: date, title, emotion, tags, the recording and the transcript. Opened from the Dream log.                                                  |
 
 Tags cover anything the user wants to track over time, such as a recurring dream image ("water"), strong emotional reactions, or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up, and it is now possible through the Dream log's tag filter and search. There is no separate "tracker" concept; tags fill that role.
 
@@ -50,9 +51,9 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 ### Morning dream capture
 
-- When the user opens the app on waking, it opens to the dream capture screen.
-- Dream capture can always be dismissed with one tap via "No dream".
-- Planned (Part 2, not built): once a dream is saved or "No dream" is chosen for the day, the app opens to the Today page instead (see Journals). Today the app always opens to dream capture, and "No dream" opens the Dream log.
+- When the user opens the app and has not yet created a finished dream today or chosen "No dream" today, it opens to the dream capture screen (unless "Open dream capture on launch" is turned off in Settings; see Navigation and Settings). Once a finished dream is created today or "No dream" is chosen, the app opens to Today for the rest of that day.
+- The dream capture opened at launch can always be dismissed with one tap via "No dream". A "Finish later" draft does not count as done, so capture opens again next launch.
+- "No dream" counts as done for the day. The app remembers only the latest date it was chosen, in a small file on the device. Nothing leaves the phone.
 - Audio recordings are kept alongside transcripts (a dream written with "Write instead" or "Type instead" has no audio).
 - Dream capture must be fast: the user should be able to start capturing immediately, since dreams fade within minutes.
 - The screen should be calm and low-glare (dark), suitable for use right after waking.
@@ -67,7 +68,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - **Write instead** (on dream capture) opens Read it back with an empty text box and creates a dream with no audio.
 - **Type instead** (on the listening screen, while recording or paused) lets a dream that started as a recording become a written dream. After a confirmation ("Your recording will be deleted. The text so far is kept."), the recording is deleted and Read it back opens with the text captured so far, ready to edit, and no audio.
 - Emotion stays free text, never a fixed list or rating: the user creates each emotion by typing it in an input, the way tags work, and added emotions show as chips (with a capital first letter). Quick-pick suggestions are made from emotions the user has used before. Tag suggestions come from tags the user has used before. Nothing is derived from the content of a dream.
-- Once finished, the user sees the Dream log.
+- Once finished, the user goes back to where capture was started (see Navigation): Today after the launch capture or "New dream" on Today, the Dream log after "New dream" in the Dream log.
 
 ### Dream log
 
@@ -90,20 +91,35 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 ### Journals
 
 - A journal is a container. The built-in journals are **Dreams** (everything captured as dreams so far) and **Life** (everyday entries). Entries are written chronologically within a journal, and an entry never moves to another journal when edited.
-- The **Journals home** shows a card for each journal, Dreams first, with a quiet count of finished entries ("12 dreams", "5 entries"; drafts are not counted). It has a search button and no back arrow. Tapping a card opens that journal's log.
+- The **Journals home** shows a card for each journal, Dreams first, with a quiet count of finished entries ("12 dreams", "5 entries"; drafts are not counted). It has a search button and a back arrow to Today. Tapping a card opens that journal's log.
 - The **Life log** works like the Dream log (month groups, tag filter, search, swipe to delete, an entry screen with Edit and Delete) under the header "Life", with a "New entry" button.
-- **Life entry capture** is the same as dream capture: voice first, live transcript, then Read it back and Review, with "Write instead" and "Type instead". Differences: the headline is "What happened today?" with its own tips ("Start anywhere", "Say it as it comes", "Note how you felt", "Keep it short or long"), there is no "No dream" button, the button to finish is "Save entry", and a back arrow returns to the Life log. The title is optional (the field says "Title (optional)"; an untitled finished entry shows the start of its body in the log, in the title's place, because the date is already in the row's date column, and "Untitled entry" if it has no body; its entry screen shows no heading above the text (the header carries the date); a draft shows "Untitled entry"; Dreams are unchanged), and Emotion and tags are optional as for dreams. The date line on Read it back, Review and Edit is "Life · <date>" (just "Life" with no date), as Dreams show "Dream · <date>". Dreams still need a title.
+- **Life entry capture** is the same as dream capture: voice first, live transcript, then Read it back and Review, with "Write instead" and "Type instead". Differences: the headline is "What happened today?" with its own tips ("Start anywhere", "Say it as it comes", "Note how you felt", "Keep it short or long"), there is no "No dream" button, the button to finish is "Save entry", and a back arrow returns to where capture was started (the Life log, or Today). The title is optional (the field says "Title (optional)"; an untitled finished entry shows the start of its body in the log, in the title's place, because the date is already in the row's date column, and "Untitled entry" if it has no body; its entry screen shows no heading above the text (the header carries the date); a draft shows "Untitled entry"; Dreams are unchanged), and Emotion and tags are optional as for dreams. The date line on Read it back, Review and Edit is "Life · <date>" (just "Life" with no date), as Dreams show "Dream · <date>". Dreams still need a title.
 - **Search** (from the Journals home) is one field for words and tags, with tag chips under it. It looks in titles, transcripts, emotions and tags of every journal at once, and a result must have all selected tags. Results are mixed, newest first, grouped by month, each marked with its journal ("Dreams" or "Life"). Only finished entries are searched: drafts are not included. Opening a result and going back returns to the results with the query and chips kept.
 - **Navigation:**
-  - The app opens to Dream capture. Saving a dream opens the Dream log; "No dream" also opens the Dream log. Saving a Life entry opens the Life log. Saving an edit returns to the entry, which keeps its origin (a log or Search).
-  - A log's back arrow goes to the Journals home (when the log's search field is open, back closes it first). Dream capture has no "Journals" link and no back arrow.
-  - The Journals home has no back arrow; Android back there exits the app, as it does on Dream capture.
-  - Leaving Search resets it. An entry opened from Search returns to Search; deleting from an entry returns to where it was opened.
-  - On Life capture, Android back does nothing while a recording is running.
+  - **Launch rule.** If no finished dream was created today and no "No dream" is recorded for today and "Open dream capture on launch" is on (the default), the app opens to Dream capture. Otherwise it opens to Today. The app waits briefly for its stored data before deciding, with a cap of 1000 ms: if the data is not ready by then, it opens Dream capture so capturing is never delayed. The launch capture has no back arrow, and Android back exits the app.
+  - Saving a dream, "No dream" and "Finish later" from the launch capture all open Today.
+  - **Where capture returns.** A capture started from Today ("New dream", "New Life entry") returns to Today after a save and on back. A capture started from a log ("New dream" or "New entry") returns to that log. Dream capture opened from the Dream log has a back arrow to the Dream log and no "No dream" button (only the launch capture has it). A draft opened from Today returns to Today; from a log, to that log. Saving an edit returns to the entry, which keeps its origin (Today, a log or Search); deleting from an entry returns to where it was opened.
+  - **Today.** It has a book icon at the top left (Open Journals), the title and date, and a gear at the top right (Open Settings). Android back on Today exits the app. Tapping a finished entry opens it, and back returns to Today. Tapping a draft reopens Review.
+  - **Journals home** is reached from the book icon on Today. It has a back arrow, and Android back goes to Today. A log's back arrow goes to the Journals home (when the log's search field is open, back closes it first). Search is entered from the Journals home and its back goes there.
+  - **Settings** is reached from the gear on Today. Its back arrow and Android back return to Today.
+  - Leaving Search resets it. On Life capture, Android back does nothing while a recording is running.
+  - **Resume on a new day.** When the app comes back to the foreground on a different day than it left on, and nothing is done today, and "Open dream capture on launch" is on, it jumps to the launch Dream capture. It never does this while the user is in capture, Read it back or Review (or while an entry is being saved or deleted), and never when midnight passes while the app is open (Today just shows the new day). It happens at most once per new day: if it was blocked because the user was mid-flow, it does not happen again that day.
+
+### Today
+
+- Today shows only entries created today, from any journal (drafts included), newest first, in one list. Each row says whether it is a Dream or Life. Rows swipe to delete like in the logs. Which day an entry belongs to follows when it was first stored, in the device's local time.
+- If "No dream" was chosen today and there is no dream or draft today, a quiet "No dream today" line shows. With nothing at all, it says "Nothing here yet today." ("Nothing else yet today." under the "No dream today" line).
+- Two buttons at the bottom: "New dream" and "New Life entry". There is no search on Today; search is on the Journals home.
+- Whether today is done is worked out from the saved dreams and the "No dream" date, so deleting today's only finished dream makes the next launch open Dream capture again.
+
+### Settings
+
+- Opened from the gear on Today. One switch, **Open dream capture on launch**, on by default, with the line "When off, the app opens to Today."
+- When off, the app always opens to Today and resume on a new day changes nothing. "No dream" and "New dream" are unaffected.
+- The choice applies at once and is stored on the device only (one yes/no value in a small file). A damaged or missing file means on.
 
 #### Planned, not built
 
-- **Today page** (Part 2): the app's main hub. It shows only entries from today, from any journal; if "No dream" was chosen, no dream is shown. The app opens to Today when something has been saved or skipped today, otherwise to dream capture.
 - A floating "+" add button in a log, as another way to add entries (idea).
 - **User-created journals**: create, rename and delete. Deleting a journal raises a data-control question (what happens to its entries), to be decided with the user first.
 
@@ -135,5 +151,5 @@ Resolved: dream capture leads with voice, and "Write instead" is the secondary o
 
 These are undecided. Ask before assuming an answer.
 
-- How "on waking" is detected (time window, first open of the day, user setting)
-- Journal structure is partly resolved (see Journals): the Today page, an add button in logs and user-created journals are still to be designed and need the user's go-ahead. How the app should navigate in the long run (Expo Router or the current state switch) is undecided.
+- How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
+- Journal structure is partly resolved (see Journals and Today): an add button in logs and user-created journals are still to be designed and need the user's go-ahead. How the app should navigate in the long run (Expo Router or the current state switch) is undecided.
