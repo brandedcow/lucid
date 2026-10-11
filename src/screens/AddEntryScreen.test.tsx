@@ -291,7 +291,7 @@ describe('AddEntryScreen', () => {
     });
   });
 
-  describe('page layout (capped notes, internal body scroll)', () => {
+  describe('page layout (one scrolling page)', () => {
     const renderLayout = (props: Partial<React.ComponentProps<typeof AddEntryScreen>> = {}) =>
       render(
         <AddEntryScreen
@@ -303,95 +303,99 @@ describe('AddEntryScreen', () => {
           onSave={jest.fn()}
           onBack={jest.fn()}
           attachment={<Text>slot-notes</Text>}
+          toolbar={<Text>slot-toolbar</Text>}
+          suggestions={<Text>slot-suggestions</Text>}
           {...props}
         />,
       );
     const scrollViews = () =>
       (JSON.stringify(screen.toJSON()).match(/"RCTScrollView"/g) ?? []).length;
-    const layout = (id: string, height: number) =>
-      fireEvent(screen.getByTestId(id), 'layout', {
-        nativeEvent: { layout: { x: 0, y: 0, width: 360, height } },
-      });
-    const notesStyle = () => StyleSheet.flatten(screen.getByTestId('entry-notes').props.style);
-    const measure = async (container: number, natural: number) => {
-      await layout('entry-page', container);
-      await fireEvent(screen.getByTestId('entry-notes'), 'contentSizeChange', 360, natural);
-    };
+    const page = () => screen.getByTestId('entry-page');
+    const dock = () => screen.getByTestId('entry-bottom-dock');
 
-    it('has no page-level scroll view: the only scroll view is the notes list', async () => {
+    it('has one page ScrollView holding the notes, date, title and body', async () => {
       await renderLayout();
       expect(scrollViews()).toBe(1);
-      expect(screen.getByTestId('entry-notes')).toContainElement(screen.getByText('slot-notes'));
+      expect(page()).toContainElement(screen.getByText('slot-notes'));
+      expect(page()).toContainElement(screen.getByTestId('entry-notes'));
+      expect(page()).toContainElement(screen.getByTestId('entry-date-title'));
+      expect(page()).toContainElement(screen.getByLabelText('Title'));
+      expect(page()).toContainElement(screen.getByTestId('entry-body'));
     });
 
-    it('has no notes scroll view without an attachment', async () => {
+    it('keeps the page ScrollView even without notes, and renders no notes wrapper', async () => {
       await renderLayout({ attachment: undefined });
+      expect(scrollViews()).toBe(1);
       expect(screen.queryByTestId('entry-notes')).toBeNull();
-      expect(scrollViews()).toBe(0);
     });
 
-    it('gives the body flex: 1 and keeps its testID and label', async () => {
+    it('lets handled taps through and dismisses on blank taps', async () => {
+      await renderLayout();
+      expect(page().props.keyboardShouldPersistTaps).toBe('handled');
+    });
+
+    it('gives the body an auto-grow height (minHeight 160, no flex) and keeps its testID and label', async () => {
       await renderLayout();
       const body = screen.getByTestId('entry-body');
       expect(body).toBe(screen.getByLabelText('Entry text'));
-      expect(StyleSheet.flatten(body.props.style).flex).toBe(1);
+      const style = StyleSheet.flatten(body.props.style);
+      expect(style.flex).toBeUndefined();
+      expect(style.minHeight).toBe(160);
     });
 
-    it('does not cap one note', async () => {
+    it('does not cap the number of notes (no nested scroller, no fixed height)', async () => {
       await renderLayout();
-      await measure(600, 56);
-      expect(notesStyle().height).toBe(56);
+      expect(
+        StyleSheet.flatten(screen.getByTestId('entry-notes').props.style)?.height,
+      ).toBeUndefined();
+      expect(screen.getByTestId('entry-notes').props.nestedScrollEnabled).toBeUndefined();
     });
 
-    it('caps a long list at 25% of the measured container', async () => {
+    it('keeps the toolbar and suggestions in the dock, outside the ScrollView', async () => {
       await renderLayout();
-      await measure(600, 320);
-      expect(notesStyle().height).toBe(150);
+      expect(dock()).toContainElement(screen.getByText('slot-toolbar'));
+      expect(dock()).toContainElement(screen.getByText('slot-suggestions'));
+      expect(page()).not.toContainElement(screen.getByText('slot-toolbar'));
     });
 
-    it('shrinks the cap when the container shrinks (keyboard open)', async () => {
-      await renderLayout();
-      await measure(600, 320);
-      await layout('entry-page', 400);
-      expect(notesStyle().height).toBe(100);
-    });
-
-    it('never caps below one card', async () => {
-      await renderLayout();
-      await measure(200, 320);
-      expect(notesStyle().height).toBe(64);
-    });
-
-    it('is uncapped until the container is measured', async () => {
-      await renderLayout();
-      expect(notesStyle().height).toBeUndefined();
-    });
-
-    it('pins the recording panel outside the capped list and counts it in the budget', async () => {
+    it('shows the recording panel in the dock and hides the toolbar and suggestions', async () => {
       await renderLayout({ recordingPanel: <Text>slot-panel</Text> });
-      const panel = screen.getByTestId('entry-recording-panel');
-      expect(panel).toContainElement(screen.getByText('slot-panel'));
-      expect(screen.getByTestId('entry-notes')).not.toContainElement(
+      expect(dock()).toContainElement(screen.getByTestId('entry-recording-panel'));
+      expect(screen.getByTestId('entry-recording-panel')).toContainElement(
         screen.getByText('slot-panel'),
       );
-      await measure(700, 320);
-      await layout('entry-date-title', 120);
-      const withoutPanelHeight = notesStyle().height as number;
-      await layout('entry-recording-panel', 300);
-      expect(notesStyle().height as number).toBeLessThan(withoutPanelHeight);
-      expect(notesStyle().height as number).toBeGreaterThanOrEqual(64);
+      expect(page()).not.toContainElement(screen.getByText('slot-panel'));
+      expect(screen.queryByText('slot-toolbar')).toBeNull();
+      expect(screen.queryByText('slot-suggestions')).toBeNull();
     });
 
-    it('still lifts the dock with the keyboard while the layout is measured', async () => {
+    it('brings the toolbar back when the recording panel goes away', async () => {
+      const props = {
+        title: '',
+        onTitleChange: jest.fn(),
+        body: '',
+        onBodyChange: jest.fn(),
+        date: 'd',
+        onSave: jest.fn(),
+        onBack: jest.fn(),
+        toolbar: <Text>slot-toolbar</Text>,
+      };
+      const { rerender } = await render(
+        <AddEntryScreen {...props} recordingPanel={<Text>slot-panel</Text>} />,
+      );
+      expect(screen.queryByText('slot-toolbar')).toBeNull();
+      await rerender(<AddEntryScreen {...props} />);
+      expect(screen.getByText('slot-toolbar')).toBeTruthy();
+      expect(screen.queryByTestId('entry-recording-panel')).toBeNull();
+    });
+
+    it('still lifts the dock with the keyboard', async () => {
       const originalOS = Platform.OS;
       Object.defineProperty(Platform, 'OS', { configurable: true, get: () => 'android' });
       const { emit } = fakeKeyboard();
-      await renderLayout({ toolbar: <Text>slot-toolbar</Text> });
-      await measure(600, 320);
+      await renderLayout();
       await emit('keyboardDidShow', 300);
-      expect(
-        StyleSheet.flatten(screen.getByTestId('entry-bottom-dock').props.style).paddingBottom,
-      ).toBe(334);
+      expect(StyleSheet.flatten(dock().props.style).paddingBottom).toBe(334);
       Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS });
     });
   });

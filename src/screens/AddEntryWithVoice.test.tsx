@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Alert, AlertButton, TextInput } from 'react-native';
+import { Alert, AlertButton, Keyboard, TextInput } from 'react-native';
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
 import { fakeKeyboard } from '../test/fakeKeyboard';
@@ -155,7 +155,7 @@ describe('recording on the page', () => {
     expect(mockRec.start).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Recording 0:00')).toBeTruthy();
     expect(screen.getByLabelText('Stop recording')).toBeTruthy();
-    expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByLabelText('Record voice note')).toBeNull();
     expect(screen.getByLabelText('Save dream').props.accessibilityState.disabled).toBe(true);
     expect(events.onRecordingChange).toHaveBeenLastCalledWith(true);
   });
@@ -547,13 +547,13 @@ describe('toolbar', () => {
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, false]);
   });
 
-  it('undo and redo are off while recording', async () => {
+  it('the toolbar (undo, redo, mic, tags) is hidden while recording', async () => {
     await renderPage();
     await typeBody('words');
     await startRecording();
-    expect(disabled('Undo')).toBe(true);
-    expect(disabled('Redo')).toBe(true);
-    expect(disabled('Record voice note')).toBe(true);
+    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags']) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
   });
 
   it('a stored recording closed then restored by undo is kept on Done', async () => {
@@ -1034,23 +1034,40 @@ describe('several recordings on the page', () => {
   });
 });
 
-describe('notes list and recording panel layout', () => {
-  it('shows the cards in the notes list and the live panel pinned outside it', async () => {
+describe('notes and recording panel layout', () => {
+  it('shows the cards in the page and the live panel in the bottom dock', async () => {
     await renderPage({ open: { dream: stored, as: 'edit' } });
     const notes = screen.getByTestId('entry-notes');
+    expect(screen.getByTestId('entry-page')).toContainElement(notes);
     expect(notes).toContainElement(screen.getByLabelText('Play recording'));
     expect(screen.queryByTestId('entry-recording-panel')).toBeNull();
     await startRecording();
     const panel = screen.getByTestId('entry-recording-panel');
     expect(panel).toContainElement(screen.getByLabelText('Stop recording'));
+    expect(screen.getByTestId('entry-bottom-dock')).toContainElement(panel);
+    expect(screen.getByTestId('entry-page')).not.toContainElement(panel);
     expect(notes).not.toContainElement(screen.getByLabelText('Stop recording'));
     expect(notes).toContainElement(screen.getByLabelText('Play recording'));
   });
 
-  it('shows no notes list while recording the first note', async () => {
+  it('shows no notes wrapper while recording the first note', async () => {
     await renderPage();
     await startRecording();
     expect(screen.queryByTestId('entry-notes')).toBeNull();
     expect(screen.getByTestId('entry-recording-panel')).toBeTruthy();
+  });
+
+  it('dismisses the keyboard and hides the toolbar while recording, and restores it after', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    await renderPage();
+    expect(screen.getByLabelText('Undo')).toBeTruthy();
+    await startRecording();
+    expect(dismiss).toHaveBeenCalled();
+    expect(screen.queryByLabelText('Undo')).toBeNull();
+    expect(screen.queryByLabelText('Add tags')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Stop recording'));
+    await act(async () => {});
+    expect(screen.getByLabelText('Undo')).toBeTruthy();
+    dismiss.mockRestore();
   });
 });

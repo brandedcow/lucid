@@ -22,8 +22,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 /**
  * Prop contract (everything else is AddEntryScreen's):
  * - recordings: the entry's recordings from the session, in order (closed ones are not shown). One
- *   VoiceAttachmentCard per visible recording, stacked above the title in the page's capped notes
- *   list (about 25% of the visible height; the recording panel is pinned below it), labelled "voice note N of M" when there are several. Only one card plays at a time
+ *   VoiceAttachmentCard per visible recording, stacked above the date in the page flow (no cap; they
+ *   scroll with the title and body), labelled "voice note N of M" when there are several. Only one card plays at a time
  *   (useRecordingPlayback); starting the mic stops playback.
  * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
  *   available).
@@ -50,6 +50,9 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * then substring, up to 8; see suggestTags). A word nothing matches shows no bar (a new tag needs no
  * action: it is stored from the text on save). Tapping a tag
  * completes the word ("#tag " with the cursor after the space) as ONE undo step, like the # button.
+ *
+ * While recording, the live panel takes the bottom dock and the toolbar and suggestion bar are hidden
+ * (the keyboard is dismissed when the mic is tapped); they return when it ends.
  *
  * Toolbar: undo / redo (body text and closing a voice note card, one shared stack, each step naming its
  * recording; not title or
@@ -244,6 +247,7 @@ export function AddEntryWithVoice({
       onMic={() => {
         // Recording must not overlap playback.
         stopAllPlayback();
+        Keyboard.dismiss();
         setRecording(true);
       }}
       disabled={saving}

@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -17,9 +17,10 @@ import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
-import { BODY_MIN, layoutBudget } from '../utils/entryLayout';
 
 type Selection = { start: number; end: number };
+
+const BODY_MIN_HEIGHT = 160;
 
 /**
  * Prop contract:
@@ -38,14 +39,16 @@ type Selection = { start: number; end: number };
  * - saving: a save is in flight; the check and back do nothing and the fields are locked.
  * - autoFocus: focus the title on open (a new entry).
  * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
- * - attachment: slot above the title for the saved voice note cards (see AddEntryWithVoice). It sits in
- *   a scroll view of its own capped at about 25% of the visible page height (never less than one
- *   card; one note is not capped), so the notes cannot push the typing area off the screen.
- * - recordingPanel: slot pinned below the capped notes list (the live recording controls), outside
- *   its scroll so they are never scrolled away.
+ * - attachment: slot above the date for the saved voice note cards (see AddEntryWithVoice). It is
+ *   part of the page flow: cards, date, title and body scroll together in one page ScrollView, with
+ *   no cap on the number of notes.
+ * - recordingPanel: the live recording controls. While it is set it takes the bottom dock (outside
+ *   the ScrollView) and the suggestion bar and toolbar are not shown; the parent dismisses the
+ *   keyboard when recording starts. When it is unset the dock shows suggestions and toolbar again.
  *
- *   There is no page-level scroll view: the date, title, notes and panel stay put and the body fills
- *   the rest and scrolls inside itself (a native multiline input keeps its own caret visible).
+ *   The page ScrollView uses keyboardShouldPersistTaps="handled": a tap on blank space dismisses the
+ *   keyboard (and blurs the focused input); taps on inputs, cards and buttons keep working. The body
+ *   grows with its text (minHeight 160, no flex), so blank space below it is part of the scroller.
  * - suggestions: slot directly above the toolbar for the tag suggestion bar (see AddEntryWithVoice).
  * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits in the
  *   bottom dock, which is lifted above the keyboard (explicit padding on Android, where edge-to-edge
@@ -130,25 +133,9 @@ export function AddEntryScreen({
         : bottomInset;
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);
-  // Measured heights for the notes cap (0 until the first layout, which means uncapped).
-  const [containerHeight, setContainerHeight] = useState(0);
-  const [dateTitleHeight, setDateTitleHeight] = useState(0);
-  const [panelHeight, setPanelHeight] = useState(0);
-  const [notesNatural, setNotesNatural] = useState(0);
+  const pageScrollRef = useRef<ScrollView>(null);
   const hasPanel = recordingPanel != null && recordingPanel !== false;
   const hasNotes = attachment != null && attachment !== false;
-  // Padding and the gaps between the blocks (notes, panel, date and title, body) are not measured
-  // separately; they count as fixed space next to the measured date and title.
-  const blocks = 2 + (hasNotes ? 1 : 0) + (hasPanel ? 1 : 0);
-  const notesHeight =
-    hasNotes && containerHeight > 0 && notesNatural > 0
-      ? layoutBudget({
-          container: containerHeight,
-          dateAndTitle: dateTitleHeight + 2 * spacing.lg + (blocks - 1) * spacing.md,
-          panel: hasPanel ? panelHeight : 0,
-          naturalNotes: notesNatural,
-        })
-      : undefined;
   const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
   // The menu closes for good when the picker stops being available (a save started, or the entry
   // got locked).
@@ -199,70 +186,54 @@ export function AddEntryScreen({
           </Pressable>
         </View>
 
-        <View
+        <ScrollView
+          ref={pageScrollRef}
           testID="entry-page"
           style={styles.flex}
-          onLayout={(e) => setContainerHeight(Math.round(e.nativeEvent.layout.height))}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.content}>
-            {hasNotes && (
-              <ScrollView
-                testID="entry-notes"
-                style={[styles.notes, notesHeight !== undefined && { height: notesHeight }]}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-                onContentSizeChange={(_w, h) => setNotesNatural(Math.round(h))}
-              >
-                {attachment}
-              </ScrollView>
-            )}
-            {hasPanel && (
-              <View
-                testID="entry-recording-panel"
-                onLayout={(e) => setPanelHeight(Math.round(e.nativeEvent.layout.height))}
-              >
-                {recordingPanel}
-              </View>
-            )}
-            <View
-              testID="entry-date-title"
-              style={styles.dateTitle}
-              onLayout={(e) => setDateTitleHeight(Math.round(e.nativeEvent.layout.height))}
-            >
-              <Text style={styles.date}>{date}</Text>
-              <TextInput
-                value={title}
-                onChangeText={onTitleChange}
-                editable={!saving}
-                placeholder="Title..."
-                placeholderTextColor={colors.faint}
-                accessibilityLabel="Title"
-                autoFocus={autoFocus}
-                maxLength={80}
-                returnKeyType="next"
-                style={styles.titleInput}
-              />
-            </View>
-            <TaggedBodyInput
-              text={body}
-              onChangeText={onBodyChange}
-              onBlur={onBodyBlur}
-              onFocus={onBodyFocus}
-              onSelectionChange={onBodySelectionChange}
-              selection={bodySelection}
-              focusSignal={bodyFocusSignal}
+          {hasNotes && <View testID="entry-notes">{attachment}</View>}
+          <View testID="entry-date-title" style={styles.dateTitle}>
+            <Text style={styles.date}>{date}</Text>
+            <TextInput
+              value={title}
+              onChangeText={onTitleChange}
               editable={!saving}
-              placeholder="Start writing..."
+              placeholder="Title..."
               placeholderTextColor={colors.faint}
-              accessibilityLabel="Entry text"
-              testID="entry-body"
-              style={styles.bodyInput}
+              accessibilityLabel="Title"
+              autoFocus={autoFocus}
+              maxLength={80}
+              returnKeyType="next"
+              style={styles.titleInput}
             />
           </View>
-        </View>
+          <TaggedBodyInput
+            text={body}
+            onChangeText={onBodyChange}
+            onBlur={onBodyBlur}
+            onFocus={onBodyFocus}
+            onSelectionChange={onBodySelectionChange}
+            selection={bodySelection}
+            focusSignal={bodyFocusSignal}
+            editable={!saving}
+            placeholder="Start writing..."
+            placeholderTextColor={colors.faint}
+            accessibilityLabel="Entry text"
+            testID="entry-body"
+            style={styles.bodyInput}
+          />
+        </ScrollView>
         <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
-          {suggestions}
-          {toolbar}
+          {hasPanel ? (
+            <View testID="entry-recording-panel">{recordingPanel}</View>
+          ) : (
+            <>
+              {suggestions}
+              {toolbar}
+            </>
+          )}
         </View>
         {showMenu && (
           <JournalMenu
@@ -303,9 +274,7 @@ const styles = StyleSheet.create({
   },
   checkDisabled: { opacity: 0.4 },
   checkMark: { color: colors.accentDark, fontSize: 20, fontWeight: '700' },
-  content: { flex: 1, padding: spacing.lg, gap: spacing.md },
-  // Sized by layoutBudget once measured; until then it only stops growing past its content.
-  notes: { flexGrow: 0, flexShrink: 0 },
+  content: { padding: spacing.lg, gap: spacing.md },
   dateTitle: { gap: spacing.md },
   date: { color: colors.muted, fontSize: 13 },
   titleInput: {
@@ -325,8 +294,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     lineHeight: 26,
-    flex: 1,
-    minHeight: BODY_MIN,
+    minHeight: BODY_MIN_HEIGHT,
     textAlignVertical: 'top',
     paddingVertical: spacing.sm,
   },
