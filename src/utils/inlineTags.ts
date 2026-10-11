@@ -168,13 +168,11 @@ export function inlineTagFor(raw: string): string | null {
 }
 
 /**
- * Appends tags missing from `body` as a final line of "#tag" tokens. Whitespace and terminator
- * characters in a tag become hyphens (a run becomes one; trailing "-" and "_" are trimmed), so
- * "bad dream" becomes #bad-dream and "v1.2" becomes #v1-2. Tags that are then empty, only digits or
- * over 40 characters are dropped. Tags already present in the body (by the same conversion) are
- * skipped. Returns `body` unchanged if nothing is added.
+ * The inline forms (no "#") of the stored `tags` that `body` does not already contain, in order,
+ * without duplicates. Uses the same conversion as `materializeTags`; tags that cannot be inline
+ * tags are dropped.
  */
-export function materializeTags(body: string, tags: string[]): string {
+export function missingInlineTags(body: string, tags: readonly string[]): string[] {
   const present = inlineTags(body);
   const add: string[] = [];
   for (const raw of tags) {
@@ -183,6 +181,18 @@ export function materializeTags(body: string, tags: string[]): string {
     if (present.indexOf(conv) !== -1 || add.indexOf(conv) !== -1) continue;
     add.push(conv);
   }
+  return add;
+}
+
+/**
+ * Appends tags missing from `body` as a final line of "#tag" tokens. Whitespace and terminator
+ * characters in a tag become hyphens (a run becomes one; trailing "-" and "_" are trimmed), so
+ * "bad dream" becomes #bad-dream and "v1.2" becomes #v1-2. Tags that are then empty, only digits or
+ * over 40 characters are dropped. Tags already present in the body (by the same conversion) are
+ * skipped. Returns `body` unchanged if nothing is added.
+ */
+export function materializeTags(body: string, tags: string[]): string {
+  const add = missingInlineTags(body, tags);
   if (add.length === 0) return body;
   const line = add.map((t) => '#' + t).join(' ');
   if (body === '') return line;

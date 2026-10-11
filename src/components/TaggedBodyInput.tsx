@@ -157,7 +157,7 @@ export function TaggedBodyInput({
   // (The device spike used bare strings for plain runs; an unstyled nested Text should be the same
   // span on native, but that exact form has not been run on a device.)
   const kids = bodySegments(shown).map((g, i) => (
-    <Text key={i} style={g.tag ? styles.tag : undefined}>
+    <Text key={i} style={g.tag ? tagRunStyle : undefined}>
       {g.s}
     </Text>
   ));
@@ -197,11 +197,12 @@ export function TaggedBodyInput({
   );
 }
 
-const styles = StyleSheet.create({
+/** Style of a `#tag` run, shared with the read-only `TaggedText`. */
+export const tagRunStyle = StyleSheet.create({
   tag: {
     color: colors.accent,
     fontWeight: '600',
     backgroundColor: colors.emotionChipBg,
     borderRadius: 6,
   },
-});
+}).tag;

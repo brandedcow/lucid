@@ -1,5 +1,6 @@
-import { Alert, AlertButton } from 'react-native';
+import { Alert, AlertButton, StyleSheet } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { colors } from '../theme';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { DreamDetailScreen } from './DreamDetailScreen';
@@ -55,23 +56,48 @@ describe('DreamDetailScreen', () => {
     expect(screen.getByRole('header', { name: 'The endless hallway' })).toBeTruthy();
   });
 
-  it('shows all chips, emotions first, as one accessible group', async () => {
+  it('shows the feelings as one accessible group and no tag chips', async () => {
     await setup();
     expect(screen.getByText('Uneasy')).toBeTruthy();
     expect(screen.getByText('Curious')).toBeTruthy();
-    expect(screen.getByText('water')).toBeTruthy();
-    expect(screen.getByText("grandmother's house")).toBeTruthy();
-    expect(screen.getByText('stairs')).toBeTruthy();
+    expect(screen.queryByText('water')).toBeNull();
+    expect(screen.queryByText('stairs')).toBeNull();
     expect(screen.queryByText(/^\+\d/)).toBeNull();
-    expect(screen.getByLabelText(/Feelings: Uneasy, Curious\. Tags: water/)).toBeTruthy();
+    expect(screen.getByLabelText('Feelings: Uneasy, Curious.')).toBeTruthy();
   });
 
-  it('shows every chip when there are many', async () => {
-    const tags = Array.from({ length: 12 }, (_, i) => `tag${i}`);
-    await setup({ ...base, emotion: 'a, b, c, d', tags });
-    for (const t of tags) expect(screen.getByText(t)).toBeTruthy();
+  it('shows every feeling when there are many', async () => {
+    await setup({ ...base, emotion: 'a, b, c, d', tags: [] });
     expect(screen.getByText('D')).toBeTruthy();
     expect(screen.queryByText(/^\+\d/)).toBeNull();
+  });
+
+  it('highlights #tags in the text and adds no legacy line when they are all in it', async () => {
+    await setup({ ...base, transcript: 'Walked by the #water again.', tags: ['water'] });
+    const tag = screen.getByText('#water');
+    expect(StyleSheet.flatten(tag.props.style)).toMatchObject({
+      color: colors.accent,
+      fontWeight: '600',
+    });
+    expect(screen.queryByTestId('legacy-tags')).toBeNull();
+  });
+
+  it('shows stored tags missing from the text as a trailing #tag line', async () => {
+    await setup({
+      ...base,
+      transcript: 'Walked by the #water.',
+      tags: ['water', "grandmother's house", 'bad dream', '2024'],
+    });
+    const line = screen.getByTestId('legacy-tags');
+    expect(line).toHaveTextContent('#grandmother-s-house #bad-dream');
+    expect(screen.getByText('#bad-dream')).toBeTruthy();
+    expect(screen.getAllByText('#water')).toHaveLength(1);
+  });
+
+  it('shows legacy tags even when the entry has no text', async () => {
+    await setup({ ...base, transcript: undefined, tags: ['stairs'] });
+    expect(screen.getByTestId('legacy-tags')).toHaveTextContent('#stairs');
+    expect(screen.queryByText('No text yet')).toBeNull();
   });
 
   it('renders no chips when there are none', async () => {
@@ -134,7 +160,8 @@ describe('DreamDetailScreen', () => {
     await setup();
     expect(screen.getByText('First paragraph.')).toBeTruthy();
     expect(screen.getByText('Second paragraph.')).toBeTruthy();
-    expect(screen.getByText('First paragraph.').props.selectable).toBe(true);
+    // The matched node is the inner run; the paragraph Text is its parent.
+    expect(screen.getByText('First paragraph.').parent?.props.selectable).toBe(true);
   });
 
   it('renders a single block as one text', async () => {
@@ -143,12 +170,12 @@ describe('DreamDetailScreen', () => {
   });
 
   it('says "No text yet" without a transcript', async () => {
-    await setup({ ...base, transcript: undefined });
+    await setup({ ...base, transcript: undefined, tags: [] });
     expect(screen.getByText('No text yet')).toBeTruthy();
   });
 
   it('says "No text yet" for a blank transcript', async () => {
-    await setup({ ...base, transcript: '   ' });
+    await setup({ ...base, transcript: '   ', tags: [] });
     expect(screen.getByText('No text yet')).toBeTruthy();
   });
 

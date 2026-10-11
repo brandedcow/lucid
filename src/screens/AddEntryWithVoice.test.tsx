@@ -15,7 +15,6 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('../services/dreamStorage', () => ({
-  listTags: jest.fn().mockResolvedValue([]),
   saveDream: jest.fn(),
   discardRecording: jest.fn(),
   recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,

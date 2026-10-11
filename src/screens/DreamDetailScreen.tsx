@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DreamChips } from '../components/DreamChips';
 import { OverflowMenu } from '../components/OverflowMenu';
 import { RecordingPlayer } from '../components/RecordingPlayer';
+import { TaggedText } from '../components/TaggedText';
 import { recordingUri } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { Dream, hasAudio, recordingsOf } from '../types/dream';
@@ -11,6 +12,7 @@ import { confirmDeleteDream } from '../utils/confirmDelete';
 import { dreamRow, limitChips } from '../utils/dreamLog';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { formatToday } from '../utils/format';
+import { missingInlineTags } from '../utils/inlineTags';
 import { splitParagraphs } from '../utils/paragraphs';
 
 /**
@@ -84,8 +86,9 @@ export function DreamDetailScreen({
   const headerDate = Number.isNaN(created.getTime())
     ? copy.dateFallback
     : `${copy.datePrefix}${formatToday(created)}`;
-  // Show every chip: no limit on the count and no "+N".
-  const { visible } = limitChips(row.chips, Infinity, Infinity);
+  // Feelings only: tags are shown inline in the text (below), never as chips. Every feeling is
+  // shown: no limit on the count and no "+N".
+  const { visible } = limitChips({ emotions: row.chips.emotions, tags: [] }, Infinity, Infinity);
   const stored = recordingsOf(dream);
   const confirmDelete = () => {
     if (busy || alertOpen.current || blockedRef.current) return;
@@ -102,6 +105,11 @@ export function DreamDetailScreen({
     });
   };
   const paragraphs = typeof dream.transcript === 'string' ? splitParagraphs(dream.transcript) : [];
+  // Entries from before inline tags keep tags that are not in the text: show them after it.
+  const legacyTags = missingInlineTags(
+    typeof dream.transcript === 'string' ? dream.transcript : '',
+    row.chips.tags,
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -149,12 +157,18 @@ export function DreamDetailScreen({
           <View style={styles.transcript}>
             {paragraphs.length > 0 ? (
               paragraphs.map((paragraph, i) => (
-                <Text key={i} selectable style={styles.paragraph}>
-                  {paragraph}
-                </Text>
+                <TaggedText key={i} selectable style={styles.paragraph} text={paragraph} />
               ))
-            ) : (
+            ) : legacyTags.length === 0 ? (
               <Text style={styles.empty}>No text yet</Text>
+            ) : null}
+            {legacyTags.length > 0 && (
+              <TaggedText
+                testID="legacy-tags"
+                selectable
+                style={styles.paragraph}
+                text={legacyTags.map((t) => '#' + t).join(' ')}
+              />
             )}
           </View>
         </ScrollView>

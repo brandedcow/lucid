@@ -185,17 +185,6 @@ export async function listDreams(): Promise<Dream[]> {
   return dreams.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** Every tag in use, most used first, for suggestions. */
-export async function listTags(): Promise<string[]> {
-  const counts = new Map<string, number>();
-  for (const dream of await readIndex()) {
-    for (const tag of dream.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([tag]) => tag);
-}
-
 /** Every emotion word in use (drafts included), most used first, for suggestions. */
 export async function listEmotions(): Promise<string[]> {
   const counts = new Map<string, number>();

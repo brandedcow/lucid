@@ -5,6 +5,7 @@ import {
   inlineTags,
   insertHash,
   materializeTags,
+  missingInlineTags,
   scanTags,
 } from './inlineTags';
 
@@ -328,5 +329,17 @@ describe('inlineTagFor', () => {
     expect(inlineTagFor('2024')).toBeNull();
     expect(inlineTagFor('')).toBeNull();
     expect(inlineTagFor('x'.repeat(41))).toBeNull();
+  });
+});
+
+describe('missingInlineTags', () => {
+  it('lists converted stored tags the body lacks, once each, in order', () => {
+    expect(
+      missingInlineTags('Saw #water.', ['water', 'bad dream', 'Bad Dream', '2024', 'v1.2']),
+    ).toEqual(['bad-dream', 'v1-2']);
+  });
+
+  it('returns nothing when the body has them all', () => {
+    expect(missingInlineTags('#a #b', ['a', 'b'])).toEqual([]);
   });
 });

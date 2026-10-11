@@ -3,12 +3,6 @@ export function normalizeTag(raw: string): string {
   return raw.trim().replace(/^#+/, '').replace(/\s+/g, ' ').toLowerCase();
 }
 
-/** Adds `raw` to `tags` if it normalizes to something new. */
-export function addTag(tags: string[], raw: string): string[] {
-  const tag = normalizeTag(raw);
-  return tag && !tags.includes(tag) ? [...tags, tag] : tags;
-}
-
 /** Every tag in use across `records`, most used first (ties alphabetical), for suggestions. */
 export function tagsByUse(records: readonly { tags?: readonly string[] }[] | null): string[] {
   const counts = new Map<string, number>();
