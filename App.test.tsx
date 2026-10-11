@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, AlertButton, AppState, AppStateStatus, BackHandler } from 'react-native';
 import App from './App';
 import { __fs } from './src/test/fakeFileSystem';
@@ -2712,5 +2712,113 @@ describe('App custom journals', () => {
       await fireEvent.press(screen.getByLabelText('Add entry'));
       expect(screen.queryByRole('menuitem', { name: /^Gratitude,/ })).toBeNull();
     });
+  });
+});
+
+describe('App new journal', () => {
+  beforeEach(() => {
+    putSettings(false);
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+  });
+
+  const openNameSheet = async () => {
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+  };
+  const nameInput = () => screen.getByLabelText('Journal name');
+  const createButton = () => screen.getByRole('button', { name: 'Create' });
+  const create = async (name: string) => {
+    await fireEvent.changeText(nameInput(), name);
+    await fireEvent.press(createButton());
+    await flush();
+  };
+
+  it("Add entry -> New journal -> name -> Create lands on the new journal's empty log", async () => {
+    await renderApp();
+    await openNameSheet();
+    expect(screen.queryByRole('menuitem')).toBeNull();
+    expect(screen.getByRole('header', { name: 'New journal' })).toBeTruthy();
+    await create('Gratitude');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    const id = (screen.getByText(/^log-journal:j_/).props.children as string).split(':')[1];
+    expect(screen.getByText('log-ids:')).toBeTruthy();
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+    expect(__fs.read(`${DOC}/journals.json`)).toContain('Gratitude');
+    // The new entry button of that log captures into the new journal.
+    await press('stub-new-dream');
+    expect(screen.getByText(`capture-journal:${id}`)).toBeTruthy();
+  });
+
+  it('the log back arrow goes to Journals home (with the new card), then Today, which lists it in the sheet', async () => {
+    await renderApp();
+    await openNameSheet();
+    await create('Gratitude');
+    await press('stub-log-back');
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expect(screen.getByText('journal-cards:Dreams,Life,Gratitude')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    await waitFor(expectToday);
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    expect(screen.getByRole('menuitem', { name: /^Gratitude,/ })).toBeTruthy();
+    // The sheet is closed after returning: no stale name sheet.
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+  });
+
+  it('blocks a duplicate or too-long name and writes nothing', async () => {
+    await renderApp();
+    await openNameSheet();
+    await fireEvent.changeText(nameInput(), 'life');
+    expect(screen.getByText('A journal named "life" already exists.')).toBeTruthy();
+    expect(createButton().props.accessibilityState.disabled).toBe(true);
+    await fireEvent(nameInput(), 'submitEditing');
+    await fireEvent.changeText(nameInput(), 'x'.repeat(25));
+    expect(screen.getByText('Use 24 characters or fewer.')).toBeTruthy();
+    await fireEvent(nameInput(), 'submitEditing');
+    await flush();
+    expect(__fs.has(`${DOC}/journals.json`)).toBe(false);
+    expectNoLogYet();
+  });
+
+  const expectNoLogYet = () => expect(screen.queryByText('log-screen')).toBeNull();
+
+  it('a write failure keeps the sheet open with the name; a retry then works', async () => {
+    await renderApp();
+    await openNameSheet();
+    __fs.failWhen('write', (uri) => uri.includes('journals'));
+    __fs.failWhen('move', (uri) => uri.includes('journals'));
+    await create('Gratitude');
+    expectNoLogYet();
+    expect(screen.getByText("Couldn't save the journal. Please try again.")).toBeTruthy();
+    expect(nameInput().props.value).toBe('Gratitude');
+    __fs.clearFailures();
+    await fireEvent.press(createButton());
+    await flush();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(__fs.read(`${DOC}/journals.json`)).toContain('Gratitude');
+  });
+
+  it('Cancel and Android back close the sheet and stay on Today; no journal is made', async () => {
+    await renderApp();
+    await openNameSheet();
+    await fireEvent.changeText(nameInput(), 'Work');
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+    await waitFor(expectToday);
+    await openNameSheet();
+    expect(nameInput().props.value).toBe('');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+    await waitFor(expectToday);
+    expect(__fs.has(`${DOC}/journals.json`)).toBe(false);
+  });
+
+  it('Dreams and Life stay in the sheet and unchanged after creating', async () => {
+    await renderApp();
+    await openNameSheet();
+    await create('Work');
+    await press('stub-log-back');
+    await press('stub-open-dreams');
+    expect(screen.getByText('log-ids:7')).toBeTruthy();
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
   });
 });

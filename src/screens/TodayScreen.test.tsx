@@ -65,6 +65,7 @@ function ui(o: Opts, h: Record<string, jest.Mock>) {
         onOpenDraft={h.onOpenDraft}
         onDeleteDream={h.onDeleteDream}
         onNewEntry={h.onNewEntry}
+        onNewJournal={h.onNewJournal}
         onOpenJournals={h.onOpenJournals}
         onOpenSettings={h.onOpenSettings}
       />
@@ -78,6 +79,7 @@ async function setup(o: Opts = {}) {
     onOpenDraft: jest.fn(),
     onDeleteDream: jest.fn(),
     onNewEntry: jest.fn(),
+    onNewJournal: jest.fn(),
     onOpenJournals: jest.fn(),
     onOpenSettings: jest.fn(),
   };
@@ -213,6 +215,15 @@ describe('TodayScreen', () => {
     await fireEvent.press(screen.getAllByRole('menuitem')[0]);
     expect(onNewEntry).toHaveBeenLastCalledWith('dreams');
     expect(onNewEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it('the menu has a "New journal" row below the journals that closes it and calls onNewJournal', async () => {
+    const { onNewJournal, onNewEntry } = await setup();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    expect(onNewJournal).toHaveBeenCalledTimes(1);
+    expect(onNewEntry).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull());
   });
 
   it('closes the menu when a delete starts', async () => {

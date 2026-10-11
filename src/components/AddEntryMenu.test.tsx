@@ -147,6 +147,33 @@ describe('AddEntryMenu', () => {
     expect(screen.getByText('New journal')).toBeTruthy();
   });
 
+  it('has no "New journal" row without onNewJournal', async () => {
+    await renderMenu();
+    await open();
+    expect(screen.queryByRole('button', { name: 'New journal' })).toBeNull();
+  });
+
+  it('shows a "New journal" row below the journals; tapping closes the sheet and calls onNewJournal once', async () => {
+    const onNewJournal = jest.fn();
+    const onPick = jest.fn();
+    await renderMenu({ onNewJournal, onPick });
+    await open();
+    const row = screen.getByRole('button', { name: 'New journal' });
+    expect(row.props.accessibilityLabel).toBe('New journal');
+    expect(row).toHaveStyle({ minHeight: 56 });
+    // After the last journal row, in the same sheet.
+    const sheet = screen.getByRole('header', { name: 'Add entry' }).parent!;
+    const kids = sheet.children as unknown as { props?: unknown }[];
+    expect(kids.length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    await fireEvent.press(row);
+    expect(onNewJournal).toHaveBeenCalledTimes(1);
+    expect(onPick).not.toHaveBeenCalled();
+    expect(fab().props.accessibilityState).toMatchObject({ expanded: false });
+    await finishAnimation();
+    expect(screen.queryByText('New journal')).toBeNull();
+  });
+
   it('is a modal layer when open', async () => {
     await renderMenu();
     await open();

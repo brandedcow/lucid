@@ -13,6 +13,7 @@ import { useToday } from './src/hooks/useToday';
 import { CaptureScreen } from './src/screens/CaptureScreen';
 import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
+import { NewJournalSheet } from './src/components/NewJournalSheet';
 import { JournalsScreen } from './src/screens/JournalsScreen';
 import { ReadItBackScreen } from './src/screens/ReadItBackScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
@@ -100,6 +101,8 @@ export default function App() {
   const [fromReview, setFromReview] = useState(false);
   // The finished dream shown on the detail screen.
   const [detailId, setDetailId] = useState<string | null>(null);
+  // True while the "New journal" name sheet is open over Today.
+  const [namingJournal, setNamingJournal] = useState(false);
   // The journal registry: the built-in journals, then the user's own.
   const journalRegistry = useJournals();
   const { journals } = journalRegistry;
@@ -225,6 +228,9 @@ export default function App() {
           ? 'today'
           : 'log'
       : screen;
+
+  // The name sheet belongs to Today: leaving Today (a new-day jump to capture) closes it.
+  if (namingJournal && current !== 'today') setNamingJournal(false);
 
   // Each log shows only its own journal's entries (drafts included), whatever else is stored.
   const logEntries = useMemo(
@@ -653,6 +659,7 @@ export default function App() {
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.dream.id ?? null}
             onNewEntry={(id) => startCapture(id, 'today')}
+            onNewJournal={() => setNamingJournal(true)}
             onOpenJournals={() => setScreen('journals')}
             onOpenSettings={() => setScreen('settings')}
           />
@@ -678,6 +685,18 @@ export default function App() {
             }}
           />
         )}
+        <NewJournalSheet
+          visible={namingJournal && current === 'today'}
+          onClose={() => setNamingJournal(false)}
+          existing={journals}
+          onSubmit={async (name) => {
+            // The journal is in the registry (saved) before its log opens, so nothing is ever
+            // captured into an unknown journal. A failure rejects and the sheet stays open.
+            const created = await journalRegistry.add(name);
+            setNamingJournal(false);
+            showLog(created.id);
+          }}
+        />
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>

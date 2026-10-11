@@ -45,6 +45,7 @@ export const TODAY_COPY = {
  *   here, with the row's own journal wording. The parent deletes.
  * - `deletingId`: the entry being deleted; its row is dimmed and swiping is off everywhere.
  * - `onNewEntry(journalId)`: a journal was picked in the "+" menu (bottom right); the parent starts its capture.
+ * - `onNewJournal()`: "New journal" was tapped in the "+" menu (the sheet has closed); the parent asks for a name.
  * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right).
  */
 type Props = {
@@ -58,6 +59,7 @@ type Props = {
   onDeleteDream: (dream: Entry) => void;
   deletingId?: string | null;
   onNewEntry: (journalId: JournalId) => void;
+  onNewJournal: () => void;
   onOpenJournals: () => void;
   onOpenSettings: () => void;
 };
@@ -75,6 +77,7 @@ export function TodayScreen({
   onDeleteDream,
   deletingId = null,
   onNewEntry,
+  onNewJournal,
   onOpenJournals,
   onOpenSettings,
 }: Props) {
@@ -243,6 +246,7 @@ export function TodayScreen({
       <AddEntryMenu
         journals={journals}
         onPick={onNewEntry}
+        onNewJournal={onNewJournal}
         disabled={deletingId != null}
         bottomInset={insets.bottom}
       />

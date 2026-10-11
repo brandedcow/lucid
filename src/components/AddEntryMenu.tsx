@@ -26,7 +26,9 @@ export const FAB_SIZE = 56;
  * - bottomInset: the safe-area bottom inset, supplied by the screen.
  * - disabled: the button is disabled and the sheet closes for good, at once (it does not reopen when
  *   re-enabled).
- * - footer: extra content after the journal rows, inside the sheet.
+ * - onNewJournal: when set, a "New journal" row sits below the journal rows (set apart by a rule);
+ *   tapping it closes the sheet and calls this.
+ * - footer: extra content after that row, inside the sheet.
  *
  * The sheet slides up and the backdrop fades in (~220 ms); closing reverses it and unmounts at the end.
  * With Reduce Motion on, it appears and disappears without animation.
@@ -34,6 +36,7 @@ export const FAB_SIZE = 56;
 type Props = {
   journals: readonly Journal[];
   onPick: (journalId: JournalId) => void;
+  onNewJournal?: () => void;
   disabled?: boolean;
   bottomInset?: number;
   footer?: ReactNode;
@@ -46,6 +49,7 @@ const FALLBACK_SHEET_HEIGHT = 400;
 export function AddEntryMenu({
   journals,
   onPick,
+  onNewJournal,
   disabled = false,
   bottomInset = 0,
   footer,
@@ -125,6 +129,12 @@ export function AddEntryMenu({
     onPick(journalId);
   };
 
+  const newJournal = () => {
+    if (!isOpen || !onNewJournal) return;
+    close();
+    onNewJournal();
+  };
+
   const fabBottom = bottomInset + spacing.md;
   const translateY = progress.interpolate({
     inputRange: [0, 1],
@@ -187,6 +197,21 @@ export function AddEntryMenu({
                 );
               })}
             </View>
+            {onNewJournal && (
+              <View style={styles.newRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="New journal"
+                  onPress={newJournal}
+                  style={styles.newButton}
+                >
+                  <Text style={styles.newPlus} importantForAccessibility="no-hide-descendants">
+                    +
+                  </Text>
+                  <Text style={styles.newText}>New journal</Text>
+                </Pressable>
+              </View>
+            )}
             {footer && <View style={styles.footer}>{footer}</View>}
           </Animated.View>
         </View>
@@ -251,5 +276,20 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
   cardHint: { color: colors.muted, fontSize: 14 },
   chevron: { color: colors.muted, fontSize: 24 },
+  newRow: {
+    marginTop: spacing.md,
+    marginHorizontal: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  newButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
+  },
+  newPlus: { color: colors.accent, fontSize: 24 },
+  newText: { color: colors.text, fontSize: 18 },
   footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm + 2 },
 });
