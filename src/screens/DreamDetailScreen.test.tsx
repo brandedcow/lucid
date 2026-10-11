@@ -50,9 +50,10 @@ beforeEach(() => {
 });
 
 describe('DreamDetailScreen', () => {
-  it('shows the date line and title as a header', async () => {
+  it('shows "Dream · <date>" centered in the header and the title as a heading', async () => {
     await setup();
-    expect(screen.getByText('Sunday, October 4 · 6:42 AM')).toBeTruthy();
+    expect(screen.getByText('Dream · Sunday, October 4')).toBeTruthy();
+    expect(screen.queryByText(/6:42/)).toBeNull();
     expect(screen.getByRole('header', { name: 'The endless hallway' })).toBeTruthy();
   });
 
@@ -159,7 +160,8 @@ describe('DreamDetailScreen', () => {
   it('survives an invalid date', async () => {
     await setup({ ...base, createdAt: 'nonsense' });
     expect(screen.getByText('The endless hallway')).toBeTruthy();
-    expect(screen.queryByText(/ · /)).toBeNull();
+    expect(screen.getByText('Dream')).toBeTruthy();
+    expect(screen.queryByText(/Invalid/)).toBeNull();
   });
 
   it('calls onBack and onEdit from labeled buttons', async () => {
@@ -444,18 +446,19 @@ describe('DreamDetailScreen for the Life journal', () => {
     expect(alertSpy.mock.calls[0][0]).toBe('Delete this entry?');
   });
 
-  it('shows no date or heading for an untitled finished Life entry, but body and chips', async () => {
+  it('shows the date in the header but no heading for an untitled finished Life entry, with body and chips', async () => {
     await render(ui({ ...life, title: '' }));
     expect(screen.queryByRole('header', { name: 'Oct 4' })).toBeNull();
     expect(screen.queryByRole('header')).toBeNull();
     expect(screen.queryByText('Untitled entry')).toBeNull();
-    expect(screen.queryByText(/2026|Oct/)).toBeNull();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
     expect(screen.getByText('First paragraph.')).toBeTruthy();
   });
 
   it('still shows date and heading for a titled Life entry', async () => {
     await render(ui(life));
     expect(screen.getByRole('header', { name: 'A slow Sunday' })).toBeTruthy();
+    expect(screen.getByText('Life · Sunday, October 4')).toBeTruthy();
   });
 
   it('keeps the date heading for an untitled Dream', async () => {

@@ -10,7 +10,7 @@ import { Dream, hasAudio } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { dreamRow, limitChips } from '../utils/dreamLog';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
-import { formatEntryDateTime } from '../utils/format';
+import { formatToday } from '../utils/format';
 import { splitParagraphs } from '../utils/paragraphs';
 
 /**
@@ -77,9 +77,13 @@ export function DreamDetailScreen({
   }, [deleting]);
 
   const row = dreamRow(dream, new Date(), copy.untitled);
-  // An untitled Life entry has no heading: its date is already in the log, and the body leads.
+  // An untitled Life entry has no heading: the header carries its date, and the body leads.
   const untitledLife = journal.kind === 'journal' && row.ownTitle === '';
-  const date = formatEntryDateTime(new Date(dream.createdAt));
+  const created = new Date(dream.createdAt);
+  // Same date format as Read it back and Review's header.
+  const headerDate = Number.isNaN(created.getTime())
+    ? copy.dateFallback
+    : `${copy.datePrefix}${formatToday(created)}`;
   // Show every chip: no limit on the count and no "+N".
   const { visible } = limitChips(row.chips, Infinity, Infinity);
   const audioUri = hasAudio(dream) ? dreamAudioUri(dream) : null;
@@ -112,10 +116,11 @@ export function DreamDetailScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
+          <Text style={styles.headerDate}>{headerDate}</Text>
+          <View style={styles.headerSide} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
-          {!untitledLife && date !== '' && <Text style={styles.date}>{date}</Text>}
           {!untitledLife && (
             <Text accessibilityRole="header" style={styles.title}>
               {row.title}
@@ -167,14 +172,14 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
   },
   backButton: { width: 44, height: 44, justifyContent: 'center' },
+  headerSide: { width: 44 },
   back: { color: colors.text, fontSize: 24 },
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
-  date: { color: colors.muted, fontSize: 13 },
+  headerDate: { flex: 1, textAlign: 'center', color: colors.muted, fontSize: 13 },
   title: {
     color: colors.text,
     fontFamily: fonts.serif,
