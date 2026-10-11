@@ -107,7 +107,7 @@ export default function App() {
   const [fromReview, setFromReview] = useState(false);
   // The finished dream shown on the detail screen.
   const [detailId, setDetailId] = useState<string | null>(null);
-  // True while the "New journal" name sheet is open over Today.
+  // True while the "New journal" name sheet is open over Today or Journals home.
   const [namingJournal, setNamingJournal] = useState(false);
   // The custom journal whose name is being edited in the Rename sheet over Journals home. Never
   // open together with the "New journal" sheet.
@@ -287,8 +287,8 @@ export default function App() {
           : 'log'
       : screen;
 
-  // The name sheet belongs to Today: leaving Today (a new-day jump to capture) closes it.
-  if (namingJournal && current !== 'today') setNamingJournal(false);
+  // The name sheet belongs to Today and Journals home: leaving them (a new-day jump to capture) closes it.
+  if (namingJournal && current !== 'today' && current !== 'journals') setNamingJournal(false);
 
   // The Rename sheet belongs to Journals home: leaving it closes the sheet. It also closes if its
   // journal is gone from the registry or is being deleted.
@@ -830,6 +830,12 @@ export default function App() {
             onDeleteJournal={requestDeleteJournal}
             onRenameJournal={requestRenameJournal}
             deletingId={deletingJournalId}
+            onNewEntry={(id) => startCapture(id, 'today')}
+            onNewJournal={() => {
+              setRenamingJournalId(null);
+              setNamingJournal(true);
+            }}
+            nameSheetOpen={namingJournal || renamingJournal !== undefined}
           />
         )}
         {current === 'today' && (
@@ -878,7 +884,7 @@ export default function App() {
           />
         )}
         <NewJournalSheet
-          visible={namingJournal && current === 'today'}
+          visible={namingJournal && (current === 'today' || current === 'journals')}
           onClose={() => setNamingJournal(false)}
           existing={journals}
           onSubmit={async (name) => {

@@ -333,4 +333,52 @@ describe('JournalsScreen', () => {
       });
     });
   });
+
+  describe('Add entry button', () => {
+    it('is absent without onNewEntry', async () => {
+      await setup();
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
+    });
+
+    it('opens the sheet with a row per journal; picking one calls onNewEntry', async () => {
+      const onNewEntry = jest.fn();
+      await setup({ onNewEntry, onNewJournal: jest.fn() });
+      await fireEvent.press(screen.getByLabelText('Add entry'));
+      expect(screen.getByRole('menuitem', { name: /^Dreams,/ })).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole('menuitem', { name: /^Life,/ }));
+      expect(onNewEntry).toHaveBeenCalledWith('life');
+    });
+
+    it('"New journal" calls onNewJournal', async () => {
+      const onNewJournal = jest.fn();
+      await setup({ onNewEntry: jest.fn(), onNewJournal });
+      await fireEvent.press(screen.getByLabelText('Add entry'));
+      await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+      expect(onNewJournal).toHaveBeenCalledTimes(1);
+    });
+
+    it('is hidden while a name sheet is open', async () => {
+      const custom = { id: 'j_g', name: 'Gratitude', kind: 'journal' } as Journal;
+      const journals = [...BUILT_IN_JOURNALS, custom];
+      await setup({ journals, onNewEntry: jest.fn(), nameSheetOpen: true });
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
+    });
+
+    it('is disabled while a journal is deleting', async () => {
+      const custom = { id: 'j_g', name: 'Gratitude', kind: 'journal' } as Journal;
+      await setup({
+        journals: [...BUILT_IN_JOURNALS, custom],
+        onNewEntry: jest.fn(),
+        deletingId: 'j_g',
+      });
+      expect(screen.getByLabelText('Add entry').props.accessibilityState.disabled).toBe(true);
+    });
+
+    it('pads the list clear of the button', async () => {
+      await setup({ onNewEntry: jest.fn() });
+      const scroll = screen.getByTestId('journals-list');
+      const style = StyleSheet.flatten(scroll.props.contentContainerStyle);
+      expect(style.paddingBottom).toBe(34 + 16 + 56 + 24);
+    });
+  });
 });

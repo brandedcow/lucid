@@ -2,11 +2,13 @@ import {
   AccessibilityActionEvent,
   AccessibilityActionInfo,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AddEntryMenu, FAB_SIZE } from '../components/AddEntryMenu';
 import { SearchIcon } from '../components/SearchIcon';
 import { SwipeActionRow, SwipeAction, useSingleOpenRow } from '../components/SwipeActionRow';
 import { colors, fonts, spacing } from '../theme';
@@ -29,6 +31,12 @@ import { isBuiltInJournal, Journal, kindCopy } from '../utils/journals';
  * - `deletingId`: the journal being deleted. Its card is dimmed, inert and reads "Deleting...";
  *   every card's swipe is locked until it ends.
  *
+ * - `onNewEntry(journalId)` / `onNewJournal()`: optional. When `onNewEntry` is given, the same "+" button and
+ *   Add entry sheet as on Today show at the bottom right (hidden while `deletingId` is set); picking a journal
+ *   calls `onNewEntry`, "New journal" (sheet closed) calls `onNewJournal`.
+ *
+ * - `nameSheetOpen`: a name sheet (new or rename) is open; the "+" button is not shown.
+ *
  * - `onBack()`: optional. When given, a back arrow ("Back to Today") shows at the top left.
  */
 type Props = {
@@ -41,6 +49,9 @@ type Props = {
   onDeleteJournal?: (id: JournalId) => void;
   onRenameJournal?: (id: JournalId) => void;
   deletingId?: JournalId | null;
+  onNewEntry?: (id: JournalId) => void;
+  onNewJournal?: () => void;
+  nameSheetOpen?: boolean;
 };
 
 /** "12 dreams", "1 dream", "No dreams yet"; "5 entries", "1 entry", "No entries yet". */
@@ -61,130 +72,153 @@ export function JournalsScreen({
   onDeleteJournal,
   onRenameJournal,
   deletingId = null,
+  onNewEntry,
+  onNewJournal,
+  nameSheetOpen = false,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const showCounts = counts !== null && !unreadable;
   const { onRowWillOpen, onRowClosed, closeOpenRow } = useSingleOpenRow();
   const locked = deletingId !== null;
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={[styles.header, onBack && styles.headerWithBack]}>
-        {onBack && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to Today"
-            onPress={onBack}
-            hitSlop={12}
-            style={styles.backButton}
-          >
-            <Text style={styles.back}>←</Text>
-          </Pressable>
-        )}
-        <Text style={[styles.title, onBack && styles.titleWithBack]} accessibilityRole="header">
-          Journals
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Search all journals"
-          onPress={onSearch}
-          style={styles.searchButton}
-        >
-          <SearchIcon />
-        </Pressable>
-      </View>
-
-      {unreadable && <Text style={styles.unreadable}>{kindCopy('journal').unreadableLog}</Text>}
-
-      <View style={styles.list}>
-        {journals.map((journal) => {
-          const count = showCounts ? (counts[journal.id] ?? 0) : null;
-          const deleting = journal.id === deletingId;
-          const line = deleting
-            ? 'Deleting...'
-            : count === null
-              ? null
-              : countLabel(journal, count);
-          const card = (extra?: {
-            accessibilityActions?: AccessibilityActionInfo[];
-            onAccessibilityAction?: (e: AccessibilityActionEvent) => void;
-          }) => (
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        <View style={[styles.header, onBack && styles.headerWithBack]}>
+          {onBack && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={
-                deleting
-                  ? `${journal.name}, deleting`
-                  : line === null
-                    ? journal.name
-                    : `${journal.name}, ${line}`
-              }
-              accessibilityState={deleting ? { disabled: true } : undefined}
-              disabled={deleting}
-              onPress={() => {
-                closeOpenRow();
-                onOpenJournal(journal.id);
-              }}
-              style={[styles.card, deleting && styles.deleting]}
-              {...extra}
+              accessibilityLabel="Back to Today"
+              onPress={onBack}
+              hitSlop={12}
+              style={styles.backButton}
             >
-              <View style={styles.cardMain}>
-                <Text style={styles.cardTitle}>{journal.name}</Text>
-                {line !== null && <Text style={styles.count}>{line}</Text>}
-              </View>
-              <Text style={styles.chevron} importantForAccessibility="no-hide-descendants">
-                ›
-              </Text>
+              <Text style={styles.back}>←</Text>
             </Pressable>
-          );
-          // Only a user-created journal can be renamed or deleted: Dreams and Life stay plain cards.
-          if ((!onDeleteJournal && !onRenameJournal) || isBuiltInJournal(journal.id)) {
-            return <View key={journal.id}>{card()}</View>;
-          }
-          // Rename first, Delete last (at the far right edge).
-          const actions: SwipeAction[] = [];
-          if (onRenameJournal) {
-            actions.push({
-              key: 'rename',
-              label: 'Rename',
-              accessibilityLabel: `Rename ${journal.name}`,
-              onPress: (closeRow) => {
-                closeRow();
-                onRenameJournal(journal.id);
-              },
-            });
-          }
-          if (onDeleteJournal) {
-            actions.push({
-              key: 'delete',
-              label: 'Delete',
-              accessibilityLabel: `Delete ${journal.name}`,
-              destructive: true,
-              onPress: (closeRow) => {
-                closeRow();
-                onDeleteJournal(journal.id);
-              },
-            });
-          }
-          return (
-            <SwipeActionRow
-              key={journal.id}
-              actions={actions}
-              disabled={locked}
-              onRowWillOpen={onRowWillOpen}
-              onRowClosed={onRowClosed}
-              testID={`journal-row-${journal.id}`}
-            >
-              {({ accessibilityActions, onAccessibilityAction }) =>
-                card({ accessibilityActions, onAccessibilityAction })
-              }
-            </SwipeActionRow>
-          );
-        })}
-      </View>
-    </SafeAreaView>
+          )}
+          <Text style={[styles.title, onBack && styles.titleWithBack]} accessibilityRole="header">
+            Journals
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Search all journals"
+            onPress={onSearch}
+            style={styles.searchButton}
+          >
+            <SearchIcon />
+          </Pressable>
+        </View>
+
+        {unreadable && <Text style={styles.unreadable}>{kindCopy('journal').unreadableLog}</Text>}
+
+        <ScrollView
+          testID="journals-list"
+          contentContainerStyle={[
+            styles.list,
+            onNewEntry && { paddingBottom: insets.bottom + spacing.md + FAB_SIZE + spacing.lg },
+          ]}
+          onScrollBeginDrag={closeOpenRow}
+        >
+          {journals.map((journal) => {
+            const count = showCounts ? (counts[journal.id] ?? 0) : null;
+            const deleting = journal.id === deletingId;
+            const line = deleting
+              ? 'Deleting...'
+              : count === null
+                ? null
+                : countLabel(journal, count);
+            const card = (extra?: {
+              accessibilityActions?: AccessibilityActionInfo[];
+              onAccessibilityAction?: (e: AccessibilityActionEvent) => void;
+            }) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  deleting
+                    ? `${journal.name}, deleting`
+                    : line === null
+                      ? journal.name
+                      : `${journal.name}, ${line}`
+                }
+                accessibilityState={deleting ? { disabled: true } : undefined}
+                disabled={deleting}
+                onPress={() => {
+                  closeOpenRow();
+                  onOpenJournal(journal.id);
+                }}
+                style={[styles.card, deleting && styles.deleting]}
+                {...extra}
+              >
+                <View style={styles.cardMain}>
+                  <Text style={styles.cardTitle}>{journal.name}</Text>
+                  {line !== null && <Text style={styles.count}>{line}</Text>}
+                </View>
+                <Text style={styles.chevron} importantForAccessibility="no-hide-descendants">
+                  ›
+                </Text>
+              </Pressable>
+            );
+            // Only a user-created journal can be renamed or deleted: Dreams and Life stay plain cards.
+            if ((!onDeleteJournal && !onRenameJournal) || isBuiltInJournal(journal.id)) {
+              return <View key={journal.id}>{card()}</View>;
+            }
+            // Rename first, Delete last (at the far right edge).
+            const actions: SwipeAction[] = [];
+            if (onRenameJournal) {
+              actions.push({
+                key: 'rename',
+                label: 'Rename',
+                accessibilityLabel: `Rename ${journal.name}`,
+                onPress: (closeRow) => {
+                  closeRow();
+                  onRenameJournal(journal.id);
+                },
+              });
+            }
+            if (onDeleteJournal) {
+              actions.push({
+                key: 'delete',
+                label: 'Delete',
+                accessibilityLabel: `Delete ${journal.name}`,
+                destructive: true,
+                onPress: (closeRow) => {
+                  closeRow();
+                  onDeleteJournal(journal.id);
+                },
+              });
+            }
+            return (
+              <SwipeActionRow
+                key={journal.id}
+                actions={actions}
+                disabled={locked}
+                onRowWillOpen={onRowWillOpen}
+                onRowClosed={onRowClosed}
+                testID={`journal-row-${journal.id}`}
+              >
+                {({ accessibilityActions, onAccessibilityAction }) =>
+                  card({ accessibilityActions, onAccessibilityAction })
+                }
+              </SwipeActionRow>
+            );
+          })}
+        </ScrollView>
+      </SafeAreaView>
+      {onNewEntry && !nameSheetOpen && (
+        <AddEntryMenu
+          journals={journals.filter((j) => j.id !== deletingId)}
+          onPick={onNewEntry}
+          onNewJournal={onNewJournal}
+          disabled={deletingId != null}
+          bottomInset={insets.bottom}
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
