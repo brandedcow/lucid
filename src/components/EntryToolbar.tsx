@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
-import { MicIcon } from './MicIcon';
+import { WaveformIcon } from './WaveformIcon';
 
 type Props = {
   canUndo: boolean;
@@ -59,7 +59,7 @@ export function EntryToolbar({
       </ToolbarButton>
       <View style={styles.divider} />
       <ToolbarButton label="Record voice note" disabled={disabled || micDisabled} onPress={onMic}>
-        <MicIcon color={colors.text} size={22} />
+        <WaveformIcon color={colors.text} size={22} />
       </ToolbarButton>
       <View style={styles.divider} />
       <ToolbarButton label="Add tags" disabled={disabled} onPress={onTags}>

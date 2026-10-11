@@ -15,6 +15,11 @@ describe('EntryToolbar', () => {
     expect(labels).toEqual(['Undo', 'Redo', 'Record voice note', 'Add tags']);
   });
 
+  it('shows the waveform icon on the voice note button', async () => {
+    await renderBar();
+    expect(screen.getByTestId('waveform-icon')).toBeTruthy();
+  });
+
   it('calls the handlers', async () => {
     await renderBar();
     for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags'])
