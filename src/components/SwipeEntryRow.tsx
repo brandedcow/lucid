@@ -42,6 +42,7 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
   onRowClosed,
   deleting,
   swipeLocked,
+  journalLabel,
 }: {
   dream: Dream;
   copy: JournalCopy;
@@ -54,6 +55,8 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
   deleting: boolean;
   /** Some delete is in flight, so no row can be swiped. */
   swipeLocked: boolean;
+  /** Optional journal name ("Dream", "Life") shown on the card, for lists that mix journals. */
+  journalLabel?: string;
 }) {
   const swipeRef = useRef<Swipeable>(null);
   // While closed, the Delete action sits behind the card and must stay out of the screen reader.
@@ -79,6 +82,7 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
       onOpenDraft={onOpenDraft}
       deleting={deleting}
       onAccessibilityDelete={swipeable ? deleteDream : undefined}
+      journalLabel={journalLabel}
       flush
     />
   );
