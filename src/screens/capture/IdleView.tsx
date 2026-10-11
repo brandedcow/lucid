@@ -16,7 +16,7 @@ type Props = {
   tips?: readonly string[];
   /** The skip pill's label; null hides the pill. Defaults to "No dream". */
   skipLabel?: string | null;
-  /** Shows a back arrow (top left) that calls it. Omitted for Dreams capture. */
+  /** Shows a back arrow (top left) that calls it. Omitted for the launch capture. */
   onBack?: () => void;
 };
 
