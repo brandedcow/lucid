@@ -1,31 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useMemo } from 'react';
+import { StyleSheet } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { colors, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { dreamRow } from '../utils/dreamLog';
 import { Journal, JournalCopy } from '../utils/journals';
 import { EntryRow } from './EntryRow';
+import { SwipeAction, SwipeActionRow, useSingleOpenRow } from './SwipeActionRow';
 import { TodayEntryRow } from './TodayEntryRow';
 
-/**
- * Keeps at most one swipe row open. Pass `onRowWillOpen` / `onRowClosed` to every
- * `SwipeEntryRow` in a list; call `closeOpenRow()` when anything else happens (scroll, opening an entry).
- */
-export function useSingleOpenRow() {
-  const openRow = useRef<Swipeable | null>(null);
-  const onRowWillOpen = useCallback((row: Swipeable) => {
-    if (openRow.current && openRow.current !== row) openRow.current.close();
-    openRow.current = row;
-  }, []);
-  const onRowClosed = useCallback((row: Swipeable) => {
-    if (openRow.current === row) openRow.current = null;
-  }, []);
-  const closeOpenRow = useCallback(() => {
-    openRow.current?.close();
-  }, []);
-  return { onRowWillOpen, onRowClosed, closeOpenRow };
-}
+export { useSingleOpenRow };
 
 /**
  * An `EntryRow` that reveals a Delete action when swiped left (and exposes it as an accessibility
@@ -67,71 +51,48 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
   /** 'card' (default) or the flat 'today' row. */
   variant?: 'card' | 'today';
 }) {
-  const swipeRef = useRef<Swipeable>(null);
-  // While closed, the Delete action sits behind the card and must stay out of the screen reader.
-  const [revealed, setRevealed] = useState(false);
-  useEffect(() => {
-    const row = swipeRef.current;
-    return () => {
-      if (row) onRowClosed(row);
-    };
-  }, [onRowClosed]);
   const row = useMemo(() => dreamRow(dream, new Date(), copy.untitled), [dream, copy]);
 
   const swipeable = !swipeLocked && !deleting;
-  const deleteDream = () => {
-    onDelete(dream, () => swipeRef.current?.close());
-  };
+  const actions = useMemo<SwipeAction[]>(
+    () => [
+      {
+        key: 'delete',
+        label: 'Delete',
+        accessibilityLabel: copy.deleteRowLabel(row.title),
+        onPress: (closeRow) => onDelete(dream, closeRow),
+        destructive: true,
+      },
+    ],
+    [copy, row.title, onDelete, dream],
+  );
 
   const isToday = variant === 'today';
   const Row = isToday ? TodayEntryRow : EntryRow;
-  const card = (
-    <Row
-      dream={dream}
-      journals={journals}
-      untitled={copy.untitled}
-      onOpenDream={onOpenDream}
-      onOpenDraft={onOpenDraft}
-      deleting={deleting}
-      onAccessibilityDelete={swipeable ? deleteDream : undefined}
-      journalLabel={journalLabel}
-      flush
-    />
-  );
 
   return (
-    <Swipeable
-      ref={swipeRef}
-      enabled={swipeable}
-      overshootRight={false}
+    <SwipeActionRow
+      actions={actions}
+      disabled={!swipeable}
+      flat={isToday}
       containerStyle={isToday ? styles.swipeRowToday : styles.swipeRow}
-      onSwipeableWillOpen={() => {
-        setRevealed(true);
-        if (swipeRef.current) onRowWillOpen(swipeRef.current);
-      }}
-      onSwipeableClose={() => {
-        setRevealed(false);
-        if (swipeRef.current) onRowClosed(swipeRef.current);
-      }}
-      renderRightActions={() => (
-        <View
-          style={styles.actionWrap}
-          accessibilityElementsHidden={!revealed}
-          importantForAccessibility={revealed ? 'auto' : 'no-hide-descendants'}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={copy.deleteRowLabel(row.title)}
-            onPress={deleteDream}
-            style={[styles.deleteAction, isToday && styles.deleteActionToday]}
-          >
-            <Text style={styles.deleteLabel}>Delete</Text>
-          </Pressable>
-        </View>
-      )}
+      onRowWillOpen={onRowWillOpen}
+      onRowClosed={onRowClosed}
     >
-      {card}
-    </Swipeable>
+      {({ closeRow }) => (
+        <Row
+          dream={dream}
+          journals={journals}
+          untitled={copy.untitled}
+          onOpenDream={onOpenDream}
+          onOpenDraft={onOpenDraft}
+          deleting={deleting}
+          onAccessibilityDelete={swipeable ? () => onDelete(dream, closeRow) : undefined}
+          journalLabel={journalLabel}
+          flush
+        />
+      )}
+    </SwipeActionRow>
   );
 });
 
@@ -140,16 +101,4 @@ const styles = StyleSheet.create({
   swipeRow: { marginBottom: spacing.sm + 2, borderRadius: 16 },
   // Flat full-width row: no margin or radius; the opaque background hides the action until swiped.
   swipeRowToday: { backgroundColor: colors.background },
-  actionWrap: { width: 96, alignItems: 'stretch' },
-  deleteAction: {
-    flex: 1,
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: colors.draft,
-  },
-  deleteActionToday: { borderRadius: 0 },
-  deleteLabel: { color: colors.accentDark, fontSize: 16, fontWeight: '700' },
 });
