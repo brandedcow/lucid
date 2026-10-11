@@ -4,7 +4,6 @@ import {
   HISTORY_CAP,
   HistoryStacks,
   TYPING_DEBOUNCE_MS,
-  dropAudioSteps,
   emptyHistory,
   popRedo,
   popUndo,
@@ -14,9 +13,10 @@ import {
 
 describe('history stacks', () => {
   const body = (from: string, to: string) => ({ kind: 'body', from, to }) as const;
+  const audio = (id: string) => ({ kind: 'audio', id, action: 'remove' }) as const;
 
   it('push adds to undo and clears redo', () => {
-    const start: HistoryStacks = { undo: [], redo: [{ kind: 'audio' }] };
+    const start: HistoryStacks = { undo: [], redo: [audio('a')] };
     expect(pushHistory(start, body('', 'a'))).toEqual({ undo: [body('', 'a')], redo: [] });
   });
 
@@ -29,30 +29,22 @@ describe('history stacks', () => {
   });
 
   it('undo and redo move the latest step between the stacks', () => {
-    let s = pushHistory(pushHistory(emptyHistory, body('', 'a')), { kind: 'audio' });
+    let s = pushHistory(pushHistory(emptyHistory, body('', 'a')), audio('r1'));
     const u = popUndo(s);
-    expect(u.item).toEqual({ kind: 'audio' });
+    expect(u.item).toEqual(audio('r1'));
     s = u.stacks;
-    expect(s).toEqual({ undo: [body('', 'a')], redo: [{ kind: 'audio' }] });
+    expect(s).toEqual({ undo: [body('', 'a')], redo: [audio('r1')] });
     const r = popRedo(s);
-    expect(r.item).toEqual({ kind: 'audio' });
+    expect(r.item).toEqual(audio('r1'));
     expect(r.stacks.redo).toEqual([]);
     expect(popUndo(emptyHistory).item).toBeUndefined();
     expect(popRedo(emptyHistory).item).toBeUndefined();
   });
-
-  it('dropAudioSteps keeps only body steps', () => {
-    const s = {
-      undo: [body('', 'a'), { kind: 'audio' } as const],
-      redo: [{ kind: 'audio' } as const],
-    };
-    expect(dropAudioSteps(s)).toEqual({ undo: [body('', 'a')], redo: [] });
-  });
 });
 
 describe('useEntryHistory', () => {
-  const removeAudio = jest.fn();
-  const restoreAudio = jest.fn();
+  const removeRecording = jest.fn();
+  const restoreRecording = jest.fn();
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
@@ -62,7 +54,13 @@ describe('useEntryHistory', () => {
   const setup = (initial = '', seedFrom?: string) =>
     renderHook(() => {
       const [body, setBody] = useState(initial);
-      const history = useEntryHistory({ body, setBody, removeAudio, restoreAudio, seedFrom });
+      const history = useEntryHistory({
+        body,
+        setBody,
+        removeRecording,
+        restoreRecording,
+        seedFrom,
+      });
       return { body, ...history };
     });
   const type = (h: Awaited<ReturnType<typeof setup>>, text: string) =>
@@ -169,36 +167,52 @@ describe('useEntryHistory', () => {
     expect(h.result.current.body).toBe('x'.repeat(3));
   });
 
-  it('voice note removal shares the stack in order', async () => {
+  it('voice note removal shares the stack in order and names its recording', async () => {
     const h = await setup();
     await type(h, 'hi');
-    await act(() => h.result.current.onRemoveAudio());
-    expect(removeAudio).toHaveBeenCalledTimes(1);
+    await act(() => h.result.current.onRemoveRecording('r1'));
+    expect(removeRecording).toHaveBeenCalledTimes(1);
+    expect(removeRecording).toHaveBeenLastCalledWith('r1');
     await act(() => h.result.current.undo());
-    expect(restoreAudio).toHaveBeenCalledTimes(1);
+    expect(restoreRecording).toHaveBeenCalledTimes(1);
+    expect(restoreRecording).toHaveBeenLastCalledWith('r1');
     expect(h.result.current.body).toBe('hi');
     await act(() => h.result.current.undo());
     expect(h.result.current.body).toBe('');
     await act(() => h.result.current.redo());
     expect(h.result.current.body).toBe('hi');
     await act(() => h.result.current.redo());
-    expect(removeAudio).toHaveBeenCalledTimes(2);
+    expect(removeRecording).toHaveBeenCalledTimes(2);
+    expect(removeRecording).toHaveBeenLastCalledWith('r1');
   });
 
-  it('a new recording drops the voice note steps but keeps typing steps', async () => {
+  it('closing two recordings is two steps; undo restores the latest one first', async () => {
+    const h = await setup();
+    await act(() => h.result.current.onRemoveRecording('r1'));
+    await act(() => h.result.current.onRemoveRecording('r2'));
+    await act(() => h.result.current.undo());
+    expect(restoreRecording).toHaveBeenLastCalledWith('r2');
+    await act(() => h.result.current.undo());
+    expect(restoreRecording).toHaveBeenLastCalledWith('r1');
+    expect(h.result.current.canUndo).toBe(false);
+    await act(() => h.result.current.redo());
+    expect(removeRecording).toHaveBeenLastCalledWith('r1');
+  });
+
+  it('a new recording keeps earlier close steps (each names its own recording)', async () => {
     const h = await setup();
     await type(h, 'hi');
-    await act(() => h.result.current.onRemoveAudio());
+    await act(() => h.result.current.onRemoveRecording('r1'));
     await act(() => h.result.current.onRecordingAttached());
     await act(() => h.result.current.undo());
-    expect(restoreAudio).not.toHaveBeenCalled();
-    expect(h.result.current.body).toBe('');
+    expect(restoreRecording).toHaveBeenCalledWith('r1');
+    expect(h.result.current.body).toBe('hi');
   });
 
   it('reset clears both stacks and any pending typing', async () => {
     const h = await setup();
     await type(h, 'hi');
-    await act(() => h.result.current.onRemoveAudio());
+    await act(() => h.result.current.onRemoveRecording('r1'));
     await act(() => h.result.current.reset());
     expect(h.result.current.canUndo).toBe(false);
     expect(h.result.current.canRedo).toBe(false);

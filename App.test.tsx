@@ -45,6 +45,7 @@ jest.mock('./src/services/journalStorage', () => {
 jest.mock('./src/services/dreamStorage', () => ({
   discardRecording: jest.fn(),
   dreamAudioUri: jest.fn(),
+  recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   saveDream: jest.fn(),
   isIndexUnreadableError: (e: any) => e?.kind === 'unreadable',
   isSafetyCopyBlockedError: (e: any) => e?.kind === 'blocked',

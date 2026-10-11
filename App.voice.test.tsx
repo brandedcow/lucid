@@ -467,6 +467,103 @@ describe('App voice entry', () => {
   });
 });
 
+describe('App with several recordings', () => {
+  const CACHE_B = 'file:///cache/new-b.m4a';
+  const THREE = rec('g5', 'Three notes', {
+    journalId: 'j_g1',
+    transcript: 'three',
+    recordings: [
+      { fileName: 'g5.m4a', durationMs: 1000 },
+      { fileName: 'g5-1.m4a', durationMs: 2000 },
+      { fileName: 'g5-2.m4a', durationMs: 3000 },
+    ],
+  });
+  const files = ['g5.m4a', 'g5-1.m4a', 'g5-2.m4a'].map((n) => `${DOC}/dreams/${n}`);
+  const recordTwo = async () => {
+    mockRec.stop
+      .mockResolvedValueOnce({ uri: CACHE, durationMs: 4000 })
+      .mockResolvedValueOnce({ uri: CACHE_B, durationMs: 5000 });
+    await record();
+    await record();
+  };
+
+  beforeEach(() => {
+    __fs.put(`${DOC}/dreams.json`, JSON.stringify([WITH_AUDIO, TEXT_ONLY, THREE]));
+    files.forEach((f, i) => __fs.put(f, `three-${i}`));
+    __fs.put(CACHE_B, 'new-audio-b');
+  });
+
+  it('records twice in one new entry; both are stored on save and both cache files go', async () => {
+    await openNewGratitude();
+    await fireEvent.changeText(byLabel('Entry text'), 'two notes');
+    await recordTwo();
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    await press(byLabel('Save entry'));
+    const saved = index().find((d) => d.transcript === 'two notes');
+    expect(saved?.recordings?.map((r) => r.durationMs)).toEqual([4000, 5000]);
+    expect(saved?.recordings?.map((r) => __fs.read(`${DOC}/dreams/${r.fileName}`))).toEqual([
+      'new-audio',
+      'new-audio-b',
+    ]);
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(__fs.has(CACHE_B)).toBe(false);
+  });
+
+  it('Discard on the leave prompt deletes every unsaved cache file, closed ones too', async () => {
+    await openNewGratitude();
+    await recordTwo();
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await settle();
+    expect(__fs.has(CACHE)).toBe(true);
+    expect(__fs.has(CACHE_B)).toBe(true);
+    await press(byLabel('Back'));
+    await choose('Discard');
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(__fs.has(CACHE_B)).toBe(false);
+    expect(index()).toHaveLength(3);
+  });
+
+  it('editing an entry with 3 stored recordings shows 3; closing one removes only that file on Done', async () => {
+    await render(<App />);
+    await settle();
+    await press(byLabel('Open Journals'));
+    await press(byLabel(/^Gratitude, /));
+    await press(byLabel(/Three notes/));
+    await press(byLabel('More options'));
+    await press(byLabel('Edit entry'));
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    await settle();
+    // Nothing is deleted before the save.
+    files.forEach((f) => expect(__fs.has(f)).toBe(true));
+    await press(byLabel('Save entry'));
+    expect(
+      index()
+        .find((d) => d.id === 'g5')
+        ?.recordings?.map((r) => r.fileName),
+    ).toEqual(['g5.m4a', 'g5-2.m4a']);
+    expect(__fs.has(files[0])).toBe(true);
+    expect(__fs.has(files[1])).toBe(false);
+    expect(__fs.has(files[2])).toBe(true);
+  });
+
+  it('leaving an edit after closing one stored recording (Discard) deletes nothing', async () => {
+    await render(<App />);
+    await settle();
+    await press(byLabel('Open Journals'));
+    await press(byLabel(/^Gratitude, /));
+    await press(byLabel(/Three notes/));
+    await press(byLabel('More options'));
+    await press(byLabel('Edit entry'));
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await settle();
+    await press(byLabel('Back'));
+    await choose('Discard');
+    files.forEach((f) => expect(__fs.has(f)).toBe(true));
+    expect(index().find((d) => d.id === 'g5')?.recordings).toHaveLength(3);
+  });
+});
+
 describe('App launch page with voice', () => {
   const marker = () => __fs.read(`${DOC}/no-dream.json`);
   const dayKey = (() => {

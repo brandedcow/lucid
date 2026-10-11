@@ -7,7 +7,8 @@ import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
 import {
   entryHasContent,
   hasPendingAudioRemoval,
-  visibleAudio,
+  pendingRemovals,
+  visibleRecordings,
   entryHasEdits,
   entryJournalLocked,
   entrySessionFromDream,
@@ -44,6 +45,7 @@ describe('entrySessionReducer', () => {
     expect(entrySessionReducer(null, { type: 'startNew' })).toEqual({
       origin: 'new',
       journalId: 'dreams',
+      recordings: [],
       title: '',
       body: '',
       emotion: '',
@@ -115,7 +117,16 @@ describe('entrySessionFromDream', () => {
       body: 'old text\n#water',
       materializedFrom: 'old text',
       emotion: 'uneasy',
-      audio: { uri: AUDIO, durationMs: 12_000, persisted: true, removed: false },
+      recordings: [
+        {
+          id: 'stored:7.m4a',
+          uri: AUDIO,
+          fileName: '7.m4a',
+          durationMs: 12_000,
+          persisted: true,
+          removed: false,
+        },
+      ],
       baseline: { title: 'Old title', body: 'old text\n#water' },
     });
   });
@@ -203,7 +214,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
       await act(async () =>
         origin === 'edit' ? result.current.openEntry(dream) : result.current.openDraft(dream),
       );
-      await act(async () => result.current.removeAudio());
+      await act(async () => result.current.removeRecording('stored:7.m4a'));
       let ok = false;
       await act(async () => {
         ok = await result.current.save(status);
@@ -217,7 +228,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
         emotion: 'uneasy',
       });
       expect(__fs.has(AUDIO)).toBe(false);
-      expect(result.current.session?.audio).toBeUndefined();
+      expect(result.current.session?.recordings).toEqual([]);
     });
 
     it('a restored recording is kept by the save', async () => {
@@ -225,8 +236,8 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
       const { result } = await open();
       const [dream] = await listDreams();
       await act(async () => result.current.openEntry(dream));
-      await act(async () => result.current.removeAudio());
-      await act(async () => result.current.restoreAudio());
+      await act(async () => result.current.removeRecording('stored:7.m4a'));
+      await act(async () => result.current.restoreRecording('stored:7.m4a'));
       await act(async () => result.current.setBody('changed'));
       await act(async () => void (await result.current.save('saved')));
       expect((await listDreams())[0].audioFileName).toBe('7.m4a');
@@ -238,7 +249,7 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
       const { result } = await open();
       const [dream] = await listDreams();
       await act(async () => result.current.openEntry(dream));
-      await act(async () => result.current.removeAudio());
+      await act(async () => result.current.removeRecording('stored:7.m4a'));
       await act(async () => result.current.clear());
       expect(__fs.has(AUDIO)).toBe(true);
       expect((await listDreams())[0].audioFileName).toBe('7.m4a');
@@ -439,118 +450,198 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
   });
 });
 
-describe('the voice attachment in session state', () => {
+describe('the voice recordings in session state', () => {
   const CACHE = 'file:///cache/r1.m4a';
   const CACHE2 = 'file:///cache/r2.m4a';
+  const CACHE3 = 'file:///cache/r3.m4a';
   const PEAKS = [0.1, 0.8, 0.4];
   const fresh = () => entrySessionReducer(null, { type: 'startNew' })!;
   const attach = (
     s: ReturnType<typeof fresh>,
+    id: string,
     uri = CACHE,
     waveform: number[] | undefined = PEAKS,
   ) =>
     entrySessionReducer(s, {
       type: 'attachRecording',
+      id,
       recording: { uri, durationMs: 5000, waveform },
     })!;
+  const close = (s: ReturnType<typeof fresh>, id: string) =>
+    entrySessionReducer(s, { type: 'removeRecording', id })!;
+  const reopen = (s: ReturnType<typeof fresh>, id: string) =>
+    entrySessionReducer(s, { type: 'restoreRecording', id })!;
+  const stored3: Dream = {
+    ...finished,
+    audioFileName: undefined,
+    recordings: [
+      { fileName: '7.m4a', durationMs: 1000, waveform: PEAKS },
+      { fileName: '7-1.m4a', durationMs: 2000 },
+      { fileName: '7-2.m4a', durationMs: 3000 },
+    ],
+  };
 
   it('attaches a new recording with its waveform; it counts as content', () => {
-    const s = attach(fresh());
-    expect(s.audio).toEqual({
-      uri: CACHE,
-      durationMs: 5000,
-      waveform: PEAKS,
-      persisted: false,
-      removed: false,
-    });
+    const s = attach(fresh(), 'a');
+    expect(s.recordings).toEqual([
+      { id: 'a', uri: CACHE, durationMs: 5000, waveform: PEAKS, persisted: false, removed: false },
+    ]);
     expect(entryHasContent(s)).toBe(true);
     expect(entryHasContent(fresh())).toBe(false);
   });
 
   it('drops an invalid waveform but keeps the recording', () => {
-    const s = attach(fresh(), CACHE, [3, 4]);
-    expect(s.audio).toEqual({ uri: CACHE, durationMs: 5000, persisted: false, removed: false });
+    const s = attach(fresh(), 'a', CACHE, [3, 4]);
+    expect(s.recordings).toEqual([
+      { id: 'a', uri: CACHE, durationMs: 5000, persisted: false, removed: false },
+    ]);
   });
 
-  it('allows one recording: a second is ignored while the first is visible', () => {
-    const s = attach(fresh());
-    expect(attach(s, CACHE2)).toBe(s);
+  it('appends a 2nd and 3rd recording; none replaces another and there is no cap', () => {
+    let s = attach(fresh(), 'a', CACHE);
+    s = attach(s, 'b', CACHE2);
+    s = attach(s, 'c', CACHE3);
+    expect(s.recordings.map((r) => [r.id, r.uri])).toEqual([
+      ['a', CACHE],
+      ['b', CACHE2],
+      ['c', CACHE3],
+    ]);
+    expect(visibleRecordings(s)).toHaveLength(3);
   });
 
-  it('closing marks the recording removed without forgetting it, and restore brings it back', () => {
-    const s = attach(fresh());
-    const removed = entrySessionReducer(s, { type: 'removeAudio' })!;
-    expect(removed.audio).toMatchObject({ uri: CACHE, removed: true });
-    expect(visibleAudio(removed)).toBeUndefined();
-    expect(entryHasContent(removed)).toBe(false);
-    const restored = entrySessionReducer(removed, { type: 'restoreAudio' })!;
-    expect(restored.audio).toEqual(s.audio);
+  it('appends after the stored recordings of an edit', () => {
+    const edit = entrySessionFromDream(stored3, 'edit');
+    const s = attach(edit, 'a');
+    expect(s.recordings.map((r) => r.id)).toEqual([
+      'stored:7.m4a',
+      'stored:7-1.m4a',
+      'stored:7-2.m4a',
+      'a',
+    ]);
   });
 
-  it('a new recording after a close shelves the closed one for later deletion', () => {
-    const removed = entrySessionReducer(attach(fresh()), { type: 'removeAudio' })!;
-    const again = attach(removed, CACHE2);
-    expect(again.audio?.uri).toBe(CACHE2);
-    expect(again.shelved).toEqual([expect.objectContaining({ uri: CACHE, removed: true })]);
+  it('closing marks one recording removed without forgetting it; restore brings it back', () => {
+    const s = attach(attach(fresh(), 'a', CACHE), 'b', CACHE2);
+    const closed = close(s, 'a');
+    expect(closed.recordings[0]).toMatchObject({ uri: CACHE, removed: true });
+    expect(closed.recordings[1]).toMatchObject({ uri: CACHE2, removed: false });
+    expect(visibleRecordings(closed).map((r) => r.id)).toEqual(['b']);
+    expect(entryHasContent(closed)).toBe(true);
+    expect(entryHasContent(close(closed, 'b'))).toBe(false);
+    expect(reopen(closed, 'a')).toEqual(s);
+  });
+
+  it('closing or restoring an unknown or already-in-that-state recording changes nothing', () => {
+    const s = attach(fresh(), 'a');
+    expect(close(s, 'nope')).toBe(s);
+    expect(reopen(s, 'a')).toBe(s);
+  });
+
+  it('a recording added after a close keeps the closed one (nothing forgotten)', () => {
+    const closed = close(attach(fresh(), 'a', CACHE), 'a');
+    const again = attach(closed, 'b', CACHE2);
+    expect(again.recordings).toEqual([
+      expect.objectContaining({ id: 'a', uri: CACHE, removed: true }),
+      expect.objectContaining({ id: 'b', uri: CACHE2, removed: false }),
+    ]);
   });
 
   it('closing a stored recording only marks it; restore brings it back; it counts as an edit', () => {
     const edit = entrySessionFromDream(finished, 'edit');
     expect(hasPendingAudioRemoval(edit)).toBe(false);
-    const removed = entrySessionReducer(edit, { type: 'removeAudio' })!;
-    expect(removed.audio).toMatchObject({ persisted: true, removed: true });
-    expect(visibleAudio(removed)).toBeUndefined();
+    const removed = close(edit, 'stored:7.m4a');
+    expect(removed.recordings[0]).toMatchObject({ persisted: true, removed: true });
+    expect(visibleRecordings(removed)).toEqual([]);
     expect(hasPendingAudioRemoval(removed)).toBe(true);
+    expect(pendingRemovals(removed)).toEqual(['7.m4a']);
     expect(entryHasEdits(removed)).toBe(true);
-    const restored = entrySessionReducer(removed, { type: 'restoreAudio' })!;
+    const restored = reopen(removed, 'stored:7.m4a');
     expect(restored).toEqual(edit);
     expect(entryHasEdits(restored)).toBe(false);
   });
 
-  it('a stored recording closed and replaced by a new one still has a pending removal', () => {
-    const edit = entrySessionFromDream(finished, 'edit');
-    const removed = entrySessionReducer(edit, { type: 'removeAudio' })!;
-    const again = attach(removed, CACHE2);
-    expect(hasPendingAudioRemoval(again)).toBe(true);
-    expect(again.shelved).toEqual([expect.objectContaining({ persisted: true, removed: true })]);
-  });
-
-  it('refuses a second recording on an entry that already has a stored one', () => {
-    const edit = entrySessionFromDream(finished, 'edit');
-    expect(attach(edit)).toBe(edit);
-  });
-
-  it('an edit with a new recording has edits; a closed one does not', () => {
+  it('an edit with a new recording has edits; a closed new one does not', () => {
     const edit = entrySessionFromDream({ ...finished, audioFileName: undefined }, 'edit');
     expect(entryHasEdits(edit)).toBe(false);
-    const withAudio = attach(edit);
+    const withAudio = attach(edit, 'a');
     expect(entryHasEdits(withAudio)).toBe(true);
-    expect(entryHasEdits(entrySessionReducer(withAudio, { type: 'removeAudio' })!)).toBe(false);
+    expect(entryHasEdits(close(withAudio, 'a'))).toBe(false);
   });
 
-  it('loads a stored recording with its waveform, dropping an invalid one', () => {
-    expect(entrySessionFromDream({ ...finished, waveform: PEAKS }, 'edit').audio?.waveform).toEqual(
-      PEAKS,
-    );
-    expect(entrySessionFromDream({ ...finished, waveform: [9] }, 'edit').audio).not.toHaveProperty(
-      'waveform',
-    );
+  it('loads every stored recording of an entry (3 stored load as 3), with waveforms', () => {
+    const s = entrySessionFromDream(stored3, 'edit');
+    expect(s.recordings).toEqual([
+      {
+        id: 'stored:7.m4a',
+        uri: 'file:///document/dreams/7.m4a',
+        fileName: '7.m4a',
+        durationMs: 1000,
+        waveform: PEAKS,
+        persisted: true,
+        removed: false,
+      },
+      {
+        id: 'stored:7-1.m4a',
+        uri: 'file:///document/dreams/7-1.m4a',
+        fileName: '7-1.m4a',
+        durationMs: 2000,
+        persisted: true,
+        removed: false,
+      },
+      {
+        id: 'stored:7-2.m4a',
+        uri: 'file:///document/dreams/7-2.m4a',
+        fileName: '7-2.m4a',
+        durationMs: 3000,
+        persisted: true,
+        removed: false,
+      },
+    ]);
+  });
+
+  it('loads a legacy single recording with its waveform, dropping an invalid one', () => {
+    const one = entrySessionFromDream({ ...finished, waveform: PEAKS }, 'edit').recordings;
+    expect(one).toHaveLength(1);
+    expect(one[0]).toMatchObject({ fileName: '7.m4a', durationMs: 12_000, waveform: PEAKS });
     expect(
-      entrySessionFromDream({ ...finished, audioFileName: undefined }, 'edit').audio,
-    ).toBeUndefined();
+      entrySessionFromDream({ ...finished, waveform: [9] }, 'edit').recordings[0],
+    ).not.toHaveProperty('waveform');
+    expect(
+      entrySessionFromDream({ ...finished, audioFileName: undefined }, 'edit').recordings,
+    ).toEqual([]);
   });
 });
 
-describe('saving and leaving with a voice attachment', () => {
+describe('saving and leaving with several recordings', () => {
   const open = async () => renderHook(() => useEntrySession(BUILT_IN_JOURNALS));
   const CACHE = 'file:///cache/r1.m4a';
   const CACHE2 = 'file:///cache/r2.m4a';
+  const CACHE3 = 'file:///cache/r3.m4a';
   const PEAKS = [0.1, 0.8, 0.4];
   const entries = () => JSON.parse(__fs.read(INDEX) ?? '[]') as Dream[];
+  const stored = (name: string) => `file:///document/dreams/${name}`;
+  const ids = (r: { current: ReturnType<typeof useEntrySession> }) =>
+    (r.current.session?.recordings ?? []).map((x) => x.id);
+  const three: Dream = {
+    ...finished,
+    audioFileName: undefined,
+    recordings: [
+      { fileName: '7.m4a', durationMs: 1000 },
+      { fileName: '7-1.m4a', durationMs: 2000 },
+      { fileName: '7-2.m4a', durationMs: 3000 },
+    ],
+  };
+  const seedThree = () => {
+    __fs.put(INDEX, JSON.stringify([three]));
+    __fs.put(stored('7.m4a'), 'a0');
+    __fs.put(stored('7-1.m4a'), 'a1');
+    __fs.put(stored('7-2.m4a'), 'a2');
+  };
 
   beforeEach(() => {
     __fs.put(CACHE, 'bytes-1');
     __fs.put(CACHE2, 'bytes-2');
+    __fs.put(CACHE3, 'bytes-3');
   });
 
   it('saves a new recording with its duration and waveform, and moves the cache file', async () => {
@@ -565,9 +656,43 @@ describe('saving and leaving with a voice attachment', () => {
     });
     const [entry] = entries();
     expect(entry).toMatchObject({ durationMs: 5000, waveform: PEAKS });
-    expect(__fs.read(`file:///document/dreams/${entry.audioFileName}`)).toBe('bytes-1');
+    expect(__fs.read(stored(entry.audioFileName!))).toBe('bytes-1');
     expect(__fs.has(CACHE)).toBe(false);
-    expect(result.current.session?.audio).toMatchObject({ persisted: true, removed: false });
+    expect(result.current.session?.recordings).toEqual([
+      expect.objectContaining({
+        persisted: true,
+        removed: false,
+        fileName: entry.audioFileName,
+        uri: stored(entry.audioFileName!),
+      }),
+    ]);
+  });
+
+  it('saves 3 new recordings in order and the session then holds 3 stored ones', async () => {
+    const { result } = await open();
+    await act(async () => {
+      result.current.startNew();
+      result.current.setTitle('Three');
+      result.current.attachRecording({ uri: CACHE, durationMs: 1000 });
+      result.current.attachRecording({ uri: CACHE2, durationMs: 2000 });
+      result.current.attachRecording({ uri: CACHE3, durationMs: 3000 });
+    });
+    const before = ids(result);
+    await act(async () => {
+      expect(await result.current.save('saved')).toBe(true);
+    });
+    const [entry] = entries();
+    expect(entry.recordings?.map((r) => r.durationMs)).toEqual([1000, 2000, 3000]);
+    expect(entry.recordings?.map((r) => __fs.read(stored(r.fileName)))).toEqual([
+      'bytes-1',
+      'bytes-2',
+      'bytes-3',
+    ]);
+    expect(ids(result)).toEqual(before);
+    expect(result.current.session?.recordings.every((r) => r.persisted)).toBe(true);
+    expect(result.current.session?.recordings.map((r) => r.fileName)).toEqual(
+      entry.recordings?.map((r) => r.fileName),
+    );
   });
 
   it('saves a draft with the recording', async () => {
@@ -590,10 +715,11 @@ describe('saving and leaving with a voice attachment', () => {
       result.current.setTitle('Text only');
       result.current.attachRecording({ uri: CACHE, durationMs: 5000, waveform: PEAKS });
     });
-    await act(async () => result.current.removeAudio());
+    const [id] = ids(result);
+    await act(async () => result.current.removeRecording(id));
     expect(__fs.has(CACHE)).toBe(true);
-    await act(async () => result.current.restoreAudio());
-    await act(async () => result.current.removeAudio());
+    await act(async () => result.current.restoreRecording(id));
+    await act(async () => result.current.removeRecording(id));
     expect(__fs.has(CACHE)).toBe(true);
     await act(async () => {
       expect(await result.current.save('saved')).toBe(true);
@@ -603,33 +729,47 @@ describe('saving and leaving with a voice attachment', () => {
     expect(entry.audioFileName).toBeUndefined();
     expect(entry).toMatchObject({ durationMs: 0 });
     expect(entry).not.toHaveProperty('waveform');
-    expect(result.current.session?.audio).toBeUndefined();
+    expect(result.current.session?.recordings).toEqual([]);
   });
 
-  it('keeps the cache file of a closed recording when the save fails', async () => {
+  it('no cache file is deleted before a successful save: a failed save keeps all of them', async () => {
     __fs.put(INDEX, '{not json');
     const { result } = await open();
     await act(async () => {
       result.current.startNew();
       result.current.setTitle('x');
       result.current.attachRecording({ uri: CACHE, durationMs: 5000 });
+      result.current.attachRecording({ uri: CACHE2, durationMs: 5000 });
     });
-    await act(async () => result.current.removeAudio());
+    await act(async () => result.current.removeRecording(ids(result)[0]));
     await act(async () => {
       expect(await result.current.save('saved')).toBe(false);
     });
     expect(__fs.has(CACHE)).toBe(true);
-    expect(result.current.session?.audio).toMatchObject({ removed: true });
+    expect(__fs.has(CACHE2)).toBe(true);
+    expect(result.current.session?.recordings.map((r) => r.removed)).toEqual([true, false]);
   });
 
-  it('saves the new recording and deletes the closed one it replaced', async () => {
+  it('closing (without saving) deletes no cache file at all', async () => {
+    const { result } = await open();
+    await act(async () => {
+      result.current.startNew();
+      result.current.attachRecording({ uri: CACHE, durationMs: 1000 });
+      result.current.attachRecording({ uri: CACHE2, durationMs: 2000 });
+    });
+    await act(async () => result.current.removeRecording(ids(result)[0]));
+    expect(__fs.has(CACHE)).toBe(true);
+    expect(__fs.has(CACHE2)).toBe(true);
+  });
+
+  it('saves the open recordings and deletes the closed one only after the save', async () => {
     const { result } = await open();
     await act(async () => {
       result.current.startNew();
       result.current.setTitle('x');
       result.current.attachRecording({ uri: CACHE, durationMs: 1000 });
     });
-    await act(async () => result.current.removeAudio());
+    await act(async () => result.current.removeRecording(ids(result)[0]));
     await act(async () => result.current.attachRecording({ uri: CACHE2, durationMs: 2000 }));
     expect(__fs.has(CACHE)).toBe(true);
     await act(async () => {
@@ -639,33 +779,112 @@ describe('saving and leaving with a voice attachment', () => {
     expect(__fs.has(CACHE2)).toBe(false);
     const [entry] = entries();
     expect(entry.durationMs).toBe(2000);
-    expect(__fs.read(`file:///document/dreams/${entry.audioFileName}`)).toBe('bytes-2');
+    expect(entry.recordings).toHaveLength(1);
+    expect(__fs.read(stored(entry.audioFileName!))).toBe('bytes-2');
+    expect(result.current.session?.recordings).toHaveLength(1);
   });
 
-  it('clear (leaving with Discard) deletes the cache files of unsaved recordings, closed or not', async () => {
+  it('clear (leaving with Discard) deletes every unsaved cache file, closed or not', async () => {
     const { result } = await open();
     await act(async () => {
       result.current.startNew();
       result.current.attachRecording({ uri: CACHE, durationMs: 1000 });
+      result.current.attachRecording({ uri: CACHE2, durationMs: 2000 });
+      result.current.attachRecording({ uri: CACHE3, durationMs: 3000 });
     });
-    await act(async () => result.current.removeAudio());
-    await act(async () => result.current.attachRecording({ uri: CACHE2, durationMs: 2000 }));
+    await act(async () => result.current.removeRecording(ids(result)[0]));
     await act(async () => result.current.clear());
     expect(__fs.has(CACHE)).toBe(false);
     expect(__fs.has(CACHE2)).toBe(false);
+    expect(__fs.has(CACHE3)).toBe(false);
     expect(result.current.session).toBeNull();
     expect(entries()).toEqual([]);
   });
 
-  it('clear never deletes a stored recording', async () => {
-    __fs.put(INDEX, JSON.stringify([finished]));
-    __fs.put(AUDIO, 'audio-bytes');
+  it('clear never deletes a stored recording, closed or not', async () => {
+    seedThree();
     const { result } = await open();
-    await act(async () => result.current.openEntry(finished));
-    await act(async () => result.current.removeAudio());
+    await act(async () => result.current.openEntry(three));
+    await act(async () => result.current.removeRecording('stored:7-1.m4a'));
+    await act(async () => result.current.attachRecording({ uri: CACHE, durationMs: 1 }));
     await act(async () => result.current.clear());
-    expect(__fs.read(AUDIO)).toBe('audio-bytes');
-    expect(entries()[0].audioFileName).toBe('7.m4a');
+    expect(__fs.read(stored('7.m4a'))).toBe('a0');
+    expect(__fs.read(stored('7-1.m4a'))).toBe('a1');
+    expect(__fs.read(stored('7-2.m4a'))).toBe('a2');
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(entries()[0].recordings).toHaveLength(3);
+  });
+
+  it('an edit of an entry with 3 stored recordings loads 3', async () => {
+    seedThree();
+    const { result } = await open();
+    await act(async () => result.current.openEntry(three));
+    expect(result.current.session?.recordings.map((r) => r.fileName)).toEqual([
+      '7.m4a',
+      '7-1.m4a',
+      '7-2.m4a',
+    ]);
+  });
+
+  it('removing one of 3 stored recordings removes only that file (removeRecordings with just its name)', async () => {
+    seedThree();
+    const { result } = await open();
+    await act(async () => result.current.openEntry(three));
+    await act(async () => result.current.removeRecording('stored:7-1.m4a'));
+    await act(async () => {
+      expect(await result.current.save('saved')).toBe(true);
+    });
+    expect(entries()[0].recordings?.map((r) => r.fileName)).toEqual(['7.m4a', '7-2.m4a']);
+    expect(__fs.has(stored('7.m4a'))).toBe(true);
+    expect(__fs.has(stored('7-1.m4a'))).toBe(false);
+    expect(__fs.has(stored('7-2.m4a'))).toBe(true);
+    expect(result.current.session?.recordings.map((r) => r.fileName)).toEqual(['7.m4a', '7-2.m4a']);
+  });
+
+  it('passes exactly the closed stored name to saveDream', async () => {
+    seedThree();
+    const storage = jest.requireActual('../services/dreamStorage');
+    const spy = jest.spyOn(storage, 'saveDream');
+    const { result } = await open();
+    await act(async () => result.current.openEntry(three));
+    await act(async () => result.current.removeRecording('stored:7-1.m4a'));
+    await act(async () => void (await result.current.save('saved')));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toMatchObject({ removeRecordings: ['7-1.m4a'] });
+    expect(spy.mock.calls[0][0]).not.toHaveProperty('removeAudio');
+    expect(spy.mock.calls[0][0]).not.toHaveProperty('addRecordings');
+  });
+
+  it('saves a mix: one stored closed, one stored kept, one new kept, one new closed', async () => {
+    seedThree();
+    const { result } = await open();
+    await act(async () => result.current.openEntry(three));
+    await act(async () => {
+      result.current.attachRecording({ uri: CACHE, durationMs: 4000 });
+      result.current.attachRecording({ uri: CACHE2, durationMs: 5000 });
+    });
+    await act(async () => {
+      result.current.removeRecording('stored:7.m4a');
+      result.current.removeRecording(ids(result)[4]);
+    });
+    // Nothing is deleted before the save.
+    expect(__fs.has(stored('7.m4a'))).toBe(true);
+    expect(__fs.has(CACHE)).toBe(true);
+    expect(__fs.has(CACHE2)).toBe(true);
+    await act(async () => {
+      expect(await result.current.save('saved')).toBe(true);
+    });
+    const [entry] = entries();
+    expect(entry.recordings?.map((r) => r.durationMs)).toEqual([2000, 3000, 4000]);
+    expect(__fs.has(stored('7.m4a'))).toBe(false);
+    expect(__fs.read(stored('7-1.m4a'))).toBe('a1');
+    expect(__fs.read(stored('7-2.m4a'))).toBe('a2');
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(__fs.has(CACHE2)).toBe(false);
+    const rows = result.current.session?.recordings ?? [];
+    expect(rows.map((r) => r.fileName)).toEqual(entry.recordings?.map((r) => r.fileName));
+    expect(rows.every((r) => r.persisted && !r.removed)).toBe(true);
+    expect(rows.map((r) => r.durationMs)).toEqual([2000, 3000, 4000]);
   });
 
   it('adds a recording to a reopened text-only entry on edit, full details and emotion kept', async () => {

@@ -661,10 +661,10 @@ export default function App() {
             autoFocus={entry.session.origin === 'new'}
             onSave={() => void saveEntryAndLeave('saved')}
             onBack={() => void performBack()}
-            audio={entry.session.audio}
+            recordings={entry.session.recordings}
             onRecorded={entry.attachRecording}
-            onRemoveAudio={entry.removeAudio}
-            onRestoreAudio={entry.restoreAudio}
+            onRemoveRecording={entry.removeRecording}
+            onRestoreRecording={entry.restoreRecording}
             onRecordingChange={(recording) => {
               entryRecordingRef.current = recording;
             }}

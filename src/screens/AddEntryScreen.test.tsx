@@ -17,8 +17,7 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('../services/dreamStorage', () => ({
   saveDream: jest.fn(),
   discardRecording: jest.fn(),
-  dreamAudioUri: (d: { audioFileName?: string }) =>
-    d.audioFileName ? `file:///document/dreams/${d.audioFileName}` : null,
+  recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   isIndexUnreadableError: () => false,
 }));
 
@@ -127,7 +126,6 @@ describe('AddEntryScreen', () => {
     await fireEvent.press(check());
     await act(async () => {});
     expect(save).toHaveBeenCalledWith({
-      durationMs: 0,
       details: {
         title: 'Flooded hall',
         emotion: '',
@@ -197,7 +195,6 @@ describe('AddEntryScreen', () => {
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({
         id: '7',
-        durationMs: 12_000,
         status: 'saved',
         details: {
           title: 'Old title',
@@ -216,9 +213,7 @@ describe('AddEntryScreen', () => {
     expect(screen.getByLabelText('Title').props.value).toBe('Old title');
     expect(bodyText(screen.getByLabelText('Entry text'))).toBe('old text\n#water');
     await fireEvent.press(check());
-    expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: '7', status: 'saved', durationMs: 0 }),
-    );
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: '7', status: 'saved' }));
   });
 
   it('renders an attachment and a toolbar passed into its slots', async () => {

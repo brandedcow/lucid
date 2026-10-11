@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** One undoable step: a run of typing in the body, or the voice note card being closed. */
-export type HistoryItem = { kind: 'body'; from: string; to: string } | { kind: 'audio' };
+/**
+ * One undoable step: a run of typing in the body, or one voice note card being closed. An audio
+ * step names its recording (`id`); `action` is what the user did ('remove' = closed the card), so
+ * undo restores it and redo closes it again.
+ */
+export type HistoryItem =
+  { kind: 'body'; from: string; to: string } | { kind: 'audio'; id: string; action: 'remove' };
 
 export type HistoryStacks = { undo: HistoryItem[]; redo: HistoryItem[] };
 
@@ -29,21 +34,13 @@ export function popRedo(stacks: HistoryStacks): { stacks: HistoryStacks; item?: 
   return { item, stacks: { undo: [...stacks.undo, item], redo: stacks.redo.slice(0, -1) } };
 }
 
-/** Removes the voice-note steps (they no longer apply once another recording was attached). */
-export function dropAudioSteps(stacks: HistoryStacks): HistoryStacks {
-  return {
-    undo: stacks.undo.filter((i) => i.kind !== 'audio'),
-    redo: stacks.redo.filter((i) => i.kind !== 'audio'),
-  };
-}
-
 type Options = {
   body: string;
   setBody: (value: string) => void;
-  /** Marks the recording as removed (reversible; nothing is deleted). */
-  removeAudio?: () => void;
+  /** Marks the recording with this id as removed (reversible; nothing is deleted). */
+  removeRecording?: (id: string) => void;
   /** Brings a removed recording back. */
-  restoreAudio?: () => void;
+  restoreRecording?: (id: string) => void;
   /**
    * The body before something was added to it on open (the entry's tags written in as `#tag`s):
    * seeds one undo step from it to `body`. Read once, when the page opens.
@@ -57,12 +54,18 @@ type State = HistoryStacks & {
 };
 
 /**
- * Undo / redo for one entry session: body text edits and closing the voice note card, on one
- * stack so undo reverses the most recent action first. Not the title, tags or journal. Typing is
+ * Undo / redo for one entry session: body text edits and closing a voice note card (each step names
+ * its recording), on one stack so undo reverses the most recent action first. Not the title, tags or journal. Typing is
  * grouped into a step after a short pause, on blur, and before any other action. The stack is
  * capped and redo is cleared by any new action. Lives as long as the page; call `reset` on save.
  */
-export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seedFrom }: Options) {
+export function useEntryHistory({
+  body,
+  setBody,
+  removeRecording,
+  restoreRecording,
+  seedFrom,
+}: Options) {
   const [state, setState] = useState<State>(() => ({
     ...(seedFrom !== undefined && seedFrom !== body
       ? pushHistory(emptyHistory, { kind: 'body', from: seedFrom, to: body })
@@ -73,9 +76,9 @@ export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seed
   const ref = useRef(state);
   const latestBody = useRef(body);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const callbacks = useRef({ setBody, removeAudio, restoreAudio });
+  const callbacks = useRef({ setBody, removeRecording, restoreRecording });
   useEffect(() => {
-    callbacks.current = { setBody, removeAudio, restoreAudio };
+    callbacks.current = { setBody, removeRecording, restoreRecording };
   });
 
   const commit = useCallback((next: State) => {
@@ -113,18 +116,26 @@ export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seed
     [commit, flush],
   );
 
-  /** The card's close button: records the step, then marks the recording removed. */
-  const onRemoveAudio = useCallback(() => {
-    flush();
-    commit({ ...pushHistory(ref.current, { kind: 'audio' }), committed: ref.current.committed });
-    callbacks.current.removeAudio?.();
-  }, [commit, flush]);
+  /** A card's close button: records the step (naming the recording), then marks it removed. */
+  const onRemoveRecording = useCallback(
+    (id: string) => {
+      flush();
+      commit({
+        ...pushHistory(ref.current, { kind: 'audio', id, action: 'remove' }),
+        committed: ref.current.committed,
+      });
+      callbacks.current.removeRecording?.(id);
+    },
+    [commit, flush],
+  );
 
-  /** A new recording was attached: earlier voice-note steps no longer apply. */
+  /**
+   * A new recording was appended. Earlier close steps still apply (each names its own recording);
+   * typing is ended as a step first, as before any other action.
+   */
   const onRecordingAttached = useCallback(() => {
     flush();
-    commit({ ...dropAudioSteps(ref.current), committed: ref.current.committed });
-  }, [commit, flush]);
+  }, [flush]);
 
   const undo = useCallback(() => {
     flush();
@@ -135,7 +146,7 @@ export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seed
       callbacks.current.setBody(item.from);
       commit({ ...stacks, committed: item.from });
     } else {
-      callbacks.current.restoreAudio?.();
+      callbacks.current.restoreRecording?.(item.id);
       commit({ ...stacks, committed: ref.current.committed });
     }
   }, [commit, flush]);
@@ -149,7 +160,7 @@ export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seed
       callbacks.current.setBody(item.to);
       commit({ ...stacks, committed: item.to });
     } else {
-      callbacks.current.removeAudio?.();
+      callbacks.current.removeRecording?.(item.id);
       commit({ ...stacks, committed: ref.current.committed });
     }
   }, [commit, flush]);
@@ -170,7 +181,7 @@ export function useEntryHistory({ body, setBody, removeAudio, restoreAudio, seed
     onBodyChange,
     /** Call when the body loses focus: ends the current typing step. */
     onBodyBlur: flush,
-    onRemoveAudio,
+    onRemoveRecording,
     onRecordingAttached,
     reset,
   };

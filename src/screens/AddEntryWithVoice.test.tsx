@@ -18,8 +18,7 @@ jest.mock('../services/dreamStorage', () => ({
   listTags: jest.fn().mockResolvedValue([]),
   saveDream: jest.fn(),
   discardRecording: jest.fn(),
-  dreamAudioUri: (d: { audioFileName?: string }) =>
-    d.audioFileName ? `file:///document/dreams/${d.audioFileName}` : null,
+  recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   isIndexUnreadableError: () => false,
 }));
 
@@ -45,6 +44,8 @@ jest.mock('expo-audio', () => ({
 }));
 
 const CACHE = 'file:///cache/r1.m4a';
+const CACHE2 = 'file:///cache/r2.m4a';
+const CACHE3 = 'file:///cache/r3.m4a';
 const [DREAMS] = BUILT_IN_JOURNALS;
 const events = {
   onRecordingChange: jest.fn(),
@@ -100,10 +101,10 @@ function Harness({
       saving={entry.saving}
       onSave={() => void entry.save('saved').then((ok) => ok && events.onSaved())}
       onBack={events.onBack}
-      audio={session.audio}
+      recordings={session.recordings}
       onRecorded={entry.attachRecording}
-      onRemoveAudio={entry.removeAudio}
-      onRestoreAudio={entry.restoreAudio}
+      onRemoveRecording={entry.removeRecording}
+      onRestoreRecording={entry.restoreRecording}
       onRecordingChange={events.onRecordingChange}
       leaveRef={leaveRef}
       onRecordingDiscarded={events.onRecordingDiscarded}
@@ -206,13 +207,16 @@ describe('recording on the page', () => {
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
     expect(screen.getByLabelText('Remove recording')).toBeTruthy();
     expect(screen.getAllByTestId('wave-bar')).toHaveLength(56);
-    const audio = sessionApi?.session?.audio;
+    expect(sessionApi?.session?.recordings).toHaveLength(1);
+    const audio = sessionApi?.session?.recordings[0];
     expect(audio).toMatchObject({ uri: CACHE, durationMs: 3000, persisted: false, removed: false });
     expect(audio?.waveform).toHaveLength(56);
     expect(Math.max(...(audio?.waveform ?? []))).toBe(0.9);
     expect(Math.min(...(audio?.waveform ?? [1]))).toBeLessThanOrEqual(0.2);
-    // Mic stays off while an attachment exists (one recording per entry).
-    expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(true);
+    // The mic stays available after a recording (another can be added).
+    expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
+      false,
+    );
     expect(events.onRecordingChange).toHaveBeenLastCalledWith(false);
   });
 
@@ -223,7 +227,7 @@ describe('recording on the page', () => {
     await stopRecording();
     expect(Alert.alert).toHaveBeenCalledWith('Could not finish recording', 'Please try again.');
     expect(screen.getByLabelText('Stop recording').props.accessibilityState.disabled).toBe(false);
-    expect(sessionApi?.session?.audio).toBeUndefined();
+    expect(sessionApi?.session?.recordings).toEqual([]);
   });
 
   it('saves the recording and its waveform through saveDream', async () => {
@@ -238,8 +242,12 @@ describe('recording on the page', () => {
       fireEvent.press(screen.getByLabelText('Save dream'));
     });
     const input = jest.mocked(saveDream).mock.calls[0][0];
-    expect(input).toMatchObject({ recordingUri: CACHE, durationMs: 3000, status: 'saved' });
-    expect(input.waveform).toHaveLength(56);
+    expect(input).toMatchObject({
+      addRecordings: [{ uri: CACHE, durationMs: 3000 }],
+      status: 'saved',
+    });
+    expect(input.addRecordings?.[0].waveform).toHaveLength(56);
+    expect(input).not.toHaveProperty('recordingUri');
     expect(events.onSaved).toHaveBeenCalled();
   });
 });
@@ -257,7 +265,7 @@ describe('closing the card', () => {
     await fireEvent.press(screen.getByLabelText('Remove recording'));
     expect(screen.queryByLabelText('Play recording')).toBeNull();
     expect(discardRecording).not.toHaveBeenCalled();
-    expect(sessionApi?.session?.audio).toMatchObject({ uri: CACHE, removed: true });
+    expect(sessionApi?.session?.recordings[0]).toMatchObject({ uri: CACHE, removed: true });
     expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
       false,
     );
@@ -275,7 +283,7 @@ describe('closing the card', () => {
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Save dream'));
     });
-    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('addRecordings');
     expect(order).toEqual(['save', 'discard']);
     expect(discardRecording).toHaveBeenCalledWith(CACHE);
   });
@@ -325,7 +333,7 @@ describe('leaving while recording', () => {
     expect(events.onRecordingChange).toHaveBeenLastCalledWith(false);
     expect(events.onRecordingDiscarded).toHaveBeenCalledTimes(1);
     // The recording is not kept on the page.
-    expect(sessionApi?.session?.audio).toBeUndefined();
+    expect(sessionApi?.session?.recordings).toEqual([]);
   });
 
   it('keeps the page when the recorder cannot be stopped, and deletes nothing', async () => {
@@ -366,19 +374,19 @@ describe('leaving while recording', () => {
 
 describe('a stored recording', () => {
   it.each(['edit', 'draft'] as const)(
-    'shows a reopened %s recording in a playable card with a close button, mic off',
+    'shows a reopened %s recording in a playable card with a close button, mic on',
     async (as) => {
       await renderPage({ open: { dream: stored, as } });
       expect(screen.getByLabelText('Play recording')).toBeTruthy();
       expect(screen.getAllByTestId('wave-bar')).toHaveLength(3);
       expect(screen.getByLabelText('Remove recording')).toBeTruthy();
       expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
-        true,
+        false,
       );
     },
   );
 
-  it('closing a stored recording hides the card, deletes nothing and sends removeAudio on save', async () => {
+  it('closing a stored recording hides the card, deletes nothing and sends removeRecordings on save', async () => {
     await renderPage({ open: { dream: stored, as: 'edit' } });
     await fireEvent.press(screen.getByLabelText('Remove recording'));
     expect(screen.queryByLabelText('Play recording')).toBeNull();
@@ -389,18 +397,19 @@ describe('a stored recording', () => {
     );
     await act(async () => void (await sessionApi?.save('saved')));
     expect(saveDream).toHaveBeenCalledWith(
-      expect.objectContaining({ id: '7', removeAudio: true, durationMs: 0 }),
+      expect.objectContaining({ id: '7', removeRecordings: ['7.m4a'] }),
     );
-    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('addRecordings');
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeAudio');
   });
 
-  it('restoring a closed stored recording brings the card back and saves without removeAudio', async () => {
+  it('restoring a closed stored recording brings the card back and saves without removeRecordings', async () => {
     await renderPage({ open: { dream: stored, as: 'edit' } });
     await fireEvent.press(screen.getByLabelText('Remove recording'));
-    await act(async () => sessionApi?.restoreAudio());
+    await act(async () => sessionApi?.restoreRecording('stored:7.m4a'));
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
     await act(async () => void (await sessionApi?.save('saved')));
-    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeAudio');
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeRecordings');
   });
 
   it('falls back to a plain progress bar for an entry with no waveform', async () => {
@@ -497,10 +506,10 @@ describe('toolbar', () => {
     expect(disabled('Undo')).toBe(false);
     await press('Undo');
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
-    expect(sessionApi?.session?.audio?.removed).toBe(false);
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(false);
     await press('Redo');
     expect(screen.queryByLabelText('Play recording')).toBeNull();
-    expect(sessionApi?.session?.audio?.removed).toBe(true);
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(true);
     expect(discardRecording).not.toHaveBeenCalled();
   });
 
@@ -524,13 +533,19 @@ describe('toolbar', () => {
     expect(disabled('Undo')).toBe(true);
   });
 
-  it('recording a new note after closing the card drops the close step', async () => {
+  it('recording a new note after closing a card keeps the close step; undo restores that card', async () => {
     await renderPage();
+    mockRec.stop
+      .mockResolvedValueOnce({ uri: CACHE, durationMs: 1000 })
+      .mockResolvedValueOnce({ uri: CACHE2, durationMs: 2000 });
     await recordOne();
     await press('Remove recording');
     await recordOne();
-    expect(disabled('Undo')).toBe(true);
-    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(1);
+    expect(disabled('Undo')).toBe(false);
+    await press('Undo');
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, false]);
   });
 
   it('undo and redo are off while recording', async () => {
@@ -549,7 +564,7 @@ describe('toolbar', () => {
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Save dream'));
     });
-    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeAudio');
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeRecordings');
   });
 
   it('a stored recording closed (or closed, undone and redone) is removed on Done', async () => {
@@ -560,7 +575,9 @@ describe('toolbar', () => {
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Save dream'));
     });
-    expect(jest.mocked(saveDream).mock.calls[0][0]).toMatchObject({ removeAudio: true });
+    expect(jest.mocked(saveDream).mock.calls[0][0]).toMatchObject({
+      removeRecordings: ['7.m4a'],
+    });
   });
 
   it('locks the toolbar while saving', async () => {
@@ -883,5 +900,103 @@ describe('tag suggestions', () => {
     expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
     await kb.emit('keyboardWillHide');
     expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+  });
+});
+
+describe('several recordings on the page', () => {
+  const body = () => screen.getByLabelText('Entry text');
+  const disabled = (label: string) =>
+    screen.getByLabelText(label).props.accessibilityState.disabled;
+  const press = async (label: string) => {
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+  };
+  const recordNext = async (uri: string, durationMs: number) => {
+    mockRec.stop.mockResolvedValueOnce({ uri, durationMs });
+    await startRecording();
+    await stopRecording();
+  };
+  const three: Dream = {
+    ...stored,
+    audioFileName: undefined,
+    waveform: undefined,
+    recordings: [
+      { fileName: '7.m4a', durationMs: 1000 },
+      { fileName: '7-1.m4a', durationMs: 2000 },
+      { fileName: '7-2.m4a', durationMs: 3000 },
+    ],
+  };
+
+  it('a 2nd and 3rd recording each add a card; the mic stays on and nothing is replaced', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(1);
+    expect(disabled('Record voice note')).toBe(false);
+    await recordNext(CACHE2, 2000);
+    await recordNext(CACHE3, 3000);
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    expect(sessionApi?.session?.recordings.map((r) => r.uri)).toEqual([CACHE, CACHE2, CACHE3]);
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('closing one specific card and undoing it brings back that card only', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    await recordNext(CACHE2, 2000);
+    await recordNext(CACHE3, 3000);
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    await act(async () => {});
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true, false]);
+    expect(discardRecording).not.toHaveBeenCalled();
+    await press('Undo');
+    expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, false, false]);
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    await press('Redo');
+    expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true, false]);
+  });
+
+  it('an entry with 3 stored recordings shows 3 cards; closing one saves with only that name', async () => {
+    await renderPage({ open: { dream: three, as: 'edit' } });
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    await act(async () => {});
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(entryHasEdits(sessionApi!.session!)).toBe(true);
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    const input = jest.mocked(saveDream).mock.calls[0][0];
+    expect(input).toMatchObject({ id: '7', removeRecordings: ['7-1.m4a'] });
+    expect(input).not.toHaveProperty('addRecordings');
+    expect(input).not.toHaveProperty('removeAudio');
+  });
+
+  it('saves a mix of a closed stored recording and a new one in one call', async () => {
+    await renderPage({ open: { dream: three, as: 'edit' } });
+    await recordNext(CACHE, 4000);
+    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    const input = jest.mocked(saveDream).mock.calls[0][0];
+    expect(input.removeRecordings).toEqual(['7.m4a']);
+    expect(input.addRecordings).toEqual([
+      expect.objectContaining({ uri: CACHE, durationMs: 4000 }),
+    ]);
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('typing and a close share one undo stack, newest first', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    await fireEvent.changeText(body(), 'words');
+    await advance(600);
+    await fireEvent.press(screen.getByLabelText('Remove recording'));
+    await act(async () => {});
+    await press('Undo');
+    expect(sessionApi?.session?.recordings[0].removed).toBe(false);
+    expect(bodyText(body())).toBe('words');
   });
 });

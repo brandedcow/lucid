@@ -1,10 +1,10 @@
-import { Keyboard, Platform } from 'react-native';
+import { Keyboard, Platform, View } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { EntryToolbar } from '../components/EntryToolbar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
-import { EntryAudio } from '../hooks/useEntrySession';
+import { SessionRecording } from '../hooks/useEntrySession';
 import { useEntryHistory } from '../hooks/useEntryHistory';
 import {
   activeToken,
@@ -13,23 +13,28 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import { spacing } from '../theme';
 import { suggestTags } from '../utils/tagSuggestions';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
 /**
  * Prop contract (everything else is AddEntryScreen's):
- * - audio: the entry's attachment from the session (a closed one is not shown).
- * - onRecorded: a recording stopped; the parent stores it as the attachment.
- * - onRemoveAudio: the card's close button, for a new recording and a stored one alike. It only
- *   marks the recording as removed in the session; nothing is deleted until the user saves.
+ * - recordings: the entry's recordings from the session, in order (closed ones are not shown). M3
+ *   adapter: one VoiceAttachmentCard per visible recording, in a plain list; the stacked-card
+ *   design and one-at-a-time playback are M4's.
+ * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
+ *   available).
+ * - onRemoveRecording: a card's close button (by recording id), for a new recording and a stored
+ *   one alike. It only marks the recording as removed in the session; nothing is deleted until the
+ *   user saves.
  * - onRecordingChange: true while the recorder is starting or running, false otherwise. Fired
  *   synchronously (the parent keeps it in a ref for Android back).
  * - leaveRef: set to the "Discard this recording?" confirmation while recording.
  * - onRecordingDiscarded: the user discarded the recording to leave; the parent carries on
  *   leaving (its normal back rules run next).
  *
- * - onRestoreAudio: undo of the card's close: brings the recording back (reversible mark only).
+ * - onRestoreRecording: undo of a card's close: brings that recording back (reversible mark only).
  * - onBodyChange here is the session setter; the page wraps it for the undo history.
  *
  * - bodyBaseFrom: set when opening added the entry's tags to the body as `#tag`s; the body as it
@@ -44,7 +49,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * action: it is stored from the text on save). Tapping a tag
  * completes the word ("#tag " with the cursor after the space) as ONE undo step, like the # button.
  *
- * Toolbar: undo / redo (body text and closing the voice note card, one shared stack; not title or
+ * Toolbar: undo / redo (body text and closing a voice note card, one shared stack, each step naming its
+ * recording; not title or
  * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
  * typed in the text). The check is off while recording
  * (stop first); back asks to discard. While recording, the mic, undo and redo are disabled.
@@ -61,10 +67,10 @@ export type AddEntryWithVoiceProps = Omit<
   | 'bodySelection'
   | 'bodyFocusSignal'
 > & {
-  audio?: EntryAudio;
+  recordings?: readonly SessionRecording[];
   onRecorded: (recording: PanelRecording) => void;
-  onRemoveAudio?: () => void;
-  onRestoreAudio?: () => void;
+  onRemoveRecording?: (id: string) => void;
+  onRestoreRecording?: (id: string) => void;
   onRecordingChange?: (recording: boolean) => void;
   leaveRef?: MutableRefObject<(() => void) | null>;
   onRecordingDiscarded?: () => void;
@@ -73,12 +79,13 @@ export type AddEntryWithVoiceProps = Omit<
 };
 
 const NO_TAGS: readonly string[] = [];
+const NO_RECORDINGS: readonly SessionRecording[] = [];
 
 export function AddEntryWithVoice({
-  audio,
+  recordings = NO_RECORDINGS,
   onRecorded,
-  onRemoveAudio,
-  onRestoreAudio,
+  onRemoveRecording,
+  onRestoreRecording,
   onRecordingChange,
   leaveRef,
   onRecordingDiscarded,
@@ -110,8 +117,8 @@ export function AddEntryWithVoice({
   const history = useEntryHistory({
     body,
     setBody: onBodyChange,
-    removeAudio: onRemoveAudio,
-    restoreAudio: onRestoreAudio,
+    removeRecording: onRemoveRecording,
+    restoreRecording: onRestoreRecording,
     seedFrom: bodyBaseFrom,
   });
   // A save ends the history: the removal it commits can no longer be undone.
@@ -184,34 +191,41 @@ export function AddEntryWithVoice({
       />
     ) : undefined;
 
-  const shown = audio && !audio.removed ? audio : undefined;
-  const micDisabled = saving || recording || shown !== undefined;
+  const shown = recordings.filter((r) => !r.removed);
+  // The mic stays available after a recording; only a save or a running recording turns it off.
+  const micDisabled = saving || recording;
 
-  const attachment = recording ? (
-    <RecordingPanel
-      microphoneMessage={journalCopy(journal).microphoneMessage}
-      leaveRef={leaveRef}
-      onRecorded={(rec) => {
-        setRecording(false);
-        // A new note is not undoable; earlier close steps no longer apply.
-        history.onRecordingAttached();
-        onRecorded(rec);
-      }}
-      onClosed={() => setRecording(false)}
-      onDiscarded={() => {
-        setRecording(false);
-        onRecordingDiscarded?.();
-      }}
-    />
-  ) : shown ? (
-    <VoiceAttachmentCard
-      key={shown.uri}
-      uri={shown.uri}
-      durationMs={shown.durationMs}
-      waveform={shown.waveform}
-      onRemove={!saving ? history.onRemoveAudio : undefined}
-    />
-  ) : undefined;
+  const attachment =
+    shown.length > 0 || recording ? (
+      <View style={{ gap: spacing.md }}>
+        {shown.map((r) => (
+          <VoiceAttachmentCard
+            key={`${r.id}:${r.uri}`}
+            uri={r.uri}
+            durationMs={r.durationMs}
+            waveform={r.waveform}
+            onRemove={!saving ? () => history.onRemoveRecording(r.id) : undefined}
+          />
+        ))}
+        {recording && (
+          <RecordingPanel
+            microphoneMessage={journalCopy(journal).microphoneMessage}
+            leaveRef={leaveRef}
+            onRecorded={(rec) => {
+              setRecording(false);
+              // A new note is not undoable; typing ends as a step first.
+              history.onRecordingAttached();
+              onRecorded(rec);
+            }}
+            onClosed={() => setRecording(false)}
+            onDiscarded={() => {
+              setRecording(false);
+              onRecordingDiscarded?.();
+            }}
+          />
+        )}
+      </View>
+    ) : undefined;
 
   const toolbar = (
     <EntryToolbar
