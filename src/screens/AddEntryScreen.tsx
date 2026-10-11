@@ -313,6 +313,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.serif,
     fontSize: 32,
     paddingVertical: spacing.sm,
+    minHeight: 56,
+    textAlignVertical: 'center',
+    // lineHeight on a single-line iOS input can shift text, so Android only.
+    ...Platform.select({
+      android: { lineHeight: 40, includeFontPadding: false },
+      default: {},
+    }),
   },
   bodyInput: {
     color: colors.text,
