@@ -22,15 +22,19 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import {
   discardRecording,
+  getIndexStatus,
   isIndexUnreadableError,
   isSafetyCopyBlockedError,
+  listDreams,
 } from './src/services/dreamStorage';
-import type { Dream } from './src/types/dream';
+import { hasAudio, type Dream } from './src/types/dream';
 import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
+import { confirmDeleteJournal } from './src/utils/confirmDelete';
 import { formatToday } from './src/utils/format';
 import {
   entriesFor,
+  isBuiltInJournal,
   journalOrDefault,
   journalCopy,
   journalOf,
@@ -77,6 +81,8 @@ function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
   if (isSafetyCopyBlockedError(e)) return copy.deleteFailureSafetyCopy;
   return 'Please try again.';
 }
+
+const JOURNAL_UNREADABLE_MESSAGE = 'Your saved entries could not be read, so nothing was deleted.';
 
 // Temporary screen switch; replace with real navigation once that is decided.
 export default function App() {
@@ -126,7 +132,13 @@ export default function App() {
   const [deletingDream, setDeletingDream] = useState<{ dream: Dream; fromDetail: boolean } | null>(
     null,
   );
-  // True while any delete runs, readable synchronously: a second delete is ignored.
+  // The custom journal being deleted (state, for the UI), from the confirmed delete until it ends.
+  // Its entries are hidden everywhere but the Journals card count; nothing stored is changed.
+  const [deletingJournalId, setDeletingJournalId] = useState<JournalId | null>(null);
+  // True while the "Delete this journal?" dialog is up, so a second swipe cannot stack another.
+  const journalDialogOpen = useRef(false);
+  // True while any delete (an entry's or a journal's) runs, readable synchronously: a second delete
+  // is ignored.
   const deleting = useRef(false);
   // True while a delete started from the entry runs: blocks back and Edit there. A delete started
   // from the Dream log blocks nothing, like Notes.
@@ -135,6 +147,21 @@ export default function App() {
   const nav = useRef({ screen, detailId, detailFrom, journalId });
   useEffect(() => {
     nav.current = { screen, detailId, detailFrom, journalId };
+  });
+  // The latest stored records and journals, for a journal delete confirmed after a dialog.
+  const live = useRef({
+    records: library.dreams,
+    indexStatus: library.indexStatus,
+    custom: journalRegistry.custom,
+    sessionJournal: session?.journalId ?? null,
+  });
+  useEffect(() => {
+    live.current = {
+      records: library.dreams,
+      indexStatus: library.indexStatus,
+      custom: journalRegistry.custom,
+      sessionJournal: session?.journalId ?? null,
+    };
   });
 
   // Launch: once the library, the No dream marker, the settings and the journals are read, the launch rule picks
@@ -204,21 +231,47 @@ export default function App() {
     if (r.screen === 'capture' || r.screen === 'readItBack' || r.screen === 'review') return;
     const status = dayStatus(r.dreams, r.noDreamDate, todayKey);
     if (launchScreen({ ...status, autoOpen: r.autoOpen }) !== 'capture') return;
-    /* eslint-disable react-hooks/set-state-in-effect */
     setCaptureJournal(DREAMS_JOURNAL);
     setCaptureLaunch(true);
     setFlowReturn('today');
     setFromReview(false);
     setScreen('capture');
-    /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the token only; the rest is read fresh
   }, [resumeNewDayToken]);
 
   const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 
+  // While a custom journal is deleted its entries and its row in the Add entry sheet are hidden
+  // (nothing stored is changed). Today, Search, the logs and the entry screen read these; only the
+  // Journals card count reads the unfiltered records.
+  const visibleRecords = useMemo(
+    () =>
+      library.dreams && deletingJournalId
+        ? library.dreams.filter((d) => journalOf(d) !== deletingJournalId)
+        : library.dreams,
+    [library.dreams, deletingJournalId],
+  );
+  const visibleJournals = useMemo(
+    () => (deletingJournalId ? journals.filter((j) => j.id !== deletingJournalId) : journals),
+    [journals, deletingJournalId],
+  );
+
+  // A screen showing the journal that is being deleted (its log, or one of its entries) goes back
+  // to Journals home instead of showing something that no longer exists.
+  if (
+    deletingJournalId &&
+    ((screen === 'log' && journalId === deletingJournalId) ||
+      (screen === 'detail' &&
+        detailId !== null &&
+        library.dreams?.some((d) => d.id === detailId && journalOf(d) === deletingJournalId)))
+  ) {
+    setDetailId(null);
+    setScreen('journals');
+  }
+
   // The detail screen needs a finished dream; otherwise the log shows.
   const detailDream =
-    (detailId ? library.dreams?.find((d) => d.id === detailId) : undefined) ??
+    (detailId ? visibleRecords?.find((d) => d.id === detailId) : undefined) ??
     (detailDeletingDream && detailDeletingDream.id === detailId ? detailDeletingDream : undefined);
   const current: Screen | null =
     screen === 'detail' && (!detailDream || detailDream.status === 'draft')
@@ -234,8 +287,8 @@ export default function App() {
 
   // Each log shows only its own journal's entries (drafts included), whatever else is stored.
   const logEntries = useMemo(
-    () => (library.dreams ? entriesFor(library.dreams, journalId) : null),
-    [library.dreams, journalId],
+    () => (visibleRecords ? entriesFor(visibleRecords, journalId) : null),
+    [visibleRecords, journalId],
   );
   const counts = useMemo(
     () => (library.dreams ? journalCounts(journals, library.dreams) : null),
@@ -366,6 +419,105 @@ export default function App() {
       detailDeleting.current = false;
       setDeletingDream(null);
     }
+  };
+
+  // Asks before deleting a custom journal and all its entries. Only a journal in the registry's
+  // custom list qualifies, so Dreams, Life and unknown ids do nothing.
+  const requestDeleteJournal = (id: JournalId) => {
+    if (isBuiltInJournal(id)) return;
+    const journal = live.current.custom.find((j) => j.id === id);
+    if (!journal) return;
+    if (deleting.current || journalDialogOpen.current || finishing.current) return;
+    if (live.current.sessionJournal === id) return;
+    const records = live.current.records;
+    if (records === null || live.current.indexStatus === 'unreadable') {
+      Alert.alert(`Could not delete "${journal.name}"`, JOURNAL_UNREADABLE_MESSAGE);
+      return;
+    }
+    const mine = entriesFor(records, id);
+    journalDialogOpen.current = true;
+    confirmDeleteJournal({
+      name: journal.name,
+      entryCount: mine.length,
+      hasAudio: mine.some(hasAudio),
+      onClose: () => {
+        journalDialogOpen.current = false;
+      },
+      onConfirm: () => void deleteJournalFor(id),
+    });
+  };
+
+  // Deletes a custom journal (the caller has already confirmed): every entry in it, drafts
+  // included, one at a time through the existing entry delete, and only when all of them are gone
+  // the journal itself, LAST, so entries are never left without their journal. Any failure stops
+  // everything, leaves the journal listed and tells the user what is left. Everything is re-read
+  // here, so what is deleted is exactly the entries of this journal as stored now.
+  const deleteJournalFor = async (id: JournalId) => {
+    if (isBuiltInJournal(id)) return;
+    const journal = live.current.custom.find((j) => j.id === id);
+    if (!journal) return;
+    if (deleting.current || finishing.current) return;
+    if (live.current.sessionJournal === id) return;
+    const records = live.current.records;
+    if (records === null || live.current.indexStatus === 'unreadable') {
+      Alert.alert(`Could not delete "${journal.name}"`, JOURNAL_UNREADABLE_MESSAGE);
+      return;
+    }
+    const ids = entriesFor(records, id).map((d) => d.id);
+    deleting.current = true;
+    setDeletingJournalId(id);
+    let failure: { title: string; message: string } | null = null;
+    try {
+      const result = await library.removeMany(ids);
+      if (result.remaining.length > 0) {
+        const total = ids.length;
+        const left = result.remaining.length;
+        failure = {
+          title: `Could not delete "${journal.name}"`,
+          message: `Deleted ${result.deleted.length} of ${total} ${total === 1 ? 'entry' : 'entries'}. ${left} still ${left === 1 ? 'remains' : 'remain'}. Try again.`,
+        };
+      } else {
+        // Last check before the journal is unlisted: read the stored entries again. If any entry of
+        // this journal exists (or the store cannot be read) the journal is NOT removed.
+        let left = -1;
+        try {
+          if ((await getIndexStatus()) === 'ok') left = entriesFor(await listDreams(), id).length;
+        } catch {
+          left = -1;
+        }
+        if (left !== 0) {
+          failure =
+            left < 0
+              ? {
+                  title: `Could not delete "${journal.name}"`,
+                  message:
+                    'Its entries were deleted, but your saved entries could not be read again, so the journal was kept. Try again.',
+                }
+              : {
+                  title: `Could not delete "${journal.name}"`,
+                  message: `Deleted ${result.deleted.length} of ${result.deleted.length + left} ${result.deleted.length + left === 1 ? 'entry' : 'entries'}. ${left} still ${left === 1 ? 'remains' : 'remain'}. Try again.`,
+                };
+        } else {
+          try {
+            await journalRegistry.remove(id);
+          } catch {
+            failure = {
+              title: `Could not remove "${journal.name}"`,
+              message: `All its entries were deleted, but the journal itself could not be removed. It is still listed, now empty. Try again.`,
+            };
+          }
+        }
+      }
+    } catch {
+      failure = {
+        title: `Could not delete "${journal.name}"`,
+        message: 'Some entries may not have been deleted. Try again.',
+      };
+    } finally {
+      deleting.current = false;
+      setDeletingJournalId(null);
+    }
+    if (failure) Alert.alert(failure.title, failure.message);
   };
 
   const backFromEdit = () => {
@@ -641,12 +793,14 @@ export default function App() {
             onOpenJournal={showLog}
             onSearch={() => setScreen('search')}
             onBack={() => void performBack()}
+            onDeleteJournal={requestDeleteJournal}
+            deletingId={deletingJournalId}
           />
         )}
         {current === 'today' && (
           <TodayScreen
-            journals={journals}
-            dreams={library.dreams}
+            journals={visibleJournals}
+            dreams={visibleRecords}
             todayKey={todayKey}
             skippedToday={dayMarker.noDreamDate === todayKey}
             unreadable={library.indexStatus === 'unreadable'}
@@ -673,8 +827,8 @@ export default function App() {
         )}
         {current === 'search' && (
           <SearchScreen
-            journals={journals}
-            records={library.dreams}
+            journals={visibleJournals}
+            records={visibleRecords}
             indexStatus={library.indexStatus}
             view={searchView}
             onBack={() => void performBack()}

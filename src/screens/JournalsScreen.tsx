@@ -1,9 +1,17 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityActionEvent,
+  AccessibilityActionInfo,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SearchIcon } from '../components/SearchIcon';
+import { SwipeActionRow, SwipeAction, useSingleOpenRow } from '../components/SwipeActionRow';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
-import { Journal, kindCopy } from '../utils/journals';
+import { isBuiltInJournal, Journal, kindCopy } from '../utils/journals';
 
 /**
  * Props:
@@ -14,6 +22,10 @@ import { Journal, kindCopy } from '../utils/journals';
  *   message sits under the header.
  * - `onOpenJournal(id)`: a journal card was tapped.
  * - `onSearch()`: the search button was tapped (search across all journals).
+ * - `onDeleteJournal(id)`: optional. When given, a custom journal's card can be swiped to reveal Delete
+ *   (also a screen-reader action). Dreams and Life are never swipeable. The parent confirms and deletes.
+ * - `deletingId`: the journal being deleted. Its card is dimmed, inert and reads "Deleting...";
+ *   every card's swipe is locked until it ends.
  *
  * - `onBack()`: optional. When given, a back arrow ("Back to Today") shows at the top left.
  */
@@ -24,6 +36,8 @@ type Props = {
   onOpenJournal: (id: JournalId) => void;
   onSearch: () => void;
   onBack?: () => void;
+  onDeleteJournal?: (id: JournalId) => void;
+  deletingId?: JournalId | null;
 };
 
 /** "12 dreams", "1 dream", "No dreams yet"; "5 entries", "1 entry", "No entries yet". */
@@ -41,8 +55,12 @@ export function JournalsScreen({
   onOpenJournal,
   onSearch,
   onBack,
+  onDeleteJournal,
+  deletingId = null,
 }: Props) {
   const showCounts = counts !== null && !unreadable;
+  const { onRowWillOpen, onRowClosed, closeOpenRow } = useSingleOpenRow();
+  const locked = deletingId !== null;
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={[styles.header, onBack && styles.headerWithBack]}>
@@ -75,14 +93,33 @@ export function JournalsScreen({
       <View style={styles.list}>
         {journals.map((journal) => {
           const count = showCounts ? (counts[journal.id] ?? 0) : null;
-          const line = count === null ? null : countLabel(journal, count);
-          return (
+          const deleting = journal.id === deletingId;
+          const line = deleting
+            ? 'Deleting...'
+            : count === null
+              ? null
+              : countLabel(journal, count);
+          const card = (extra?: {
+            accessibilityActions?: AccessibilityActionInfo[];
+            onAccessibilityAction?: (e: AccessibilityActionEvent) => void;
+          }) => (
             <Pressable
-              key={journal.id}
               accessibilityRole="button"
-              accessibilityLabel={line === null ? journal.name : `${journal.name}, ${line}`}
-              onPress={() => onOpenJournal(journal.id)}
-              style={styles.card}
+              accessibilityLabel={
+                deleting
+                  ? `${journal.name}, deleting`
+                  : line === null
+                    ? journal.name
+                    : `${journal.name}, ${line}`
+              }
+              accessibilityState={deleting ? { disabled: true } : undefined}
+              disabled={deleting}
+              onPress={() => {
+                closeOpenRow();
+                onOpenJournal(journal.id);
+              }}
+              style={[styles.card, deleting && styles.deleting]}
+              {...extra}
             >
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>{journal.name}</Text>
@@ -92,6 +129,36 @@ export function JournalsScreen({
                 ›
               </Text>
             </Pressable>
+          );
+          // Only a user-created journal can be deleted: Dreams and Life stay plain cards.
+          if (!onDeleteJournal || isBuiltInJournal(journal.id)) {
+            return <View key={journal.id}>{card()}</View>;
+          }
+          const actions: SwipeAction[] = [
+            {
+              key: 'delete',
+              label: 'Delete',
+              accessibilityLabel: `Delete ${journal.name}`,
+              destructive: true,
+              onPress: (closeRow) => {
+                closeRow();
+                onDeleteJournal(journal.id);
+              },
+            },
+          ];
+          return (
+            <SwipeActionRow
+              key={journal.id}
+              actions={actions}
+              disabled={locked}
+              onRowWillOpen={onRowWillOpen}
+              onRowClosed={onRowClosed}
+              testID={`journal-row-${journal.id}`}
+            >
+              {({ accessibilityActions, onAccessibilityAction }) =>
+                card({ accessibilityActions, onAccessibilityAction })
+              }
+            </SwipeActionRow>
           );
         })}
       </View>
@@ -134,6 +201,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
+  deleting: { opacity: 0.45 },
   cardMain: { flex: 1, gap: spacing.xs },
   cardTitle: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },
   count: { color: colors.muted, fontSize: 14 },

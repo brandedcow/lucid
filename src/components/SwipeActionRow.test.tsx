@@ -113,4 +113,10 @@ describe('SwipeActionRow', () => {
     expect(getArgs()?.accessibilityActions).toBeUndefined();
     expect(getArgs()?.onAccessibilityAction).toBeUndefined();
   });
+
+  it('disabled makes the action buttons do nothing', async () => {
+    const { onDelete } = await setup({ disabled: true });
+    fireEvent.press(find('Delete Gratitude'));
+    expect(onDelete).not.toHaveBeenCalled();
+  });
 });

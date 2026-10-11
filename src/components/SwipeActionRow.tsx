@@ -57,7 +57,7 @@ const ACTION_WIDTH = 96;
 /**
  * Generic swipe-to-reveal row: swiping left reveals one or more action buttons. `children` is the row
  * content, or a function of `SwipeRowRenderArgs`. `onRowWillOpen` / `onRowClosed` come from
- * `useSingleOpenRow`; `disabled` blocks swiping and hides the screen-reader actions; `containerStyle`
+ * `useSingleOpenRow`; `disabled` makes the row inert: no swiping, an open row closes, its buttons do nothing and the screen-reader actions are withheld; `containerStyle`
  * styles the swipe container; `flat` squares the action corners (for flat full-width rows).
  */
 export const SwipeActionRow = memo(function SwipeActionRow({
@@ -90,7 +90,13 @@ export const SwipeActionRow = memo(function SwipeActionRow({
   }, [onRowClosed]);
 
   const [closeRow] = useState(() => () => swipeRef.current?.close());
-  const run = (action: SwipeAction) => action.onPress(closeRow);
+  // Disabling a row that is open closes it: a disabled row is fully inert.
+  useEffect(() => {
+    if (disabled) swipeRef.current?.close();
+  }, [disabled]);
+  const run = (action: SwipeAction) => {
+    if (!disabled) action.onPress(closeRow);
+  };
 
   const content =
     typeof children === 'function'
@@ -135,6 +141,7 @@ export const SwipeActionRow = memo(function SwipeActionRow({
               accessibilityRole="button"
               accessibilityLabel={action.accessibilityLabel}
               onPress={() => run(action)}
+              disabled={disabled}
               style={[
                 styles.action,
                 action.destructive ? styles.destructive : styles.neutral,
