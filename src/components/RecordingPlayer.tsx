@@ -1,5 +1,5 @@
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRecordingPlayback } from '../hooks/useRecordingPlayback';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
 
@@ -19,41 +19,25 @@ type Props = {
 
 /** Play/pause with elapsed time and a progress bar for a single recording. */
 export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
-  const player = useAudioPlayer(uri);
-  const status = useAudioPlayerStatus(player);
-
-  const total = status.duration > 0 ? status.duration : durationMs / 1000;
-  const progress = total > 0 ? Math.min(1, status.currentTime / total) : 0;
-
-  const toggle = async () => {
-    if (status.playing) {
-      player.pause();
-      return;
-    }
-    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-    if (status.duration > 0 && status.currentTime >= status.duration - 0.25) {
-      await player.seekTo(0);
-    }
-    player.play();
-  };
+  const { playing, position, total, progress, toggle } = useRecordingPlayback(uri, durationMs);
 
   if (compact) {
-    const elapsed = formatDuration(Math.floor(status.currentTime));
+    const elapsed = formatDuration(Math.floor(position));
     const length = formatDuration(Math.round(total));
     return (
       <View style={styles.compactRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={status.playing ? 'Pause recording' : 'Play recording'}
+          accessibilityLabel={playing ? 'Pause recording' : 'Play recording'}
           onPress={toggle}
           style={styles.compactButton}
         >
-          <Text style={styles.compactGlyph}>{status.playing ? 'ǁ' : '▶'}</Text>
+          <Text style={styles.compactGlyph}>{playing ? 'ǁ' : '▶'}</Text>
         </Pressable>
         <View style={[styles.bar, styles.compactBar]}>
           <View style={[styles.fill, { width: `${progress * 100}%` }]} />
         </View>
-        <Text style={styles.time}>{status.playing ? `${elapsed} / ${length}` : length}</Text>
+        <Text style={styles.time}>{playing ? `${elapsed} / ${length}` : length}</Text>
       </View>
     );
   }
@@ -62,11 +46,11 @@ export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
     <View style={styles.card}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={status.playing ? 'Pause recording' : 'Play recording'}
+        accessibilityLabel={playing ? 'Pause recording' : 'Play recording'}
         onPress={toggle}
         style={styles.button}
       >
-        <Text style={styles.glyph}>{status.playing ? 'ǁ' : '▶'}</Text>
+        <Text style={styles.glyph}>{playing ? 'ǁ' : '▶'}</Text>
       </Pressable>
       <View style={styles.track}>
         <View style={styles.bar}>
@@ -76,7 +60,7 @@ export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
           <Text style={styles.label}>{label}</Text>
         ) : (
           <Text style={styles.time}>
-            {formatDuration(Math.floor(status.currentTime))} / {formatDuration(Math.round(total))}
+            {formatDuration(Math.floor(position))} / {formatDuration(Math.round(total))}
           </Text>
         )}
       </View>

@@ -24,6 +24,7 @@ jest.mock('expo-audio', () => ({
   useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() }),
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
+  RecordingPresets: { HIGH_QUALITY: {} },
 }));
 jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
 jest.mock('./src/screens/AddEntryScreen', () => {

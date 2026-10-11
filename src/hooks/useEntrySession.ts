@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
-import { isIndexUnreadableError, saveDream } from '../services/dreamStorage';
+import {
+  discardRecording,
+  dreamAudioUri,
+  isIndexUnreadableError,
+  saveDream,
+} from '../services/dreamStorage';
 import { Dream } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
 import {
@@ -12,6 +17,21 @@ import {
   titleRequired,
 } from '../utils/journals';
 import { addTag } from '../utils/tags';
+import { sanitizeWaveform } from '../utils/waveform';
+
+/**
+ * The voice recording attached to an entry on the page. `persisted` false is a new recording still
+ * in the cache; true is a reopened entry's permanent file. `removed` is the session's mark that the
+ * user closed the card: nothing is deleted or forgotten when it is set, so it can be undone.
+ */
+export type EntryAudio = {
+  uri: string;
+  durationMs: number;
+  /** Loudness peaks (0..1) for the card; absent on old entries. */
+  waveform?: number[];
+  persisted: boolean;
+  removed: boolean;
+};
 
 /**
  * The entry being written or edited on the add-entry page, kept above the screen. Separate from
@@ -25,8 +45,16 @@ export type EntrySession = {
   /** Set when a stored draft or finished entry is reopened, or once a save created one. */
   id?: string;
   createdAt?: string;
-  /** A reopened entry's permanent recording, kept as it is on save. Nothing here deletes it. */
-  audio?: { durationMs: number };
+  /**
+   * The attached recording: a new one from the page's mic (cache file), or a reopened entry's
+   * permanent one (kept as it is on save; nothing here ever deletes it).
+   */
+  audio?: EntryAudio;
+  /**
+   * Earlier unsaved recordings that were closed and then replaced by a new one. Their cache files
+   * are kept (an undo could bring them back) and deleted when the entry is saved or left.
+   */
+  shelved?: EntryAudio[];
   title: string;
   /** Stored as the entry's `transcript`. */
   body: string;
@@ -47,7 +75,10 @@ export type EntrySessionAction =
   | { type: 'setBody'; value: string }
   | { type: 'setTags'; value: string[] }
   | { type: 'setTagDraft'; value: string }
-  | { type: 'markSaved'; id: string; createdAt: string }
+  | { type: 'attachRecording'; recording: { uri: string; durationMs: number; waveform?: number[] } }
+  | { type: 'removeAudio' }
+  | { type: 'restoreAudio' }
+  | { type: 'markSaved'; id: string; createdAt: string; audioUri?: string | null }
   | { type: 'clear' };
 
 /** State is null when no entry is open on the page. */
@@ -87,9 +118,51 @@ export function entrySessionReducer(
       return { ...state, tags: action.value };
     case 'setTagDraft':
       return { ...state, tagDraft: action.value };
-    case 'markSaved':
-      // The entry now exists: a second save updates it.
-      return { ...state, id: action.id, createdAt: action.createdAt };
+    case 'attachRecording': {
+      // One recording per entry: a new one is refused while a visible attachment exists. A closed
+      // one is shelved, not forgotten.
+      if (state.audio && !state.audio.removed) return state;
+      const next: EntryAudio = {
+        uri: action.recording.uri,
+        durationMs: action.recording.durationMs,
+        ...(sanitizeWaveform(action.recording.waveform)
+          ? { waveform: action.recording.waveform }
+          : {}),
+        persisted: false,
+        removed: false,
+      };
+      return {
+        ...state,
+        audio: next,
+        ...(state.audio ? { shelved: [...(state.shelved ?? []), state.audio] } : {}),
+      };
+    }
+    case 'removeAudio':
+      // Only a new, unsaved recording can be closed. A stored recording has no removal path yet
+      // (CLAUDE.md lists every case the app may delete a file in), so the card cannot close it.
+      if (!state.audio || state.audio.persisted || state.audio.removed) return state;
+      return { ...state, audio: { ...state.audio, removed: true } };
+    case 'restoreAudio':
+      if (!state.audio?.removed) return state;
+      return { ...state, audio: { ...state.audio, removed: false } };
+    case 'markSaved': {
+      // The entry now exists: a second save updates it. A new recording now lives in permanent
+      // storage (the save deleted its cache file); one that was closed or shelved is gone.
+      const { audio, shelved: _shelved, ...rest } = state;
+      let kept: EntryAudio | undefined = audio;
+      if (audio && !audio.persisted) {
+        kept =
+          !audio.removed && action.audioUri
+            ? { ...audio, uri: action.audioUri, persisted: true }
+            : undefined;
+      }
+      return {
+        ...rest,
+        id: action.id,
+        createdAt: action.createdAt,
+        ...(kept ? { audio: kept } : {}),
+      };
+    }
     default:
       return state;
   }
@@ -107,12 +180,24 @@ export function entryJournalLocked(session: EntrySession): boolean {
 export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): EntrySession {
   // Stored entries can predate the tags field.
   const tags = Array.isArray(dream.tags) ? dream.tags : [];
+  const audioUri = dreamAudioUri(dream);
+  const waveform = sanitizeWaveform(dream.waveform);
   const session: EntrySession = {
     origin,
     journalId: journalOf(dream),
     id: dream.id,
     createdAt: dream.createdAt,
-    ...(dream.audioFileName ? { audio: { durationMs: dream.durationMs } } : {}),
+    ...(audioUri
+      ? {
+          audio: {
+            uri: audioUri,
+            durationMs: dream.durationMs,
+            ...(waveform ? { waveform } : {}),
+            persisted: true,
+            removed: false,
+          },
+        }
+      : {}),
     title: dream.title,
     body: dream.transcript ?? '',
     emotion: dream.emotion ?? '',
@@ -125,9 +210,15 @@ export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): E
   return session;
 }
 
-/** True when the page holds anything the user typed: a title, body text, a tag or tag text. */
+/** The attachment the user can see: one that has not been closed. */
+export function visibleAudio(session: EntrySession): EntryAudio | undefined {
+  return session.audio && !session.audio.removed ? session.audio : undefined;
+}
+
+/** True when the page holds anything the user typed or recorded: a title, body text, a tag, tag text or a recording. */
 export function entryHasContent(session: EntrySession): boolean {
   return (
+    visibleAudio(session) !== undefined ||
     session.title.trim().length > 0 ||
     session.body.trim().length > 0 ||
     session.tags.length > 0 ||
@@ -137,18 +228,40 @@ export function entryHasContent(session: EntrySession): boolean {
 
 /**
  * True when an 'edit' session differs from the entry as opened: title and body (trimmed, case
- * kept), tags (an ordered array) or tag text not yet confirmed. False when there is no baseline.
+ * kept), tags (an ordered array), tag text not yet confirmed, or a recording added. False when
+ * there is no baseline.
  */
 export function entryHasEdits(session: EntrySession): boolean {
   const { baseline } = session;
   if (!baseline) return false;
   if (session.tagDraft.trim().length > 0) return true;
+  const added = visibleAudio(session);
+  if (added && !added.persisted) return true;
   return (
     session.title.trim() !== baseline.title.trim() ||
     session.body.trim() !== baseline.body.trim() ||
     session.tags.length !== baseline.tags.length ||
     session.tags.some((tag, i) => tag !== baseline.tags[i])
   );
+}
+
+/** Every recording of the session that was never saved: the current one (when new) and shelved ones. */
+function unsavedAudio(session: EntrySession | null): EntryAudio[] {
+  if (!session) return [];
+  return [...(session.shelved ?? []), ...(session.audio ? [session.audio] : [])].filter(
+    (audio) => !audio.persisted,
+  );
+}
+
+/** Deletes cache files of unsaved recordings. Only `persisted: false` audio ever gets here. */
+function deleteUnsavedAudio(session: EntrySession | null) {
+  for (const audio of unsavedAudio(session)) {
+    try {
+      discardRecording(audio.uri);
+    } catch {
+      // A leftover cache file is harmless.
+    }
+  }
 }
 
 export type EntrySaveStatus = 'draft' | 'saved';
@@ -181,7 +294,19 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
       setBody: (value: string) => dispatch({ type: 'setBody', value }),
       setTags: (value: string[]) => dispatch({ type: 'setTags', value }),
       setTagDraft: (value: string) => dispatch({ type: 'setTagDraft', value }),
-      clear: () => dispatch({ type: 'clear' }),
+      attachRecording: (recording: { uri: string; durationMs: number; waveform?: number[] }) =>
+        dispatch({ type: 'attachRecording', recording }),
+      removeAudio: () => dispatch({ type: 'removeAudio' }),
+      restoreAudio: () => dispatch({ type: 'restoreAudio' }),
+      /**
+       * Closes the entry. Deletes the cache files of recordings that were never saved (case 3 in
+       * CLAUDE.md); a stored recording is never touched. Call it only when the recorder has
+       * stopped.
+       */
+      clear: () => {
+        deleteUnsavedAudio(sessionRef.current);
+        dispatch({ type: 'clear' });
+      },
     }),
     [],
   );
@@ -208,10 +333,15 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
     savingRef.current = true;
     setSaving(true);
     try {
+      // A closed new recording is not saved; its cache file goes after the save succeeds.
+      const audio = visibleAudio(current);
       const dream = await saveDream({
         ...(current.id ? { id: current.id } : {}),
-        // A reopened entry keeps its recording and duration; a new one has none yet.
-        durationMs: current.audio?.durationMs ?? 0,
+        // A new recording is copied in (with its waveform); a reopened entry's is already stored.
+        ...(audio && !audio.persisted
+          ? { recordingUri: audio.uri, ...(audio.waveform ? { waveform: audio.waveform } : {}) }
+          : {}),
+        durationMs: audio?.durationMs ?? 0,
         // Always strings: undefined would keep the stored value instead of clearing it. The
         // emotion is not on the page, so it is passed back as it was.
         details: {
@@ -225,7 +355,15 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
         journalId: current.journalId,
         requireTitle: titleRequired(kind),
       });
-      dispatch({ type: 'markSaved', id: dream.id, createdAt: dream.createdAt });
+      // The saved recording's cache file was deleted by the save. Closed and shelved ones are
+      // deleted here, only now that nothing can bring them back.
+      deleteUnsavedAudio({ ...current, ...(audio ? { audio: undefined } : {}) });
+      dispatch({
+        type: 'markSaved',
+        id: dream.id,
+        createdAt: dream.createdAt,
+        audioUri: dreamAudioUri(dream),
+      });
       return true;
     } catch (e) {
       const copy = kindCopy(kind);

@@ -10,6 +10,9 @@ import { AddEntryScreen } from './AddEntryScreen';
 jest.mock('../services/dreamStorage', () => ({
   listTags: jest.fn().mockResolvedValue(['water']),
   saveDream: jest.fn(),
+  discardRecording: jest.fn(),
+  dreamAudioUri: (d: { audioFileName?: string }) =>
+    d.audioFileName ? `file:///document/dreams/${d.audioFileName}` : null,
   isIndexUnreadableError: () => false,
 }));
 

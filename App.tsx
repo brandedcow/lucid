@@ -16,7 +16,7 @@ import { useJournals } from './src/hooks/useJournals';
 import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
 import { useToday } from './src/hooks/useToday';
-import { AddEntryScreen } from './src/screens/AddEntryScreen';
+import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
 import { CaptureScreen } from './src/screens/CaptureScreen';
 import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
@@ -114,6 +114,10 @@ export default function App() {
   const [captureBusy, setCaptureBusy] = useState(false);
   // Set by CaptureScreen to its discard confirmation, so Android back can ask while recording.
   const captureLeaveRef = useRef<(() => void) | null>(null);
+  // The add-entry page's recorder: true while it starts or runs (readable synchronously), and the
+  // page's discard confirmation for back to open.
+  const entryRecordingRef = useRef(false);
+  const entryLeaveRef = useRef<(() => void) | null>(null);
   // Where the open entry came from: a journal log or the Search results.
   const [detailFrom, setDetailFrom] = useState<DetailFrom>('log');
   // True only while Read it back was opened with Edit on Review, so its back arrow returns there.
@@ -463,6 +467,12 @@ export default function App() {
   const backFromAdd = () => {
     const current = entry.session;
     if (!current || finishing.current || entry.isSaving()) return;
+    // A running recording always asks first. Discard stops it, deletes its cache file and comes
+    // back here, so what else is on the page gets its usual prompt.
+    if (entryRecordingRef.current) {
+      entryLeaveRef.current?.();
+      return;
+    }
     if (current.origin === 'edit') {
       const id = current.id ?? detailId;
       if (!entryHasEdits(current)) {
@@ -832,7 +842,7 @@ export default function App() {
           />
         )}
         {current === 'add' && entry.session && (
-          <AddEntryScreen
+          <AddEntryWithVoice
             journal={journalFor(entry.session.journalId)}
             journals={visibleJournals}
             onJournalChange={entry.setJournal}
@@ -850,6 +860,14 @@ export default function App() {
             autoFocus={entry.session.origin === 'new'}
             onSave={() => void saveEntryAndLeave('saved')}
             onBack={() => void performBack()}
+            audio={entry.session.audio}
+            onRecorded={entry.attachRecording}
+            onRemoveAudio={entry.removeAudio}
+            onRecordingChange={(recording) => {
+              entryRecordingRef.current = recording;
+            }}
+            leaveRef={entryLeaveRef}
+            onRecordingDiscarded={backFromAdd}
           />
         )}
         {current === 'readItBack' && session && (

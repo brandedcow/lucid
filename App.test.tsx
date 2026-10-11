@@ -31,6 +31,7 @@ jest.mock('expo-audio', () => ({
   useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() }),
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
+  RecordingPresets: { HIGH_QUALITY: {} },
 }));
 // journals.json is read through the real storage (and the fake file system); a test can swap the read.
 let mockLoadJournals: (() => Promise<unknown[]>) | null = null;

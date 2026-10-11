@@ -34,7 +34,8 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  * - onBack: the back arrow; the parent decides what it does (leave prompt, close).
  * - saving: a save is in flight; the check and back do nothing and the fields are locked.
  * - autoFocus: focus the title on open (a new entry).
- * - attachment: slot above the title for the voice attachment card (later).
+ * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
+ * - attachment: slot above the title for the voice attachment card (see AddEntryWithVoice).
  * - toolbar: slot at the bottom, above the keyboard, for undo / redo / mic / # (later).
  */
 export type AddEntryScreenProps = {
@@ -54,6 +55,7 @@ export type AddEntryScreenProps = {
   onSave: () => void;
   onBack: () => void;
   saving?: boolean;
+  saveDisabled?: boolean;
   autoFocus?: boolean;
   attachment?: ReactNode;
   toolbar?: ReactNode;
@@ -76,12 +78,14 @@ export function AddEntryScreen({
   onSave,
   onBack,
   saving = false,
+  saveDisabled = false,
   autoFocus = false,
   attachment,
   toolbar,
 }: AddEntryScreenProps) {
   const copy = journalCopy(journal);
-  const canSave = (!titleRequired(journal.kind) || title.trim().length > 0) && !saving;
+  const canSave =
+    (!titleRequired(journal.kind) || title.trim().length > 0) && !saving && !saveDisabled;
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);

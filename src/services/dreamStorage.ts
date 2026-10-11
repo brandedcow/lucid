@@ -2,6 +2,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { Dream, DreamDetails } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
 import { splitEmotions } from '../utils/emotions';
+import { isValidWaveform, sanitizeWaveform } from '../utils/waveform';
 
 // Paths.document can change between app updates on iOS, so resolve it on every call
 // and persist only file names.
@@ -91,7 +92,12 @@ async function readIndex(): Promise<Dream[]> {
     // filled in: it stays absent and reads as 'dreams' wherever journals are matched
     // (`entriesFor`), so display never differs from storage and the save path (raw index) never
     // stamps it onto an old record.
-    return dreams.map((d) => ({ ...d, title: d.title ?? '', tags: d.tags ?? [] }));
+    return dreams.map((d) => {
+      const dream: Dream = { ...d, title: d.title ?? '', tags: d.tags ?? [] };
+      // An unusable waveform is ignored for display; the stored record is left alone.
+      if ('waveform' in dream && !isValidWaveform(dream.waveform)) delete dream.waveform;
+      return dream;
+    });
   } catch {
     return [];
   }
@@ -194,6 +200,11 @@ export type SaveDreamInput = {
   /** A finished recording to copy into permanent storage (the original is deleted once saved) (only used if the dream has no audio yet). */
   recordingUri?: string;
   durationMs?: number;
+  /**
+   * Loudness peaks (0..1) of `recordingUri`, stored with the recording when it is copied in. An
+   * invalid list is dropped (the entry still saves). Ignored when no recording is copied.
+   */
+  waveform?: number[];
   details: DreamDetails;
   /** 'saved' needs a title; 'draft' does not. */
   status: 'draft' | 'saved';
@@ -278,6 +289,13 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
     else delete dream.transcript;
     if (status === 'draft') dream.status = 'draft';
     else delete dream.status;
+    // The waveform belongs to the recording copied in by this save; an existing entry keeps its
+    // own. Whatever ends up stored is valid or absent.
+    if (copied) {
+      const waveform = sanitizeWaveform(input.waveform);
+      if (waveform) dream.waveform = waveform;
+      else delete dream.waveform;
+    } else if ('waveform' in dream && !isValidWaveform(dream.waveform)) delete dream.waveform;
 
     // Best effort: keep the previous index. Not atomic with the write below (the overwrite copy
     // removes the old backup first). A zero-length index is never copied over the backup.

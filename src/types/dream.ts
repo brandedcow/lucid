@@ -23,6 +23,11 @@ export type Dream = {
    * count as 'dreams' (see `entriesFor`) and are never rewritten to add it.
    */
   journalId?: JournalId;
+  /**
+   * Peaks (0..1, 56 or so) of the recording's loudness, for the playback card. Optional and
+   * additive: absent on older entries and on written ones; an invalid value is ignored on load.
+   */
+  waveform?: number[];
 };
 
 /** The stored record type serves every journal (Dreams, Life, ...); `Dream` is its original name. */
