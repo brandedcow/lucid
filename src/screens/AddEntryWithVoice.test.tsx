@@ -700,7 +700,7 @@ describe('tag suggestions', () => {
     screen
       .queryAllByRole('button')
       .map((b) => b.props.accessibilityLabel as string)
-      .filter((l) => /^(Tag|Create) #/.test(l ?? ''));
+      .filter((l) => /^Tag #/.test(l ?? ''));
   const dock = () => screen.getByTestId('entry-bottom-dock');
 
   it('is hidden with no token, and not in the tree', async () => {
@@ -727,25 +727,25 @@ describe('tag suggestions', () => {
     expect(pills()).toEqual(many.slice(0, 8).map((t) => `Tag #${t}`));
   });
 
-  it('filters by prefix then substring, with a Create hint first for a new word', async () => {
+  it('filters by prefix then substring; a word nothing matches shows no bar at all', async () => {
     await renderPage({ knownTags: [...KNOWN, 'sea-water'] });
     await type('x #wat');
-    expect(pills()).toEqual(['Create #wat', 'Tag #water', 'Tag #waterfall', 'Tag #sea-water']);
+    expect(pills()).toEqual(['Tag #water', 'Tag #waterfall', 'Tag #sea-water']);
     await type('x #wolf');
-    expect(pills()).toEqual(['Create #wolf']);
+    expect(pills()).toEqual([]);
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
   });
 
-  it('has no Create hint for an exact existing tag', async () => {
+  it('offers an exact existing tag first', async () => {
     await renderPage({ knownTags: KNOWN });
     await type('#water');
     expect(pills()[0]).toBe('Tag #water');
-    expect(pills().some((l) => l.startsWith('Create'))).toBe(false);
   });
 
   it('works mid-sentence: the cursor inside a tag in the middle of the text', async () => {
     await renderPage({ knownTags: KNOWN });
     await type('before #fl after', 10);
-    expect(pills()).toEqual(['Tag #flying', 'Create #fl'].reverse());
+    expect(pills()).toEqual(['Tag #flying']);
   });
 
   it('hides for a range selection', async () => {
@@ -781,15 +781,29 @@ describe('tag suggestions', () => {
     expect(body().props.selection).toEqual({ start: 10, end: 10 });
   });
 
-  it('the Create hint only dismisses the bar; the text stays', async () => {
-    await renderPage({ knownTags: KNOWN });
-    await type('hi #new');
-    await press('Create #new');
-    expect(bodyText(body())).toBe('hi #new');
+  it('suggests tags already typed in this entry, with an empty library', async () => {
+    await renderPage({ knownTags: [] });
+    await type('#dream and more');
+    await type('#dream and more #d', 18);
+    expect(pills()).toEqual(['Tag #dream']);
+    await press('Tag #dream');
+    expect(bodyText(body())).toBe('#dream and more #dream ');
+  });
+
+  it('does not offer the word being typed itself, and updates on the terminating space', async () => {
+    await renderPage({ knownTags: [] });
+    await type('#dre');
     expect(screen.queryByTestId('tag-suggestions')).toBeNull();
-    // Another token brings it back.
-    await type('hi #new #fl');
-    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+    // The space ends the tag; the very next "#d" sees it with no pause or selection in between.
+    await fireEvent.changeText(body(), '#dre #d');
+    await select(7);
+    expect(pills()).toEqual(['Tag #dre']);
+  });
+
+  it('merges stored and current tags: stored first within a tier, deduped, sanitised', async () => {
+    await renderPage({ knownTags: ['dusk', 'bad dream'] });
+    await type('#dawn #dusk #adrift #d', 22);
+    expect(pills()).toEqual(['Tag #dusk', 'Tag #dawn', 'Tag #bad-dream', 'Tag #adrift']);
   });
 
   it('the # button shows the bar at once with all existing tags', async () => {

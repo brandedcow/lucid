@@ -4,12 +4,8 @@ import { colors, spacing } from '../theme';
 type Props = {
   /** Existing tags to offer (without "#"). */
   matches: string[];
-  /** A new tag being typed, offered as a `Create #tag` hint (first), or null. */
-  create: string | null;
   /** A suggestion was tapped: complete the token with this tag. */
   onPick: (tag: string) => void;
-  /** The create hint was tapped: nothing to do but put the bar away. */
-  onDismiss: () => void;
 };
 
 /**
@@ -17,8 +13,8 @@ type Props = {
  * a "#tag" is being typed. Taps keep the keyboard open (`keyboardShouldPersistTaps="always"`: this
  * scroll view is outside the page's own).
  */
-export function TagSuggestionBar({ matches, create, onPick, onDismiss }: Props) {
-  if (matches.length === 0 && create === null) return null;
+export function TagSuggestionBar({ matches, onPick }: Props) {
+  if (matches.length === 0) return null;
   return (
     <ScrollView
       testID="tag-suggestions"
@@ -28,16 +24,6 @@ export function TagSuggestionBar({ matches, create, onPick, onDismiss }: Props) 
       style={styles.bar}
       contentContainerStyle={styles.row}
     >
-      {create !== null && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Create #${create}`}
-          onPress={onDismiss}
-          style={[styles.pill, styles.createPill]}
-        >
-          <Text style={styles.createText}>Create #{create}</Text>
-        </Pressable>
-      )}
       {matches.map((tag) => (
         <Pressable
           key={tag}
@@ -67,7 +53,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
-  createPill: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border },
   text: { color: colors.accent, fontWeight: '600', fontSize: 14 },
-  createText: { color: colors.muted, fontSize: 14 },
 });

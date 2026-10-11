@@ -6,7 +6,13 @@ import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
 import { EntryAudio } from '../hooks/useEntrySession';
 import { useEntryHistory } from '../hooks/useEntryHistory';
-import { activeToken, completeToken, inlineTagFor, insertHash } from '../utils/inlineTags';
+import {
+  activeToken,
+  completeToken,
+  inlineTagFor,
+  inlineTags,
+  insertHash,
+} from '../utils/inlineTags';
 import { suggestTags } from '../utils/tagSuggestions';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
@@ -33,8 +39,9 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  *   the suggestion bar.
  *
  * Tag suggestion bar (dock, above the toolbar): shown while the cursor is in a "#word" and there is
- * something to offer: existing tags (prefix matches, then substring, up to 8) and, for a new word,
- * a `Create #word` hint that only puts the bar away (the tag is made by typing it). Tapping a tag
+ * something to offer: stored tags plus the tags already typed elsewhere in this entry (prefix matches,
+ * then substring, up to 8; see suggestTags). A word nothing matches shows no bar (a new tag needs no
+ * action: it is stored from the text on save). Tapping a tag
  * completes the word ("#tag " with the cursor after the space) as ONE undo step, like the # button.
  *
  * Toolbar: undo / redo (body text and closing the voice note card, one shared stack; not title or
@@ -122,7 +129,6 @@ export function AddEntryWithVoice({
     null,
   );
   const [bodyFocusSignal, setBodyFocusSignal] = useState(0);
-  // The "#" position whose `Create` hint was tapped; the bar stays away until the cursor leaves it.
   // The body has focus: the bar shows only then (not with the title focused or the keyboard closed).
   // A pill tap does not move focus, so it does not hide the bar mid-tap.
   const [bodyFocused, setBodyFocused] = useState(false);
@@ -133,7 +139,6 @@ export function AddEntryWithVoice({
     );
     return () => hide.remove();
   }, []);
-  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
 
   /** A tag action: its own undo step, apart from the typing around it; the cursor follows the text. */
   const applyTagEdit = (next: { text: string; cursor: number }) => {
@@ -161,22 +166,21 @@ export function AddEntryWithVoice({
     return out;
   }, [knownTags]);
   const token = cursor && cursor.start === cursor.end ? activeToken(body, cursor.end) : null;
-  if (!token && dismissedAt !== null) setDismissedAt(null);
-  const offered = token ? suggestTags(inlineKnownTags, token.query) : null;
-  const showBar =
-    !saving &&
-    bodyFocused &&
-    token !== null &&
-    token.start !== dismissedAt &&
-    offered !== null &&
-    (offered.matches.length > 0 || offered.create !== null);
+  // Tags elsewhere in this entry (the word under the cursor left out), computed from the body on
+  // every render so a tag counts the moment its terminating space is typed.
+  const offered = token
+    ? suggestTags(
+        inlineKnownTags,
+        inlineTags(body.slice(0, token.start) + ' ' + body.slice(token.end)),
+        token.query,
+      )
+    : [];
+  const showBar = !saving && bodyFocused && token !== null && offered.length > 0;
   const suggestions =
     showBar && token && offered ? (
       <TagSuggestionBar
-        matches={offered.matches}
-        create={offered.create}
+        matches={offered}
         onPick={(tag) => applyTagEdit(completeToken(body, token, tag))}
-        onDismiss={() => setDismissedAt(token.start)}
       />
     ) : undefined;
 
