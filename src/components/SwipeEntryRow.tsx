@@ -4,7 +4,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { colors, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { dreamRow } from '../utils/dreamLog';
-import { JournalCopy } from '../utils/journals';
+import { Journal, JournalCopy } from '../utils/journals';
 import { EntryRow } from './EntryRow';
 import { TodayEntryRow } from './TodayEntryRow';
 
@@ -37,6 +37,7 @@ export function useSingleOpenRow() {
  */
 export const SwipeEntryRow = memo(function SwipeEntryRow({
   dream,
+  journals,
   copy,
   onOpenDream,
   onOpenDraft,
@@ -49,6 +50,8 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
   variant = 'card',
 }: {
   dream: Dream;
+  /** The journal registry, for the row's kind. */
+  journals: readonly Journal[];
   copy: JournalCopy;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
@@ -85,6 +88,7 @@ export const SwipeEntryRow = memo(function SwipeEntryRow({
   const card = (
     <Row
       dream={dream}
+      journals={journals}
       untitled={copy.untitled}
       onOpenDream={onOpenDream}
       onOpenDraft={onOpenDraft}

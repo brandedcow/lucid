@@ -90,7 +90,7 @@ export function ReviewScreen({
   date,
   journal = BUILT_IN_JOURNALS[0],
 }: ReviewScreenProps) {
-  const copy = journalCopy(journal.kind);
+  const copy = journalCopy(journal);
   const needsTitle = titleRequired(journal.kind);
   const dateLine = date ? `${copy.datePrefix}${date}` : copy.dateFallback;
   const [knownTags, setKnownTags] = useState<string[]>([]);

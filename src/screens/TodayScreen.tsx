@@ -10,7 +10,14 @@ import { Entry, hasAudio } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { formatToday } from '../utils/format';
 import { journalLabel } from '../utils/journalSearch';
-import { BUILT_IN_JOURNALS, journalCopy, journalOf, kindOf } from '../utils/journals';
+import {
+  Journal,
+  journalCopy,
+  journalOf,
+  journalOrDefault,
+  kindCopy,
+  kindOf,
+} from '../utils/journals';
 import { entriesToday } from '../utils/today';
 
 /** All wording of the Today page, in one place. */
@@ -28,6 +35,7 @@ export const TODAY_COPY = {
  * drafts included, newest first.
  *
  * Props:
+ * - `journals`: the journal registry; entries of other journals are not shown.
  * - `dreams`: every stored record (all journals). `null` while loading.
  * - `todayKey`: the local day to show.
  * - `skippedToday`: the user chose "No dream" today; shows a quiet line when no Dream entry or draft exists today.
@@ -40,6 +48,7 @@ export const TODAY_COPY = {
  * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right).
  */
 type Props = {
+  journals: readonly Journal[];
   dreams: Entry[] | null;
   todayKey: string;
   skippedToday: boolean;
@@ -56,6 +65,7 @@ type Props = {
 type Item = { type: 'skip' } | { type: 'entry'; dream: Entry };
 
 export function TodayScreen({
+  journals,
   dreams,
   todayKey,
   skippedToday,
@@ -69,7 +79,10 @@ export function TodayScreen({
   onOpenSettings,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const rows = useMemo(() => entriesToday(dreams ?? [], todayKey), [dreams, todayKey]);
+  const rows = useMemo(
+    () => entriesToday(journals, dreams ?? [], todayKey),
+    [journals, dreams, todayKey],
+  );
   const showSkip = skippedToday && !rows.some((r) => journalOf(r) === 'dreams');
   const items = useMemo<Item[]>(
     () => [
@@ -109,19 +122,22 @@ export function TodayScreen({
     },
     [closeOpenRow],
   );
-  const handleDelete = useCallback((dream: Entry, closeRow: () => void) => {
-    if (confirmOpen.current) return;
-    confirmOpen.current = true;
-    confirmDeleteDream({
-      hasAudio: hasAudio(dream),
-      kind: kindOf(journalOf(dream)),
-      onClose: () => {
-        confirmOpen.current = false;
-        closeRow();
-      },
-      onConfirm: () => deleteRef.current(dream),
-    });
-  }, []);
+  const handleDelete = useCallback(
+    (dream: Entry, closeRow: () => void) => {
+      if (confirmOpen.current) return;
+      confirmOpen.current = true;
+      confirmDeleteDream({
+        hasAudio: hasAudio(dream),
+        kind: kindOf(journals, journalOf(dream)),
+        onClose: () => {
+          confirmOpen.current = false;
+          closeRow();
+        },
+        onConfirm: () => deleteRef.current(dream),
+      });
+    },
+    [journals],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: Item }) =>
@@ -131,8 +147,9 @@ export function TodayScreen({
         <SwipeEntryRow
           variant="today"
           dream={item.dream}
-          copy={journalCopy(kindOf(journalOf(item.dream)))}
-          journalLabel={journalLabel(item.dream)}
+          journals={journals}
+          copy={journalCopy(journalOrDefault(journals, journalOf(item.dream)))}
+          journalLabel={journalLabel(journals, item.dream)}
           onOpenDream={handleOpenEntry}
           onOpenDraft={handleOpenDraft}
           onDelete={handleDelete}
@@ -142,7 +159,15 @@ export function TodayScreen({
           swipeLocked={deletingId !== null}
         />
       ),
-    [handleOpenEntry, handleOpenDraft, handleDelete, onRowWillOpen, onRowClosed, deletingId],
+    [
+      journals,
+      handleOpenEntry,
+      handleOpenDraft,
+      handleDelete,
+      onRowWillOpen,
+      onRowClosed,
+      deletingId,
+    ],
   );
   const keyExtractor = useCallback(
     (item: Item) => (item.type === 'skip' ? 'skip' : `d:${item.dream.id}`),
@@ -170,7 +195,7 @@ export function TodayScreen({
   } else if (unreadable && dreams.length === 0) {
     body = (
       <View style={styles.empty}>
-        <Text style={styles.emptyBody}>{journalCopy('journal').unreadableLog}</Text>
+        <Text style={styles.emptyBody}>{kindCopy('journal').unreadableLog}</Text>
       </View>
     );
   } else {
@@ -216,7 +241,7 @@ export function TodayScreen({
       </SafeAreaView>
 
       <AddEntryMenu
-        journals={BUILT_IN_JOURNALS}
+        journals={journals}
         onPick={onNewEntry}
         disabled={deletingId != null}
         bottomInset={insets.bottom}

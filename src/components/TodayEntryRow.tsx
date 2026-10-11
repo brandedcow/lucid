@@ -4,7 +4,7 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { dreamRow, RowChip } from '../utils/dreamLog';
 import { formatTimeOfDay } from '../utils/format';
-import { entryNoun, journalOf, kindOf } from '../utils/journals';
+import { entryNoun, Journal, journalOf, journalOrDefault } from '../utils/journals';
 import { splitParagraphs } from '../utils/paragraphs';
 import { OutlinedChips } from './OutlinedChips';
 
@@ -17,6 +17,7 @@ import { OutlinedChips } from './OutlinedChips';
  */
 type Props = {
   dream: Dream;
+  journals: readonly Journal[];
   untitled: string;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
@@ -31,6 +32,7 @@ const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
 export const TodayEntryRow = memo(function TodayEntryRow({
   dream,
+  journals,
   untitled,
   onOpenDream,
   onOpenDraft,
@@ -39,9 +41,10 @@ export const TodayEntryRow = memo(function TodayEntryRow({
   journalLabel,
 }: Props) {
   const row = useMemo(() => dreamRow(dream, new Date(), untitled), [dream, untitled]);
-  const kind = kindOf(journalOf(dream));
+  const journal = journalOrDefault(journals, journalOf(dream));
+  const kind = journal.kind;
   const time = formatTimeOfDay(new Date(dream.createdAt));
-  const noun = entryNoun(kind);
+  const noun = entryNoun(journal);
   const untitledLife = row.ownTitle === '' && kind === 'journal';
   // A draft shows its title (or the untitled copy) and no body; an untitled Life entry has no title line.
   const title = row.isDraft ? row.title : untitledLife ? '' : row.title;

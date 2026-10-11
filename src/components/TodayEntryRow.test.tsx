@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react-native
 import { StyleSheet } from 'react-native';
 import { colors } from '../theme';
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { TodayEntryRow } from './TodayEntryRow';
 
 const dream = (over: Partial<Dream> = {}): Dream => ({
@@ -23,6 +24,7 @@ const setup = async (props: Partial<React.ComponentProps<typeof TodayEntryRow>> 
   await render(
     <TodayEntryRow
       dream={dream()}
+      journals={BUILT_IN_JOURNALS}
       untitled="Untitled dream"
       onOpenDream={onOpenDream}
       onOpenDraft={onOpenDraft}
@@ -33,6 +35,19 @@ const setup = async (props: Partial<React.ComponentProps<typeof TodayEntryRow>> 
 };
 
 describe('TodayEntryRow', () => {
+  it('labels an entry of a custom journal with the journal name', async () => {
+    await setup({
+      dream: dream({ journalId: 'j_x' }),
+      journals: [...BUILT_IN_JOURNALS, { id: 'j_x', name: 'Gratitude', kind: 'journal' }],
+    });
+    expect(screen.getByText('Gratitude · 6:22 AM')).toBeTruthy();
+  });
+
+  it('keeps the built-in labels (Dream, Life)', async () => {
+    await setup({ dream: dream({ journalId: 'life' }) });
+    expect(screen.getByText('Life · 6:22 AM')).toBeTruthy();
+  });
+
   it('shows an uppercase label line with noun and time of day', async () => {
     await setup();
     const node = screen.getByText('Dream · 6:22 AM');

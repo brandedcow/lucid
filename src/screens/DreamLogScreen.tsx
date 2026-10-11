@@ -76,7 +76,9 @@ export function DreamLogScreen({
   onBack,
 }: Props) {
   const kind = journal.kind;
-  const copy = journalCopy(kind);
+  const copy = journalCopy(journal);
+  // Every entry on this screen belongs to `journal`, so it is the registry for the rows.
+  const rowJournals = useMemo(() => [journal], [journal]);
   const insets = useSafeAreaInsets();
   const { tags, query, searching, offsetRef } = view;
   const listRef = useRef<FlatList<LogItem>>(null);
@@ -168,6 +170,7 @@ export function DreamLogScreen({
         </Text>
       ) : (
         <SwipeEntryRow
+          journals={rowJournals}
           dream={item.dream}
           copy={copy}
           onOpenDream={handleOpenDream}
@@ -179,7 +182,16 @@ export function DreamLogScreen({
           swipeLocked={deletingId !== null}
         />
       ),
-    [handleOpenDream, handleOpenDraft, handleDelete, onRowWillOpen, onRowClosed, deletingId, copy],
+    [
+      handleOpenDream,
+      handleOpenDraft,
+      handleDelete,
+      onRowWillOpen,
+      onRowClosed,
+      deletingId,
+      copy,
+      rowJournals,
+    ],
   );
   const keyExtractor = useCallback(
     (item: LogItem) => (item.type === 'header' ? `h:${item.key}` : `d:${item.dream.id}`),

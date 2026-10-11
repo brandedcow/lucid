@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { JournalsScreen } from './JournalsScreen';
 
 const METRICS = {
@@ -15,6 +16,7 @@ async function setup(props: Props = {}) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <JournalsScreen
+        journals={BUILT_IN_JOURNALS}
         counts={{ dreams: 12, life: 5 }}
         onOpenJournal={onOpenJournal}
         onSearch={onSearch}

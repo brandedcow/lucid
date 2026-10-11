@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogView, useLogView } from '../hooks/useLogView';
 import { Dream } from '../types/dream';
 import { SearchIcon } from '../components/SearchIcon';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { SearchScreen } from './SearchScreen';
 
 const METRICS = {
@@ -45,6 +46,7 @@ async function setup(records: Dream[] | null = RECORDS, status: 'ok' | 'unreadab
     return (
       <SafeAreaProvider initialMetrics={METRICS}>
         <SearchScreen
+          journals={BUILT_IN_JOURNALS}
           records={records}
           indexStatus={status}
           view={logView}

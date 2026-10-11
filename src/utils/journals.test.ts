@@ -7,8 +7,12 @@ import {
   entriesFor,
   journalById,
   entryNoun,
+  isBuiltInJournal,
+  Journal,
   journalCopy,
   journalOf,
+  journalOrDefault,
+  kindCopy,
   kindOf,
   showsEmotion,
   titleRequired,
@@ -56,11 +60,11 @@ describe('built-in journals', () => {
     ]);
   });
   it('journalById finds built-ins and not others; kindOf falls back to dream', () => {
-    expect(journalById('life')?.name).toBe('Life');
-    expect(journalById('nope')).toBeUndefined();
-    expect(kindOf('dreams')).toBe('dream');
-    expect(kindOf('life')).toBe('journal');
-    expect(kindOf('nope')).toBe('dream');
+    expect(journalById(BUILT_IN_JOURNALS, 'life')?.name).toBe('Life');
+    expect(journalById(BUILT_IN_JOURNALS, 'nope')).toBeUndefined();
+    expect(kindOf(BUILT_IN_JOURNALS, 'dreams')).toBe('dream');
+    expect(kindOf(BUILT_IN_JOURNALS, 'life')).toBe('journal');
+    expect(kindOf(BUILT_IN_JOURNALS, 'nope')).toBe('dream');
   });
   it('titleRequired and showsEmotion', () => {
     expect(titleRequired('dream')).toBe(true);
@@ -71,7 +75,7 @@ describe('built-in journals', () => {
 });
 
 describe('journalCopy dream values are the strings in use today', () => {
-  const c = journalCopy('dream');
+  const c = journalCopy(BUILT_IN_JOURNALS[0]);
   it('match the literals', () => {
     expect(c).toMatchObject({
       captureHeadline: 'What happened in my dream?',
@@ -128,7 +132,7 @@ describe('journalCopy dream values are the strings in use today', () => {
 });
 
 describe('journalCopy life values', () => {
-  const c = journalCopy('journal');
+  const c = journalCopy(BUILT_IN_JOURNALS[1]);
   it('match the approved wording', () => {
     expect(c).toMatchObject({
       captureHeadline: 'What happened today?',
@@ -166,7 +170,74 @@ describe('journalCopy life values', () => {
 
 describe('entryNoun', () => {
   it('is the singular noun for each kind', () => {
-    expect(entryNoun('dream')).toBe('Dream');
-    expect(entryNoun('journal')).toBe('Life');
+    expect(entryNoun(BUILT_IN_JOURNALS[0])).toBe('Dream');
+    expect(entryNoun(BUILT_IN_JOURNALS[1])).toBe('Life');
+  });
+});
+
+describe('Life copy golden strings', () => {
+  it('journalCopy(Life) keeps every name-bearing string it had', () => {
+    const c = journalCopy(BUILT_IN_JOURNALS[1]);
+    expect(c).toEqual(kindCopy('journal'));
+    expect(c).toMatchObject({
+      logHeader: 'Life',
+      datePrefix: 'Life · ',
+      dateFallback: 'Life',
+      searchLabel: 'Search entries',
+      emptyTitle: 'No entries yet.',
+      emptyBody: 'Tap New entry to record one.',
+    });
+  });
+  it('journalCopy(Dreams) is the Dreams kind copy', () => {
+    const c = journalCopy(BUILT_IN_JOURNALS[0]);
+    expect(c).toEqual(kindCopy('dream'));
+    expect(c).toMatchObject({
+      logHeader: 'Dreams',
+      datePrefix: 'Dream · ',
+      dateFallback: 'Dream',
+      searchLabel: 'Search dreams',
+      emptyTitle: 'No dreams yet.',
+      emptyBody: 'Tap New dream to record one.',
+    });
+  });
+});
+
+describe('isBuiltInJournal', () => {
+  it('is true for dreams and life only', () => {
+    expect(isBuiltInJournal('dreams')).toBe(true);
+    expect(isBuiltInJournal('life')).toBe(true);
+    expect(isBuiltInJournal('j_x')).toBe(false);
+    expect(isBuiltInJournal('toString')).toBe(false);
+  });
+});
+
+describe('a custom journal', () => {
+  const gratitude: Journal = { id: 'j_x', name: 'Gratitude', kind: 'journal' };
+  const registry = [...BUILT_IN_JOURNALS, gratitude];
+
+  it('fills the name-bearing copy from its name and keeps the rest kind-based', () => {
+    const c = journalCopy(gratitude);
+    expect(c).toMatchObject({
+      logHeader: 'Gratitude',
+      datePrefix: 'Gratitude · ',
+      dateFallback: 'Gratitude',
+      searchLabel: 'Search Gratitude',
+      emptyTitle: 'No Gratitude entries yet.',
+      emptyBody: 'Tap New entry to record one.',
+      saveButton: 'Save entry',
+      untitled: 'Untitled entry',
+      deleteTitle: 'Delete this entry?',
+    });
+  });
+  it('uses its name as the entry noun', () => {
+    expect(entryNoun(gratitude)).toBe('Gratitude');
+  });
+  it('is found in a registry that has it, and unknown ids stay unknown', () => {
+    expect(journalById(registry, 'j_x')).toBe(gratitude);
+    expect(kindOf(registry, 'j_x')).toBe('journal');
+    expect(journalById(BUILT_IN_JOURNALS, 'j_x')).toBeUndefined();
+    expect(kindOf(BUILT_IN_JOURNALS, 'j_x')).toBe('dream');
+    expect(journalOrDefault(BUILT_IN_JOURNALS, 'j_x')).toBe(BUILT_IN_JOURNALS[0]);
+    expect(journalOrDefault(registry, 'j_x')).toBe(gratitude);
   });
 });

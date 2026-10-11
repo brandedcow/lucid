@@ -3,8 +3,10 @@ import { StyleSheet, ViewStyle } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { colors } from '../theme';
 import { Dream } from '../types/dream';
-import { journalCopy } from '../utils/journals';
+import { BUILT_IN_JOURNALS, journalCopy } from '../utils/journals';
 import { SwipeEntryRow, useSingleOpenRow } from './SwipeEntryRow';
+
+const [DREAMS, LIFE] = BUILT_IN_JOURNALS;
 
 const fakeRow = () => {
   const close = jest.fn();
@@ -52,10 +54,12 @@ describe('useSingleOpenRow', () => {
 });
 
 describe('journalCopy', () => {
-  it('returns the same object for the same kind, so memoized rows keep their props', () => {
-    expect(journalCopy('dream')).toBe(journalCopy('dream'));
-    expect(journalCopy('journal')).toBe(journalCopy('journal'));
-    expect(journalCopy('dream')).not.toBe(journalCopy('journal'));
+  const custom = { id: 'j_x', name: 'Gratitude', kind: 'journal' as const };
+  it('returns the same object for the same journal, so memoized rows keep their props', () => {
+    expect(journalCopy(DREAMS)).toBe(journalCopy(DREAMS));
+    expect(journalCopy(LIFE)).toBe(journalCopy(LIFE));
+    expect(journalCopy(DREAMS)).not.toBe(journalCopy(LIFE));
+    expect(journalCopy(custom)).toBe(journalCopy(custom));
   });
 });
 
@@ -74,7 +78,8 @@ describe('SwipeEntryRow variants', () => {
     await render(
       <SwipeEntryRow
         dream={dream}
-        copy={journalCopy('dream')}
+        journals={BUILT_IN_JOURNALS}
+        copy={journalCopy(DREAMS)}
         onOpenDream={jest.fn()}
         onOpenDraft={jest.fn()}
         onDelete={onDelete}
@@ -92,7 +97,7 @@ describe('SwipeEntryRow variants', () => {
     await setup();
     expect(screen.queryByText('Dream · 6:22 AM')).toBeNull();
     expect(screen.getByText('SUN')).toBeTruthy(); // the card's date column
-    const del = screen.getByLabelText(journalCopy('dream').deleteRowLabel('The endless hallway'), {
+    const del = screen.getByLabelText(journalCopy(DREAMS).deleteRowLabel('The endless hallway'), {
       includeHiddenElements: true,
     });
     expect(StyleSheet.flatten(del.props.style).borderRadius).toBe(16);
@@ -102,7 +107,7 @@ describe('SwipeEntryRow variants', () => {
     const { onDelete } = await setup('today');
     expect(screen.getByText('Body text here.')).toBeTruthy();
     expect(screen.getByText('Dream · 6:22 AM')).toBeTruthy();
-    const del = screen.getByLabelText(journalCopy('dream').deleteRowLabel('The endless hallway'), {
+    const del = screen.getByLabelText(journalCopy(DREAMS).deleteRowLabel('The endless hallway'), {
       includeHiddenElements: true,
     });
     expect(StyleSheet.flatten(del.props.style).borderRadius).toBe(0);

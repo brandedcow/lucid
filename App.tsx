@@ -30,7 +30,7 @@ import { formatToday } from './src/utils/format';
 import {
   BUILT_IN_JOURNALS,
   entriesFor,
-  journalById,
+  journalOrDefault,
   journalCopy,
   journalOf,
   kindOf,
@@ -70,8 +70,6 @@ type DetailFrom = 'log' | 'search' | 'today';
 // outranks the launch rule.
 const LAUNCH_CAP_MS = 1000;
 
-const journalFor = (id: JournalId): Journal => journalById(id) ?? BUILT_IN_JOURNALS[0];
-
 // Retrying will not help in the safety-copy case, so that message does not say so.
 function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
   if (isIndexUnreadableError(e)) return copy.deleteFailureUnreadable;
@@ -102,7 +100,10 @@ export default function App() {
   const [fromReview, setFromReview] = useState(false);
   // The finished dream shown on the detail screen.
   const [detailId, setDetailId] = useState<string | null>(null);
-  const dream = useDreamSession();
+  // The journal registry. Built-ins only for now; custom journals will replace this one line.
+  const journals = BUILT_IN_JOURNALS;
+  const journalFor = (id: JournalId): Journal => journalOrDefault(journals, id);
+  const dream = useDreamSession(journals);
   const { session } = dream;
   const library = useDreamLibrary();
   const dayMarker = useDayMarker();
@@ -229,8 +230,8 @@ export default function App() {
     [library.dreams, journalId],
   );
   const counts = useMemo(
-    () => (library.dreams ? journalCounts(library.dreams) : null),
-    [library.dreams],
+    () => (library.dreams ? journalCounts(journals, library.dreams) : null),
+    [journals, library.dreams],
   );
 
   // Opens a journal's log. The log's filter, search and scroll belong to one journal at a time, so
@@ -258,7 +259,7 @@ export default function App() {
   };
 
   const confirmDiscard = () => {
-    const copy = journalCopy(kindOf(session?.journalId ?? DREAMS_JOURNAL));
+    const copy = journalCopy(journalFor(session?.journalId ?? DREAMS_JOURNAL));
     Alert.alert(copy.discardTitle, copy.discardBody, [
       { text: 'Keep', style: 'cancel' },
       {
@@ -314,7 +315,7 @@ export default function App() {
     if (finishing.current || !session) return;
     const isEdit = session.origin === 'edit';
     // Only a journal that requires titles blocks an untitled edit; an untitled Life entry saves.
-    const needsTitle = titleRequired(kindOf(session.journalId));
+    const needsTitle = titleRequired(kindOf(journals, session.journalId));
     if (isEdit && (status === 'draft' || (needsTitle && session.title.trim().length === 0))) return;
     const id = session.id ?? detailId;
     if (isEdit && !hasEdits(session)) {
@@ -350,7 +351,7 @@ export default function App() {
         else showLog(journalOf(target));
       }
     } catch (e) {
-      const copy = journalCopy(kindOf(journalOf(target)));
+      const copy = journalCopy(journalFor(journalOf(target)));
       Alert.alert(copy.deleteFailureTitle, deleteFailureMessage(e, copy));
     } finally {
       deleting.current = false;
@@ -366,7 +367,7 @@ export default function App() {
       showDetail(id);
       return;
     }
-    Alert.alert(DISCARD_CHANGES_TITLE, discardChangesMessage(kindOf(session.journalId)), [
+    Alert.alert(DISCARD_CHANGES_TITLE, discardChangesMessage(kindOf(journals, session.journalId)), [
       { text: DISCARD_CHANGES_KEEP, style: 'cancel' },
       { text: DISCARD_CHANGES_DISCARD, style: 'destructive', onPress: () => showDetail(id) },
     ]);
@@ -626,6 +627,7 @@ export default function App() {
         )}
         {current === 'journals' && (
           <JournalsScreen
+            journals={journals}
             counts={counts}
             unreadable={library.indexStatus === 'unreadable'}
             onOpenJournal={showLog}
@@ -635,6 +637,7 @@ export default function App() {
         )}
         {current === 'today' && (
           <TodayScreen
+            journals={journals}
             dreams={library.dreams}
             todayKey={todayKey}
             skippedToday={dayMarker.noDreamDate === todayKey}
@@ -661,6 +664,7 @@ export default function App() {
         )}
         {current === 'search' && (
           <SearchScreen
+            journals={journals}
             records={library.dreams}
             indexStatus={library.indexStatus}
             view={searchView}

@@ -67,15 +67,15 @@ describe('AddEntryMenu', () => {
     const items = screen.getAllByRole('menuitem');
     expect(items).toHaveLength(2);
     BUILT_IN_JOURNALS.forEach((j, i) => {
-      const hint = journalCopy(j.kind).newButton;
+      const hint = journalCopy(j).newButton;
       expect(items[i].props.accessibilityLabel).toBe(`${j.name}, ${hint}`);
       expect(items[i]).toHaveStyle({ minHeight: 88, borderRadius: 16 });
       expect(within(items[i]).getByText('›', { hidden: true })).toBeTruthy();
     });
     expect(screen.getByRole('header', { name: 'Add entry' })).toBeTruthy();
     expect(screen.getByText('Dreams')).toBeTruthy();
-    expect(screen.getByText(journalCopy('journal').newButton)).toBeTruthy();
-    expect(within(items[0]).getByText(journalCopy('dream').newButton)).toBeTruthy();
+    expect(screen.getByText(journalCopy(BUILT_IN_JOURNALS[1]).newButton)).toBeTruthy();
+    expect(within(items[0]).getByText(journalCopy(BUILT_IN_JOURNALS[0]).newButton)).toBeTruthy();
   });
 
   it('picking closes the menu and calls onPick once with the id', async () => {

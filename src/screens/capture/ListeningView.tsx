@@ -4,7 +4,7 @@ import { Waveform } from '../../components/Waveform';
 import { colors, fonts, spacing } from '../../theme';
 import { fadeTail } from '../../utils/fadeTail';
 import { formatDuration, formatToday } from '../../utils/format';
-import { journalCopy } from '../../utils/journals';
+import { kindCopy } from '../../utils/journals';
 
 type Props = {
   durationMs: number;
@@ -47,7 +47,7 @@ export function ListeningView({
   transcript = '',
   transcriptNote = null,
   onSave,
-  saveLabel = journalCopy('dream').saveButton,
+  saveLabel = kindCopy('dream').saveButton,
   onTypeInstead,
   onBack,
   backLabel = 'Back',

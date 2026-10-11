@@ -1,5 +1,5 @@
 import { Entry, isDraft } from '../types/dream';
-import { journalById, journalOf } from './journals';
+import { Journal, journalById, journalOf } from './journals';
 
 /**
  * Which day an entry belongs to is decided by its createdAt, the time it was first stored (a draft
@@ -23,12 +23,16 @@ function dayKeyOf(record: Entry): string | null {
 
 /**
  * The entries created on the given local day, newest first (flat, across journals). Drafts are
- * included. Entries of a journal this version does not know are left out; an entry with no
+ * included. Entries of a journal missing from the given registry are left out; an entry with no
  * journalId counts as Dreams. Does not mutate the input.
  */
-export function entriesToday(records: Entry[], todayKey: string): Entry[] {
+export function entriesToday(
+  journals: readonly Journal[],
+  records: Entry[],
+  todayKey: string,
+): Entry[] {
   return records
-    .filter((r) => dayKeyOf(r) === todayKey && journalById(journalOf(r)) !== undefined)
+    .filter((r) => dayKeyOf(r) === todayKey && journalById(journals, journalOf(r)) !== undefined)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

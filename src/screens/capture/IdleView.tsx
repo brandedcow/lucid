@@ -3,9 +3,9 @@ import { MicIcon } from '../../components/MicIcon';
 import { colors, fonts, spacing } from '../../theme';
 import { formatToday } from '../../utils/format';
 
-import { journalCopy } from '../../utils/journals';
+import { kindCopy } from '../../utils/journals';
 
-const DREAM_COPY = journalCopy('dream');
+const DREAM_COPY = kindCopy('dream');
 
 type Props = {
   onStart: () => void;

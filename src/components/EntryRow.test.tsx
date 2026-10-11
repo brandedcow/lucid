@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { colors } from '../theme';
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { EntryRow } from './EntryRow';
 
 const dream = (over: Partial<Dream> = {}): Dream => ({
@@ -24,6 +25,7 @@ const setup = async (props: Partial<React.ComponentProps<typeof EntryRow>> = {})
   const utils = await render(
     <EntryRow
       dream={dream()}
+      journals={BUILT_IN_JOURNALS}
       untitled="Untitled dream"
       onOpenDream={onOpenDream}
       onOpenDraft={onOpenDraft}

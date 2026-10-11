@@ -1,49 +1,55 @@
 import { JournalId } from '../types/entry';
 import { Entry, isDraft } from '../types/dream';
 import { buildSearchIndex, SearchEntry } from './dreamLog';
-import { BUILT_IN_JOURNALS, journalById, journalCopy, journalOf, kindOf } from './journals';
+import { Journal, journalById, journalCopy, journalOf, journalOrDefault } from './journals';
 
-const isKnownJournal = (record: Entry): boolean =>
-  BUILT_IN_JOURNALS.some((j) => j.id === journalOf(record));
+const isKnownJournal = (journals: readonly Journal[], record: Entry): boolean =>
+  journals.some((j) => j.id === journalOf(record));
 
 // Same rule as listDreams (newest first by createdAt). A missing or non-string createdAt counts as
 // '' and so sorts last; the sort is stable, so ties keep input order.
 const createdAtOf = (r: Entry): string => (typeof r.createdAt === 'string' ? r.createdAt : '');
 
 /**
- * The entries cross-journal search covers: finished entries of known journals only (drafts and
- * entries of an unknown journalId are left out), newest first. Does not mutate the input.
+ * The entries cross-journal search covers: finished entries of journals in the given registry only (drafts and
+ * entries of an unregistered journalId are left out), newest first. Does not mutate the input.
  */
-export function searchableEntries(records: Entry[]): Entry[] {
+export function searchableEntries(journals: readonly Journal[], records: Entry[]): Entry[] {
   return records
-    .filter((r) => !isDraft(r) && isKnownJournal(r))
+    .filter((r) => !isDraft(r) && isKnownJournal(journals, r))
     .sort((a, b) => createdAtOf(b).localeCompare(createdAtOf(a)));
 }
 
 /** The display name of the record's journal ("Dreams", "Life"); '' for an unknown journal. */
-export function journalLabel(record: Entry): string {
-  return journalById(journalOf(record))?.name ?? '';
+export function journalLabel(journals: readonly Journal[], record: Entry): string {
+  return journalById(journals, journalOf(record))?.name ?? '';
 }
 
 /** "Untitled dream" / "Untitled entry": the fallback title for the record's journal. */
-export function untitledLabelOf(record: Entry): string {
-  return journalCopy(kindOf(journalOf(record))).untitled;
+export function untitledLabelOf(journals: readonly Journal[], record: Entry): string {
+  return journalCopy(journalOrDefault(journals, journalOf(record))).untitled;
 }
 
 /** The combined searchable list plus its search index, ready for `filterDreams` / `buildTagChips`. */
-export function searchModel(records: Entry[]): { entries: Entry[]; searchIndex: SearchEntry[] } {
-  const entries = searchableEntries(records);
+export function searchModel(
+  journals: readonly Journal[],
+  records: Entry[],
+): { entries: Entry[]; searchIndex: SearchEntry[] } {
+  const entries = searchableEntries(journals, records);
   return { entries, searchIndex: buildSearchIndex(entries) };
 }
 
 /**
- * Finished entries per built-in journal, for the Journals home. Drafts and entries of an unknown
- * journalId are not counted; a record with no journalId counts as Dreams. Every built-in journal
- * has a key (0 when empty).
+ * Finished entries per journal of the given registry, for the Journals home. Drafts and entries of
+ * an unregistered journalId are not counted; a record with no journalId counts as Dreams. Every
+ * registered journal has a key (0 when empty).
  */
-export function journalCounts(records: Entry[]): Record<JournalId, number> {
+export function journalCounts(
+  journals: readonly Journal[],
+  records: Entry[],
+): Record<JournalId, number> {
   const counts: Record<JournalId, number> = {};
-  for (const j of BUILT_IN_JOURNALS) counts[j.id] = 0;
+  for (const j of journals) counts[j.id] = 0;
   for (const r of records) {
     if (isDraft(r)) continue;
     const id = journalOf(r);

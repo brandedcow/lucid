@@ -5,6 +5,7 @@ import { Entry } from '../types/dream';
 import { FAB_SIZE } from '../components/AddEntryMenu';
 import { colors } from '../theme';
 import { LIFE_JOURNAL } from '../types/entry';
+import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
 import { TodayScreen } from './TodayScreen';
 
 const METRICS = {
@@ -42,6 +43,7 @@ const YESTERDAY = entry({ id: 'yest', createdAt: '2026-10-09T20:00:00', title: '
 const TODAY = '2026-10-10';
 
 type Opts = {
+  journals?: readonly Journal[];
   dreams?: Entry[] | null;
   todayKey?: string;
   skippedToday?: boolean;
@@ -53,6 +55,7 @@ function ui(o: Opts, h: Record<string, jest.Mock>) {
   return (
     <SafeAreaProvider initialMetrics={METRICS}>
       <TodayScreen
+        journals={o.journals ?? BUILT_IN_JOURNALS}
         dreams={o.dreams === undefined ? [DREAM, LIFE, DRAFT, YESTERDAY] : o.dreams}
         todayKey={o.todayKey ?? TODAY}
         skippedToday={o.skippedToday ?? false}
@@ -107,6 +110,19 @@ describe('TodayScreen', () => {
     ).toBeTruthy();
     expect(screen.queryByText('Old news')).toBeNull();
     expect(screen.queryByText('No dream today')).toBeNull();
+  });
+
+  it('shows a custom journal only when it is in the registry passed in', async () => {
+    const custom = entry({ id: 'cust', createdAt: '2026-10-10T08:00:00', journalId: 'j_x' });
+    const gratitude: Journal = { id: 'j_x', name: 'Gratitude', kind: 'journal' };
+    const { rerender } = await setup({
+      dreams: [custom, DREAM],
+      journals: [...BUILT_IN_JOURNALS, gratitude],
+    });
+    expect(screen.getByText('Gratitude · 8:00 AM')).toBeTruthy();
+    await rerender({ dreams: [custom, DREAM] });
+    expect(screen.queryByText('Gratitude · 8:00 AM')).toBeNull();
+    expect(screen.getByText('Dream · 6:30 AM')).toBeTruthy();
   });
 
   it('re-filters when todayKey changes', async () => {

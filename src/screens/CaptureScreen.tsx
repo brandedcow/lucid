@@ -82,7 +82,7 @@ export function CaptureScreen({
   backLabel = 'Back',
   onActiveChange,
 }: Props) {
-  const copy = journalCopy(journal.kind);
+  const copy = journalCopy(journal);
   const [phase, setPhase] = useState<Phase>('idle');
   const activeRef = useRef(onActiveChange);
   useEffect(() => {

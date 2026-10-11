@@ -1,6 +1,6 @@
 import { Alert } from 'react-native';
 import { EntryType } from '../types/entry';
-import { journalCopy } from './journals';
+import { kindCopy } from './journals';
 
 type Options = {
   hasAudio: boolean;
@@ -14,7 +14,7 @@ type Options = {
 
 /** The one "Delete this dream?" (or "entry") confirmation, shared by every place an entry can be deleted. */
 export function confirmDeleteDream({ hasAudio, kind = 'dream', onConfirm, onClose }: Options) {
-  const copy = journalCopy(kind);
+  const copy = kindCopy(kind);
   Alert.alert(
     copy.deleteTitle,
     hasAudio ? copy.deleteBodyWithAudio : copy.deleteBodyNoAudio,

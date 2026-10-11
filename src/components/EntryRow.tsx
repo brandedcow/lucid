@@ -4,13 +4,14 @@ import { colors, fonts, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { DreamRow, dreamRow, limitChips } from '../utils/dreamLog';
 import { formatEntryDateTime } from '../utils/format';
-import { journalOf, kindOf } from '../utils/journals';
+import { Journal, journalOf, kindOf } from '../utils/journals';
 import { DreamChips } from './DreamChips';
 
 /**
  * One entry as a card: a finished entry (date, title, preview, chips) or a draft (title, "Draft"
  * line). Presentational only: the Dream log wraps it in its swipe row.
  * - `dream`: the entry.
+ * - `journals`: the journal registry, used to tell the entry's kind.
  * - `untitled`: the title shown when the entry has none (journal copy).
  * - `onOpenDream(id)` / `onOpenDraft(dream)`: the card was pressed (finished / draft).
  * - `deleting`: dims the card and disables it.
@@ -20,6 +21,7 @@ import { DreamChips } from './DreamChips';
  */
 type Props = {
   dream: Dream;
+  journals: readonly Journal[];
   untitled: string;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
@@ -52,6 +54,7 @@ function accessibleLabel(
 
 export const EntryRow = memo(function EntryRow({
   dream,
+  journals,
   untitled,
   onOpenDream,
   onOpenDraft,
@@ -62,7 +65,8 @@ export const EntryRow = memo(function EntryRow({
 }: Props) {
   const row = useMemo(() => dreamRow(dream, new Date(), untitled), [dream, untitled]);
   // An untitled finished Life entry shows its body as the title (the date is in the date column).
-  const bodyAsTitle = !row.isDraft && row.ownTitle === '' && kindOf(journalOf(dream)) === 'journal';
+  const bodyAsTitle =
+    !row.isDraft && row.ownTitle === '' && kindOf(journals, journalOf(dream)) === 'journal';
   const label = useMemo(
     () => accessibleLabel(row, dream, bodyAsTitle, untitled, journalLabel),
     [row, dream, bodyAsTitle, untitled, journalLabel],

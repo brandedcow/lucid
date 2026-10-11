@@ -167,7 +167,7 @@ export function AddEntryMenu({
             </Text>
             <View style={styles.list}>
               {journals.map((journal) => {
-                const hint = journalCopy(journal.kind).newButton;
+                const hint = journalCopy(journal).newButton;
                 return (
                   <Pressable
                     key={journal.id}

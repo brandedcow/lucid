@@ -3,10 +3,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SearchIcon } from '../components/SearchIcon';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
-import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
+import { Journal, kindCopy } from '../utils/journals';
 
 /**
  * Props:
+ * - `journals`: the journals to list, in display order.
  * - `counts`: finished entries per journal, computed by the parent. `null` while loading (no count
  *   line is shown).
  * - `unreadable`: the saved entries could not be read. Cards stay tappable, without counts, and a
@@ -17,6 +18,7 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
  * - `onBack()`: optional. When given, a back arrow ("Back to Today") shows at the top left.
  */
 type Props = {
+  journals: readonly Journal[];
   counts: Record<JournalId, number> | null;
   unreadable?: boolean;
   onOpenJournal: (id: JournalId) => void;
@@ -33,6 +35,7 @@ export function countLabel(journal: Journal, count: number): string {
 }
 
 export function JournalsScreen({
+  journals,
   counts,
   unreadable = false,
   onOpenJournal,
@@ -67,10 +70,10 @@ export function JournalsScreen({
         </Pressable>
       </View>
 
-      {unreadable && <Text style={styles.unreadable}>{journalCopy('journal').unreadableLog}</Text>}
+      {unreadable && <Text style={styles.unreadable}>{kindCopy('journal').unreadableLog}</Text>}
 
       <View style={styles.list}>
-        {BUILT_IN_JOURNALS.map((journal) => {
+        {journals.map((journal) => {
           const count = showCounts ? (counts[journal.id] ?? 0) : null;
           const line = count === null ? null : countLabel(journal, count);
           return (

@@ -64,7 +64,7 @@ export function ReadItBackScreen({
   date,
   journal = BUILT_IN_JOURNALS[0],
 }: ReadItBackScreenProps) {
-  const copy = journalCopy(journal.kind);
+  const copy = journalCopy(journal);
   const canContinue = text.trim().length > 0 || !!audio;
   const keyboardVisible = useKeyboardVisible();
 

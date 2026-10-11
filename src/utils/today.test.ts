@@ -1,4 +1,5 @@
 import { Dream } from '../types/dream';
+import { BUILT_IN_JOURNALS, Journal } from './journals';
 import { dayStatus, entriesToday, launchScreen, localDateKey, msUntilNextDay } from './today';
 
 const mk = (id: string, createdAt: string, extra: Partial<Dream> = {}): Dream => ({
@@ -34,6 +35,22 @@ describe('localDateKey', () => {
   });
 });
 
+describe('entriesToday with a custom journal', () => {
+  const TODAY = '2026-10-10';
+  const gratitude: Journal = { id: 'j_x', name: 'Gratitude', kind: 'journal' };
+  const records = [
+    mk('c', iso(at(2026, 10, 10, 9)), { journalId: 'j_x' }),
+    mk('d', iso(at(2026, 10, 10, 8))),
+  ];
+
+  it('shows the custom journal only when it is registered; unknown ids stay hidden', () => {
+    expect(
+      entriesToday([...BUILT_IN_JOURNALS, gratitude], records, TODAY).map((r) => r.id),
+    ).toEqual(['c', 'd']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual(['d']);
+  });
+});
+
 describe('entriesToday', () => {
   const TODAY = '2026-10-10';
 
@@ -44,7 +61,10 @@ describe('entriesToday', () => {
       mk('last', iso(at(2026, 10, 10, 23, 59, 59, 999))),
       mk('after', iso(at(2026, 10, 11, 0, 0, 0, 0))),
     ];
-    expect(entriesToday(records, TODAY).map((r) => r.id)).toEqual(['last', 'first']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual([
+      'last',
+      'first',
+    ]);
   });
 
   it('sorts newest first, flat across journals', () => {
@@ -53,7 +73,11 @@ describe('entriesToday', () => {
       mk('b', iso(at(2026, 10, 10, 20))),
       mk('c', iso(at(2026, 10, 10, 12)), { journalId: 'dreams' }),
     ];
-    expect(entriesToday(records, TODAY).map((r) => r.id)).toEqual(['b', 'c', 'a']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual([
+      'b',
+      'c',
+      'a',
+    ]);
   });
 
   it('includes drafts', () => {
@@ -61,13 +85,16 @@ describe('entriesToday', () => {
       mk('draft', iso(at(2026, 10, 10, 9)), { status: 'draft' }),
       mk('done', iso(at(2026, 10, 10, 8))),
     ];
-    expect(entriesToday(records, TODAY).map((r) => r.id)).toEqual(['draft', 'done']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual([
+      'draft',
+      'done',
+    ]);
   });
 
   it('treats a record with no journalId as Dreams (shown)', () => {
     const legacy = mk('legacy', iso(at(2026, 10, 10, 9)));
     expect(legacy.journalId).toBeUndefined();
-    expect(entriesToday([legacy], TODAY)).toEqual([legacy]);
+    expect(entriesToday(BUILT_IN_JOURNALS, [legacy], TODAY)).toEqual([legacy]);
   });
 
   it('hides entries of an unknown journal', () => {
@@ -75,7 +102,7 @@ describe('entriesToday', () => {
       mk('zen', iso(at(2026, 10, 10, 9)), { journalId: 'zen' }),
       mk('life', iso(at(2026, 10, 10, 8)), { journalId: 'life' }),
     ];
-    expect(entriesToday(records, TODAY).map((r) => r.id)).toEqual(['life']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual(['life']);
   });
 
   it('does not count an invalid or missing createdAt as today', () => {
@@ -85,18 +112,18 @@ describe('entriesToday', () => {
       mk('missing', undefined as unknown as string),
       mk('ok', iso(at(2026, 10, 10, 9))),
     ];
-    expect(entriesToday(records, TODAY).map((r) => r.id)).toEqual(['ok']);
+    expect(entriesToday(BUILT_IN_JOURNALS, records, TODAY).map((r) => r.id)).toEqual(['ok']);
   });
 
   it('returns an empty list for no records and does not mutate the input', () => {
-    expect(entriesToday([], TODAY)).toEqual([]);
+    expect(entriesToday(BUILT_IN_JOURNALS, [], TODAY)).toEqual([]);
     const records = [
       mk('a', iso(at(2026, 10, 10, 8))),
       mk('b', iso(at(2026, 10, 10, 20))),
       mk('old', iso(at(2026, 10, 9, 20))),
     ];
     const before = records.map((r) => r.id);
-    entriesToday(records, TODAY);
+    entriesToday(BUILT_IN_JOURNALS, records, TODAY);
     expect(records.map((r) => r.id)).toEqual(before);
   });
 });
