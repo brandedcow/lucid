@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   },
   flush: { marginBottom: 0 },
   deleting: { opacity: 0.45 },
-  draftCard: { backgroundColor: 'transparent', borderColor: colors.faint },
+  draftCard: { backgroundColor: colors.background, borderColor: colors.faint },
   dateCol: { width: 36, alignItems: 'center' },
   weekday: { color: colors.muted, fontSize: 11, letterSpacing: 0.8 },
   day: { color: colors.text, fontFamily: fonts.serif, fontSize: 26 },

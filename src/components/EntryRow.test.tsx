@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
+import { colors } from '../theme';
 import { Dream } from '../types/dream';
 import { EntryRow } from './EntryRow';
 
@@ -57,6 +58,13 @@ describe('EntryRow', () => {
     fireEvent.press(btn);
     expect(onOpenDraft).toHaveBeenCalledWith(draft);
     expect(onOpenDream).not.toHaveBeenCalled();
+  });
+
+  it('gives a draft card an opaque screen background so a swipe does not show through', async () => {
+    await setup({ dream: draft });
+    const style = StyleSheet.flatten(screen.getByRole('button').props.style);
+    expect(style.backgroundColor).toBe(colors.background);
+    expect(style.borderColor).toBe(colors.faint);
   });
 
   it('shows no chevron on a draft', async () => {
