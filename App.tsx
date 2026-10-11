@@ -109,6 +109,9 @@ export default function App() {
   const [detailId, setDetailId] = useState<string | null>(null);
   // True while the "New journal" name sheet is open over Today.
   const [namingJournal, setNamingJournal] = useState(false);
+  // The custom journal whose name is being edited in the Rename sheet over Journals home. Never
+  // open together with the "New journal" sheet.
+  const [renamingJournalId, setRenamingJournalId] = useState<JournalId | null>(null);
   // The journal registry: the built-in journals, then the user's own.
   const journalRegistry = useJournals();
   const { journals } = journalRegistry;
@@ -137,6 +140,8 @@ export default function App() {
   const [deletingJournalId, setDeletingJournalId] = useState<JournalId | null>(null);
   // True while the "Delete this journal?" dialog is up, so a second swipe cannot stack another.
   const journalDialogOpen = useRef(false);
+  // True while a journal delete runs, readable synchronously (rename is refused then).
+  const deletingJournalRef = useRef(false);
   // True while any delete (an entry's or a journal's) runs, readable synchronously: a second delete
   // is ignored.
   const deleting = useRef(false);
@@ -285,6 +290,18 @@ export default function App() {
   // The name sheet belongs to Today: leaving Today (a new-day jump to capture) closes it.
   if (namingJournal && current !== 'today') setNamingJournal(false);
 
+  // The Rename sheet belongs to Journals home: leaving it closes the sheet. It also closes if its
+  // journal is gone from the registry or is being deleted.
+  const renamingJournal = renamingJournalId
+    ? journalRegistry.custom.find((j) => j.id === renamingJournalId)
+    : undefined;
+  if (
+    renamingJournalId &&
+    (current !== 'journals' || !renamingJournal || deletingJournalId === renamingJournalId)
+  ) {
+    setRenamingJournalId(null);
+  }
+
   // Each log shows only its own journal's entries (drafts included), whatever else is stored.
   const logEntries = useMemo(
     () => (visibleRecords ? entriesFor(visibleRecords, journalId) : null),
@@ -421,6 +438,21 @@ export default function App() {
     }
   };
 
+  // Whether a custom journal may be renamed right now: only a journal in the registry's custom list,
+  // and never while a journal delete runs or its confirmation is up.
+  const canRenameJournal = (id: JournalId) =>
+    !isBuiltInJournal(id) &&
+    live.current.custom.some((j) => j.id === id) &&
+    !deletingJournalRef.current &&
+    !journalDialogOpen.current;
+
+  // Opens the Rename sheet for a custom journal (from its Journals home card only).
+  const requestRenameJournal = (id: JournalId) => {
+    if (!canRenameJournal(id)) return;
+    setNamingJournal(false);
+    setRenamingJournalId(id);
+  };
+
   // Asks before deleting a custom journal and all its entries. Only a journal in the registry's
   // custom list qualifies, so Dreams, Life and unknown ids do nothing.
   const requestDeleteJournal = (id: JournalId) => {
@@ -465,6 +497,7 @@ export default function App() {
     }
     const ids = entriesFor(records, id).map((d) => d.id);
     deleting.current = true;
+    deletingJournalRef.current = true;
     setDeletingJournalId(id);
     let failure: { title: string; message: string } | null = null;
     try {
@@ -515,6 +548,7 @@ export default function App() {
       };
     } finally {
       deleting.current = false;
+      deletingJournalRef.current = false;
       setDeletingJournalId(null);
     }
     if (failure) Alert.alert(failure.title, failure.message);
@@ -794,6 +828,7 @@ export default function App() {
             onSearch={() => setScreen('search')}
             onBack={() => void performBack()}
             onDeleteJournal={requestDeleteJournal}
+            onRenameJournal={requestRenameJournal}
             deletingId={deletingJournalId}
           />
         )}
@@ -813,7 +848,10 @@ export default function App() {
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.dream.id ?? null}
             onNewEntry={(id) => startCapture(id, 'today')}
-            onNewJournal={() => setNamingJournal(true)}
+            onNewJournal={() => {
+              setRenamingJournalId(null);
+              setNamingJournal(true);
+            }}
             onOpenJournals={() => setScreen('journals')}
             onOpenSettings={() => setScreen('settings')}
           />
@@ -849,6 +887,27 @@ export default function App() {
             const created = await journalRegistry.add(name);
             setNamingJournal(false);
             showLog(created.id);
+          }}
+        />
+        <NewJournalSheet
+          visible={renamingJournal !== undefined && current === 'journals'}
+          onClose={() => setRenamingJournalId(null)}
+          existing={journals}
+          excludeId={renamingJournal?.id}
+          initialName={renamingJournal?.name}
+          title="Rename journal"
+          submitLabel="Save"
+          onSubmit={async (name) => {
+            const id = renamingJournalId;
+            // Checked again at submit time: the journal may have changed since the sheet opened.
+            if (id === null || !canRenameJournal(id)) {
+              setRenamingJournalId(null);
+              return;
+            }
+            const stored = live.current.custom.find((j) => j.id === id);
+            // Nothing changed: close without writing.
+            if (!stored || name === stored.name) return;
+            await journalRegistry.rename(id, name);
           }}
         />
         <StatusBar style="light" />

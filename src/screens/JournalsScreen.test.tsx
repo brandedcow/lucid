@@ -145,6 +145,84 @@ describe('JournalsScreen', () => {
     expect(screen.getByRole('button', { name: 'Gratitude, No entries yet' })).toBeOnTheScreen();
   });
 
+  describe('renaming a custom journal', () => {
+    const gratitude: Journal = { id: 'j_g', name: 'Gratitude', kind: 'journal' };
+    const travel: Journal = { id: 'j_t', name: 'Travel', kind: 'journal' };
+    const all = [...BUILT_IN_JOURNALS, gratitude, travel];
+    const counts = { dreams: 12, life: 5, j_g: 3, j_t: 1 };
+    const hidden = { includeHiddenElements: true };
+    const both = { onRenameJournal: jest.fn(), onDeleteJournal: jest.fn() };
+
+    it('gives custom cards two actions, Rename before Delete', async () => {
+      await setup({ journals: all, counts, ...both });
+      const labels = screen
+        .getAllByRole('button', hidden)
+        .map((b) => b.props.accessibilityLabel as string)
+        .filter((l) => /^(Rename|Delete) Gratitude$/.test(l ?? ''));
+      expect(labels).toEqual(['Rename Gratitude', 'Delete Gratitude']);
+      expect(screen.getAllByText('Rename', hidden)).toHaveLength(2);
+    });
+
+    it('exposes rename and delete screen-reader actions on custom cards only', async () => {
+      await setup({ journals: all, counts, ...both });
+      expect(
+        screen.getByRole('button', { name: 'Gratitude, 3 entries' }).props.accessibilityActions,
+      ).toEqual([
+        { name: 'rename', label: 'Rename' },
+        { name: 'delete', label: 'Delete' },
+      ]);
+      for (const n of ['Dreams, 12 dreams', 'Life, 5 entries']) {
+        expect(screen.getByRole('button', { name: n }).props.accessibilityActions).toBeUndefined();
+      }
+    });
+
+    it('keeps built-in cards plain', async () => {
+      await setup({ journals: all, counts, ...both });
+      expect(screen.queryByLabelText('Rename Dreams', hidden)).toBeNull();
+      expect(screen.queryByLabelText('Rename Life', hidden)).toBeNull();
+      expect(screen.queryByTestId('journal-row-dreams')).toBeNull();
+    });
+
+    it('calls onRenameJournal with the id from the button and the screen-reader action', async () => {
+      const onRenameJournal = jest.fn();
+      const onDeleteJournal = jest.fn();
+      await setup({ journals: all, counts, onRenameJournal, onDeleteJournal });
+      await fireEvent.press(screen.getByLabelText('Rename Travel', hidden));
+      expect(onRenameJournal).toHaveBeenLastCalledWith('j_t');
+      await act(async () => {
+        screen
+          .getByRole('button', { name: 'Gratitude, 3 entries' })
+          .props.onAccessibilityAction({ nativeEvent: { actionName: 'rename' } });
+      });
+      expect(onRenameJournal).toHaveBeenLastCalledWith('j_g');
+      expect(onDeleteJournal).not.toHaveBeenCalled();
+    });
+
+    it('offers only Rename when there is no delete handler', async () => {
+      await setup({ journals: all, counts, onRenameJournal: jest.fn() });
+      expect(screen.getByLabelText('Rename Travel', hidden)).toBeTruthy();
+      expect(screen.queryByLabelText('Delete Travel', hidden)).toBeNull();
+    });
+
+    it('the deleting card and every other card offer no usable actions', async () => {
+      const onRenameJournal = jest.fn();
+      await setup({
+        journals: all,
+        counts,
+        deletingId: 'j_g',
+        onRenameJournal,
+        onDeleteJournal: jest.fn(),
+      });
+      expect(
+        screen.getByRole('button', { name: 'Gratitude, deleting' }).props.accessibilityActions,
+      ).toBeUndefined();
+      await fireEvent.press(screen.getByLabelText('Rename Gratitude', hidden));
+      await fireEvent.press(screen.getByLabelText('Rename Travel', hidden));
+      expect(onRenameJournal).not.toHaveBeenCalled();
+      expect(screen.getByTestId('journal-row-j_g').props.enabled).toBe(false);
+    });
+  });
+
   describe('deleting a custom journal', () => {
     const gratitude: Journal = { id: 'j_g', name: 'Gratitude', kind: 'journal' };
     const travel: Journal = { id: 'j_t', name: 'Travel', kind: 'journal' };

@@ -24,6 +24,8 @@ import { isBuiltInJournal, Journal, kindCopy } from '../utils/journals';
  * - `onSearch()`: the search button was tapped (search across all journals).
  * - `onDeleteJournal(id)`: optional. When given, a custom journal's card can be swiped to reveal Delete
  *   (also a screen-reader action). Dreams and Life are never swipeable. The parent confirms and deletes.
+ * - `onRenameJournal(id)`: optional. When given, a custom journal's card also reveals Rename (before
+ *   Delete; also a screen-reader action). The parent opens the name sheet.
  * - `deletingId`: the journal being deleted. Its card is dimmed, inert and reads "Deleting...";
  *   every card's swipe is locked until it ends.
  *
@@ -37,6 +39,7 @@ type Props = {
   onSearch: () => void;
   onBack?: () => void;
   onDeleteJournal?: (id: JournalId) => void;
+  onRenameJournal?: (id: JournalId) => void;
   deletingId?: JournalId | null;
 };
 
@@ -56,6 +59,7 @@ export function JournalsScreen({
   onSearch,
   onBack,
   onDeleteJournal,
+  onRenameJournal,
   deletingId = null,
 }: Props) {
   const showCounts = counts !== null && !unreadable;
@@ -130,12 +134,25 @@ export function JournalsScreen({
               </Text>
             </Pressable>
           );
-          // Only a user-created journal can be deleted: Dreams and Life stay plain cards.
-          if (!onDeleteJournal || isBuiltInJournal(journal.id)) {
+          // Only a user-created journal can be renamed or deleted: Dreams and Life stay plain cards.
+          if ((!onDeleteJournal && !onRenameJournal) || isBuiltInJournal(journal.id)) {
             return <View key={journal.id}>{card()}</View>;
           }
-          const actions: SwipeAction[] = [
-            {
+          // Rename first, Delete last (at the far right edge).
+          const actions: SwipeAction[] = [];
+          if (onRenameJournal) {
+            actions.push({
+              key: 'rename',
+              label: 'Rename',
+              accessibilityLabel: `Rename ${journal.name}`,
+              onPress: (closeRow) => {
+                closeRow();
+                onRenameJournal(journal.id);
+              },
+            });
+          }
+          if (onDeleteJournal) {
+            actions.push({
               key: 'delete',
               label: 'Delete',
               accessibilityLabel: `Delete ${journal.name}`,
@@ -144,8 +161,8 @@ export function JournalsScreen({
                 closeRow();
                 onDeleteJournal(journal.id);
               },
-            },
-          ];
+            });
+          }
           return (
             <SwipeActionRow
               key={journal.id}
