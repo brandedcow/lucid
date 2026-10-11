@@ -50,133 +50,6 @@ jest.mock('./src/services/dreamStorage', () => ({
   isSafetyCopyBlockedError: (e: any) => e?.kind === 'blocked',
 }));
 
-// Stands in for the recorder's stop in the stub's discard (the real screen stops the recorder).
-const mockRecorderStop = jest.fn();
-
-// The heavy screens are replaced by small stubs that expose their callbacks as buttons.
-jest.mock('./src/screens/CaptureScreen', () => {
-  const { Pressable, Text, View } = require('react-native');
-  const { Alert } = require('react-native');
-  const { useEffect } = require('react');
-  return {
-    CaptureScreen: ({
-      onRecorded,
-      onWrite,
-      onNoDream,
-      onTypeInstead,
-      onBack,
-      onLeave,
-      leaveRef,
-      backLabel,
-      onActiveChange,
-      journal,
-    }: any) => {
-      // Mirrors the real screen's confirmLeave: ask, then on Discard stop the recorder, delete the
-      // unsaved cache file and call onLeave; if the stop fails nothing is deleted and it stays.
-      const confirmLeave = () => {
-        Alert.alert('Discard this recording?', 'x', [
-          { text: 'Keep recording', style: 'cancel' },
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const recording = await mockRecorderStop();
-                require('./src/services/dreamStorage').discardRecording(recording.uri);
-              } catch {
-                return;
-              }
-              onLeave?.();
-            },
-          },
-        ]);
-      };
-      useEffect(() => {
-        if (!leaveRef) return;
-        leaveRef.current = confirmLeave;
-        return () => {
-          leaveRef.current = null;
-        };
-      });
-      return (
-        <View>
-          <Text>capture-screen</Text>
-          <Text>{`capture-journal:${journal?.id}`}</Text>
-          {onNoDream && (
-            <Pressable onPress={onNoDream}>
-              <Text>stub-no-dream</Text>
-            </Pressable>
-          )}
-          {onBack && (
-            <Pressable accessibilityLabel={backLabel ?? 'Back'} onPress={onBack}>
-              <Text>stub-capture-back</Text>
-            </Pressable>
-          )}
-          <Pressable onPress={() => onActiveChange(true)}>
-            <Text>stub-capture-busy</Text>
-          </Pressable>
-          <Pressable onPress={confirmLeave}>
-            <Text>stub-recording-arrow</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onRecorded({ uri: 'file:///cache/r.m4a', durationMs: 7000 }, 'live')}
-          >
-            <Text>stub-save-recording</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onRecorded({ uri: 'file:///cache/e.m4a', durationMs: 7000 }, '')}
-          >
-            <Text>stub-save-recording-no-text</Text>
-          </Pressable>
-          <Pressable onPress={onWrite}>
-            <Text>stub-write</Text>
-          </Pressable>
-          <Pressable onPress={() => onTypeInstead('so far')}>
-            <Text>stub-type-instead</Text>
-          </Pressable>
-          <Pressable onPress={() => onTypeInstead('')}>
-            <Text>stub-type-instead-empty</Text>
-          </Pressable>
-        </View>
-      );
-    },
-  };
-});
-jest.mock('./src/screens/ReviewScreen', () => {
-  const { Pressable, Text, View } = require('react-native');
-  return {
-    ReviewScreen: (p: any) => (
-      <View>
-        <Text>review-screen</Text>
-        <Text>{`review-journal:${p.journal?.id}`}</Text>
-        <Pressable onPress={() => p.onTitleChange('')}>
-          <Text>stub-clear-title</Text>
-        </Pressable>
-        <Text>{`transcript:${p.transcript}`}</Text>
-        <Text>{`title:${p.title}`}</Text>
-        <Text>{`audio:${p.audio ? p.audio.uri : 'none'}`}</Text>
-        <Text>{`date:${p.date}`}</Text>
-        <Text>{`saving:${p.saving}`}</Text>
-        <Text>{`finishLater:${p.showFinishLater !== false}`}</Text>
-        <Pressable onPress={() => p.onTitleChange('My title')}>
-          <Text>stub-set-title</Text>
-        </Pressable>
-        <Pressable onPress={p.onBack}>
-          <Text>stub-review-back</Text>
-        </Pressable>
-        <Pressable onPress={p.onEditTranscript}>
-          <Text>stub-edit</Text>
-        </Pressable>
-        <Pressable onPress={p.onDone}>
-          <Text>stub-done</Text>
-        </Pressable>
-        <Pressable onPress={p.onFinishLater}>
-          <Text>stub-finish-later</Text>
-        </Pressable>
-      </View>
-    ),
-  };
-});
 jest.mock('./src/screens/AddEntryScreen', () => {
   const { Pressable, Text, View } = require('react-native');
   return {
@@ -482,9 +355,9 @@ async function openDreamLog() {
   await pressLabel('Open Journals');
   await press('stub-open-dreams');
 }
-/** From the launch capture: No dream (lands on Today), then the Dream log. */
+/** From the launch page: back while empty is No dream (lands on Today), then the Dream log. */
 async function goToLog() {
-  await press('stub-no-dream');
+  await press('stub-add-back');
   await openDreamLog();
 }
 const lastAlertButtons = () =>
@@ -516,58 +389,54 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-describe('App flow', () => {
-  it('goes from a recording to Read it back with the live text, then to Review', async () => {
+describe('App launch page', () => {
+  it('opens the empty Dreams add-entry page, focused', async () => {
     await renderApp();
-    await press('stub-save-recording');
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    expect(screen.getByLabelText('Dream text').props.value).toBe('live');
-    expect(screen.getByLabelText('Play recording')).toBeTruthy();
-
-    await fireEvent.changeText(screen.getByLabelText('Dream text'), 'live, edited');
-    await press('Continue');
-    expect(screen.getByText('review-screen')).toBeTruthy();
-    expect(screen.getByText('transcript:live, edited')).toBeTruthy();
-    expect(screen.getByText('audio:file:///cache/r.m4a')).toBeTruthy();
-  });
-
-  it('Write instead opens the add-entry page, empty and focused', async () => {
-    await renderApp();
-    await press('stub-write');
     expect(screen.getByText('add-screen')).toBeTruthy();
     expect(screen.getByText('add-journal:dreams')).toBeTruthy();
     expect(screen.getByText('add-body:')).toBeTruthy();
+    expect(screen.getByText('add-title:')).toBeTruthy();
     expect(screen.getByText('add-autofocus:true')).toBeTruthy();
-    expect(screen.queryByText('Read it back')).toBeNull();
+    expect(screen.getByText('add-locked:false')).toBeTruthy();
   });
 
-  it('Type instead opens the add-entry page with the text so far', async () => {
+  it('shows today as the date', async () => {
     await renderApp();
-    await press('stub-type-instead');
-    expect(screen.getByText('add-screen')).toBeTruthy();
-    expect(screen.getByText('add-body:so far')).toBeTruthy();
+    expect(screen.getByText(`add-date:${dateLabel(new Date())}`)).toBeTruthy();
+  });
+
+  it('saves a finished dream from the check, then shows Today', async () => {
+    await renderApp();
     await press('stub-add-set-title');
+    await press('stub-add-set-body');
     await press('stub-add-save');
     expect(saveDream).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'saved',
-        details: expect.objectContaining({ title: 'My title', transcript: 'so far' }),
+        journalId: 'dreams',
+        details: expect.objectContaining({ title: 'My title', transcript: 'some words' }),
       }),
     );
     expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('recordingUri');
     expectToday();
+    expect(screen.queryByText('No dream today')).toBeNull();
   });
 
-  it('Type instead with no text opens an empty page', async () => {
+  it('stays on the page with its content when saving fails', async () => {
+    jest.mocked(saveDream).mockRejectedValue(new Error('disk full'));
     await renderApp();
-    await press('stub-type-instead-empty');
-    expect(screen.getByText('add-body:')).toBeTruthy();
-    expect(screen.getByText('add-autofocus:true')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-save');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not save your dream', 'Please try again.');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(screen.getByText('add-title:My title')).toBeTruthy();
+    expect(screen.getByText('add-saving:false')).toBeTruthy();
+    expect(discardRecording).not.toHaveBeenCalled();
   });
 
-  it('back from a typed entry asks Save draft / Discard / Keep writing, and deletes no file', async () => {
+  it('back with content asks Save draft / Discard / Keep writing, and deletes no file', async () => {
     await renderApp();
-    await press('stub-type-instead');
+    await press('stub-add-set-body');
     await press('stub-add-back');
     expect(Alert.alert).toHaveBeenCalledWith(
       'Save a draft?',
@@ -592,86 +461,31 @@ describe('App flow', () => {
     expect(saveDream).not.toHaveBeenCalled();
     // Content was typed, so this is not No dream: Today with no marker.
     expectToday();
+    expect(screen.queryByText('No dream today')).toBeNull();
   });
 
-  it('a recording with no live text does not autofocus and starts empty', async () => {
+  it('Save draft from the leave prompt saves a draft and lands on Today', async () => {
     await renderApp();
-    await press('stub-save-recording-no-text');
-    expect(screen.getByLabelText('Dream text').props.value).toBe('');
-    expect(screen.getByLabelText('Dream text').props.autoFocus).toBe(false);
-  });
-
-  it('keeps title and edited text across Review -> Edit -> Review, and Edit back skips the alert', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-edit');
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    await fireEvent.changeText(screen.getByLabelText('Dream text'), 'changed');
-
-    await fireEvent.press(screen.getByLabelText('Back'));
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expect(screen.getByText('review-screen')).toBeTruthy();
-    expect(screen.getByText('title:My title')).toBeTruthy();
-    expect(screen.getByText('transcript:changed')).toBeTruthy();
-    expect(discardRecording).not.toHaveBeenCalled();
-  });
-
-  it('Done saves the session as a finished dream, then clears it and shows Today', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
+    await press('stub-add-set-body');
+    await press('stub-add-back');
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Save draft')
+        ?.onPress?.(),
+    );
     expect(saveDream).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recordingUri: 'file:///cache/r.m4a',
-        status: 'saved',
-        details: expect.objectContaining({ title: 'My title', transcript: 'live' }),
-      }),
+      expect.objectContaining({ status: 'draft', journalId: 'dreams' }),
     );
     expectToday();
-  });
-
-  it('Finish later saves a draft without a title, then shows Today', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-finish-later');
-    expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
-    expectToday();
-  });
-
-  it('stays on Review with the session kept when saving fails', async () => {
-    jest.mocked(saveDream).mockRejectedValue(new Error('disk full'));
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
-    expect(Alert.alert).toHaveBeenCalledWith('Could not save your dream', 'Please try again.');
-    expect(screen.getByText('review-screen')).toBeTruthy();
-    expect(screen.getByText('title:My title')).toBeTruthy();
-    expect(screen.getByText('saving:false')).toBeTruthy();
-    expect(discardRecording).not.toHaveBeenCalled();
-  });
-
-  it('shows today on Review for a new dream', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    expect(screen.getByText(`date:${dateLabel(new Date())}`)).toBeTruthy();
   });
 });
 
 const dateLabel = (d: Date) =>
   d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-/** Saves a written dream as a draft so the log stub is on screen. */
+/** Saves the launch page's text as a draft so the log stub is on screen. */
 async function reachList() {
   await renderApp();
-  await press('stub-write');
   await press('stub-add-set-body');
   await press('stub-add-back');
   await act(async () =>
@@ -765,100 +579,61 @@ describe('App draft reopening', () => {
   });
 });
 
-describe('App Review back while saving', () => {
+describe('App add-entry back while saving', () => {
   it('blocks the arrow and hardware back until the save finishes', async () => {
     let resolve: (v: unknown) => void = () => {};
     jest.mocked(saveDream).mockReturnValue(new Promise((r) => (resolve = r)) as any);
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
-    expect(screen.getByText('saving:true')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-save');
+    expect(screen.getByText('add-saving:true')).toBeTruthy();
 
-    await press('stub-review-back');
-    expect(screen.getByText('review-screen')).toBeTruthy();
+    await press('stub-add-back');
+    expect(screen.getByText('add-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('review-screen')).toBeTruthy();
-    expect(screen.queryByText('Read it back')).toBeNull();
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
 
     await act(async () => resolve({ id: '1', createdAt: 'c' }));
     expectToday();
   });
 });
 
-describe('App back rules', () => {
-  it('asks before discarding a recording; Keep leaves everything in place', async () => {
+describe('App back rules on the launch page', () => {
+  it('an empty launch page counts as No dream, with no alert', async () => {
     await renderApp();
-    await press('stub-save-recording');
-    await fireEvent.press(screen.getByLabelText('Back'));
-    expect(Alert.alert).toHaveBeenCalledWith(
-      'Discard this dream?',
-      'Your recording and text will be deleted.',
-      expect.any(Array),
-    );
-    const keep = lastAlertButtons().find((b) => b.text === 'Keep');
-    expect(keep?.style).toBe('cancel');
-    expect(keep?.onPress).toBeUndefined();
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    expect(discardRecording).not.toHaveBeenCalled();
-  });
-
-  it('Discard deletes the cache recording, clears the session and returns to capture', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await fireEvent.press(screen.getByLabelText('Back'));
-    await act(async () =>
-      lastAlertButtons()
-        .find((b) => b.text === 'Discard')
-        ?.onPress?.(),
-    );
-    expect(discardRecording).toHaveBeenCalledWith('file:///cache/r.m4a');
-    expect(screen.getByText('capture-screen')).toBeTruthy();
-    // A new Write instead starts clean, on the add-entry page.
-    await press('stub-write');
-    expect(screen.getByText('add-body:')).toBeTruthy();
-  });
-
-  it('an empty add-entry page opened from the launch capture counts as No dream, with no alert', async () => {
-    await renderApp();
-    await press('stub-write');
     await press('stub-add-back');
     expect(Alert.alert).not.toHaveBeenCalled();
     expectToday();
     expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
-  it('Review back goes to Read it back with everything kept', async () => {
+  it('a page with only a title is not empty: it asks and is not No dream', async () => {
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-review-back');
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    expect(screen.getByLabelText('Dream text').props.value).toBe('live');
-    // Back from here is a plain Read it back back: it asks again.
-    await fireEvent.press(screen.getByLabelText('Back'));
-    expect(Alert.alert).toHaveBeenCalledTimes(1);
-    // And Continue still carries the title.
-    await press('Continue');
-    expect(screen.getByText('title:My title')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-back');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Save a draft?',
+      expect.any(String),
+      expect.any(Array),
+    );
+    expect(screen.queryByText('No dream today')).toBeNull();
   });
 });
 
 describe('App Android hardware back', () => {
-  it('is handled on the launch capture: it goes to Today instead of exiting', async () => {
+  it('is handled on the launch page: it goes to Today as No dream instead of exiting', async () => {
     await renderApp();
     expect(await hardwareBack()).toBe(true);
+    expect(Alert.alert).not.toHaveBeenCalled();
     expectToday();
+    expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
   it('after saving goes to Today, then Journals and the log from there; Today exits', async () => {
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
+    await press('stub-add-set-title');
+    await press('stub-add-save');
     expectToday();
     await openDreamLog();
     expect(await hardwareBack()).toBe(true);
@@ -868,36 +643,16 @@ describe('App Android hardware back', () => {
     expect(await hardwareBack()).toBe(false);
   });
 
-  it('on Read it back shows the discard alert and is handled', async () => {
+  it('on the launch page with content shows the leave prompt and is handled', async () => {
     await renderApp();
-    await press('stub-save-recording');
+    await press('stub-add-set-body');
     expect(await hardwareBack()).toBe(true);
     expect(Alert.alert).toHaveBeenCalledWith(
-      'Discard this dream?',
-      'Your recording and text will be deleted.',
+      'Save a draft?',
+      expect.any(String),
       expect.any(Array),
     );
-  });
-
-  it('on an empty add-entry page from the launch capture goes to Today', async () => {
-    await renderApp();
-    await press('stub-write');
-    expect(await hardwareBack()).toBe(true);
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expectToday();
-  });
-
-  it('on Review goes to Read it back, and from Edit returns to Review', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    await press('Continue');
-    await press('stub-edit');
-    expect(await hardwareBack()).toBe(true);
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('add-screen')).toBeTruthy();
   });
 
   it('removes its listener on unmount', async () => {
@@ -909,23 +664,23 @@ describe('App Android hardware back', () => {
   });
 });
 
-/** Capture -> No dream -> log, then opens the finished dream on its detail screen. */
+/** Launch page -> No dream -> log, then opens the finished dream on its detail screen. */
 async function reachDetail() {
   await renderApp();
   await goToLog();
   await press('stub-open-dream');
 }
 
-/** Detail -> Edit: an edit session on Review. */
+/** Detail -> Edit: an edit session on the add-entry page. */
 async function reachEdit() {
   await reachDetail();
   await press('stub-detail-edit');
 }
 
 describe('App Dream log and detail', () => {
-  it('opens on capture, and No dream goes to the log', async () => {
+  it('opens on the Dreams add-entry page, and backing out empty goes to Today and then the log', async () => {
     await renderApp();
-    expect(screen.getByText('capture-screen')).toBeTruthy();
+    expect(screen.getByText('add-screen')).toBeTruthy();
     await goToLog();
     expect(screen.getByText('log-screen')).toBeTruthy();
   });
@@ -1017,13 +772,6 @@ describe('App edit flow', () => {
     expect(
       screen.getByText(`add-date:${dateLabel(new Date(finishedDream.createdAt))}`),
     ).toBeTruthy();
-  });
-
-  it('a new dream starts at Review with Finish later via a recording (old flow still wired)', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    expect(screen.getByText('finishLater:true')).toBeTruthy();
   });
 
   it('the check with no edits writes nothing and returns to detail', async () => {
@@ -1143,31 +891,33 @@ describe('App edit flow', () => {
 });
 
 describe('App refresh before leaving', () => {
-  it('awaits the library refresh before leaving Review after Done', async () => {
+  it('awaits the library refresh before leaving the page after the check', async () => {
     let finishRefresh: () => void = () => {};
     mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
+    await press('stub-add-set-title');
+    await press('stub-add-save');
     expect(saveDream).toHaveBeenCalled();
-    expect(screen.getByText('review-screen')).toBeTruthy();
+    expect(screen.getByText('add-screen')).toBeTruthy();
     expect(screen.queryByText('log-screen')).toBeNull();
     await act(async () => finishRefresh());
     expectToday();
   });
 
-  it('awaits the refresh for Finish later and for a draft back, and blocks back meanwhile', async () => {
+  it('awaits the refresh for Save draft and for a draft back, and blocks back meanwhile', async () => {
     let finishRefresh: () => void = () => {};
     mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-finish-later');
-    expect(screen.getByText('review-screen')).toBeTruthy();
+    await press('stub-add-set-body');
+    await press('stub-add-back');
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Save draft')
+        ?.onPress?.(),
+    );
+    expect(screen.getByText('add-screen')).toBeTruthy();
     // A second back while the refresh is pending must not save again.
-    await press('stub-review-back');
+    await press('stub-add-back');
     expect(saveDream).toHaveBeenCalledTimes(1);
     await act(async () => finishRefresh());
     expectToday();
@@ -1259,7 +1009,7 @@ describe('App delete dream', () => {
     expect(screen.getByText('detail-screen')).toBeTruthy();
     await press('stub-detail-edit');
     expect(screen.getByText('detail-screen')).toBeTruthy();
-    expect(screen.queryByText('review-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
     await press('stub-detail-delete');
     expect(remove).toHaveBeenCalledTimes(1);
 
@@ -1415,14 +1165,13 @@ const lifeEntry = {
 };
 
 describe('App journals navigation', () => {
-  it('opens on Dream capture with the No dream arrow and the No dream pill', async () => {
+  it('opens on the Dreams add-entry page with a plain back arrow and no No dream button', async () => {
     await renderApp();
-    expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
-    expect(screen.getByText('stub-no-dream')).toBeTruthy();
-    expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
+    expect(screen.getByText('add-journal:dreams')).toBeTruthy();
+    expect(screen.queryByLabelText('No dream, go to Today')).toBeNull();
   });
 
-  it('No dream goes to the Dream log (unchanged)', async () => {
+  it('backing out of the empty launch page goes to Today, and its Dream log is one tap away', async () => {
     await renderApp();
     await goToLog();
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
@@ -1430,11 +1179,9 @@ describe('App journals navigation', () => {
 
   it('saving a launch dream goes to Today', async () => {
     await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    expect(screen.getByText('review-journal:dreams')).toBeTruthy();
-    await press('stub-set-title');
-    await press('stub-done');
+    expect(screen.getByText('add-journal:dreams')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-save');
     expectToday();
     expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'dreams' }));
   });
@@ -1494,7 +1241,6 @@ describe('App journals navigation', () => {
   it('a new Life entry opens the add-entry page from the Life log, with a back arrow and no No dream', async () => {
     await reachLifeAdd();
     expect(screen.getByText('add-journal:life')).toBeTruthy();
-    expect(screen.queryByText('stub-no-dream')).toBeNull();
     await press('stub-add-back');
     expect(screen.getByText('log-journal:life')).toBeTruthy();
     expect(screen.queryByText('No dream today')).toBeNull();
@@ -1549,7 +1295,6 @@ describe('App journals navigation', () => {
 
   it('launch Dreams page: switching to Life then backing out empty is not No dream; Dreams again is', async () => {
     await renderApp();
-    await press('stub-write');
     await press('stub-add-pick-life');
     await press('stub-add-back');
     expect(Alert.alert).not.toHaveBeenCalled();
@@ -1810,66 +1555,66 @@ describe('App launch rule', () => {
     mockLibrary.dreams = null;
     await render(<App />);
     await flush();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
     expect(screen.queryByLabelText('Add entry')).toBeNull();
     await act(async () => {
       mockLibrary.push?.([]);
     });
-    expect(screen.getByText('capture-screen')).toBeTruthy();
+    expect(screen.getByText('add-screen')).toBeTruthy();
   });
 
   it.each([
-    ['nothing today', [oldDream], true, null, 'capture'],
+    ['nothing today', [oldDream], true, null, 'add'],
     ['a finished dream today', [todayDream], true, null, 'today'],
     ['No dream chosen today', [oldDream], true, 'today', 'today'],
-    ['a stale No dream date', [oldDream], true, '2020-01-01', 'capture'],
-    ['only a Life entry today', [todayLife], true, null, 'capture'],
-    ['only a Dream draft today', [todayDraft], true, null, 'capture'],
+    ['a stale No dream date', [oldDream], true, '2020-01-01', 'add'],
+    ['only a Life entry today', [todayLife], true, null, 'add'],
+    ['only a Dream draft today', [todayDraft], true, null, 'add'],
     ['nothing today with auto-open off', [oldDream], false, null, 'today'],
   ] as const)('%s', async (_name, dreams, autoOpen, marker, expected) => {
     mockLibrary.dreams = [...dreams];
     putSettings(autoOpen);
     if (marker) putMarker(marker === 'today' ? todayKeyNow() : marker);
     await renderApp();
-    if (expected === 'capture') {
-      expect(screen.getByText('capture-screen')).toBeTruthy();
-      // The launch capture has the No dream arrow and the No dream button.
-      expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
-      expect(screen.getByText('stub-no-dream')).toBeTruthy();
+    if (expected === 'add') {
+      // The launch page is the new Dreams add-entry page, empty.
+      expect(screen.getByText('add-screen')).toBeTruthy();
+      expect(screen.getByText('add-journal:dreams')).toBeTruthy();
+      expect(screen.getByText('add-body:')).toBeTruthy();
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
     } else {
       expectToday();
-      expect(screen.queryByText('capture-screen')).toBeNull();
+      expect(screen.queryByText('add-screen')).toBeNull();
     }
   });
 
-  it('opens Dream capture when the data is not ready within the cap, and does not move later', async () => {
+  it('opens the Dreams page when the data is not ready within the cap, and does not move later', async () => {
     jest.useFakeTimers();
     try {
       mockLibrary.dreams = null;
       await render(<App />);
-      expect(screen.queryByText('capture-screen')).toBeNull();
+      expect(screen.queryByText('add-screen')).toBeNull();
       await act(async () => {
         jest.advanceTimersByTime(999);
       });
-      expect(screen.queryByText('capture-screen')).toBeNull();
+      expect(screen.queryByText('add-screen')).toBeNull();
       await act(async () => {
         jest.advanceTimersByTime(1);
       });
-      expect(screen.getByText('capture-screen')).toBeTruthy();
-      expect(screen.getByText('stub-no-dream')).toBeTruthy();
-      expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
+      expect(screen.getByText('add-screen')).toBeTruthy();
+      expect(screen.getByText('add-journal:dreams')).toBeTruthy();
 
       // The data arrives late and says a dream exists today: the user is not moved.
       await act(async () => {
         mockLibrary.push?.([todayDream]);
       });
-      expect(screen.getByText('capture-screen')).toBeTruthy();
+      expect(screen.getByText('add-screen')).toBeTruthy();
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('does not open capture by the cap once the data resolved the launch', async () => {
+  it('does not open the Dreams page by the cap once the data resolved the launch', async () => {
     jest.useFakeTimers();
     try {
       mockLibrary.dreams = [todayDream];
@@ -1878,16 +1623,16 @@ describe('App launch rule', () => {
         await jest.advanceTimersByTimeAsync(2000);
       });
       expectToday();
-      expect(screen.queryByText('capture-screen')).toBeNull();
+      expect(screen.queryByText('add-screen')).toBeNull();
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('No dream saves the marker, lands on Today with "No dream today", and the next launch opens Today', async () => {
+  it('No dream (back on the empty launch page) saves the marker, lands on Today with "No dream today", and the next launch opens Today', async () => {
     mockLibrary.dreams = [oldDream];
     const view = await renderApp();
-    await press('stub-no-dream');
+    await press('stub-add-back');
     expectToday();
     expect(screen.getByText('No dream today')).toBeTruthy();
     await flush();
@@ -1910,11 +1655,11 @@ describe('App launch rule', () => {
     await flush();
     await view.unmount();
 
-    // Nothing today now: with the toggle on this would open Dream capture.
+    // Nothing today now: with the toggle on this would open the Dreams page.
     mockLibrary.dreams = [oldDream];
     await renderApp();
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 });
 
@@ -2003,7 +1748,7 @@ describe('App Today page', () => {
     expect(await hardwareBack()).toBe(false);
   });
 
-  it('Android back on the launch capture goes to Today as No dream, not out of the app', async () => {
+  it('Android back on the launch page goes to Today as No dream, not out of the app', async () => {
     mockLibrary.dreams = [oldDream];
     await renderApp();
     expect(await hardwareBack()).toBe(true);
@@ -2031,7 +1776,6 @@ describe('App add-entry page opened from Today and the log', () => {
     await addEntry('Dreams');
     expect(screen.getByText('add-journal:dreams')).toBeTruthy();
     expect(screen.getByText('add-autofocus:true')).toBeTruthy();
-    expect(screen.queryByText('stub-no-dream')).toBeNull();
     await press('stub-add-back');
     expectToday();
     // Not the launch page: an empty back is not No dream.
@@ -2079,18 +1823,15 @@ describe('App add-entry page opened from Today and the log', () => {
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
   });
 
-  it('the launch capture saved lands on Today; a new page there has no "No dream" and is not the launch page', async () => {
+  it('the launch page saved lands on Today; a new page there is not the launch page', async () => {
     mockLibrary.dreams = [oldDream];
     await renderApp();
-    expect(screen.getByText('stub-no-dream')).toBeTruthy();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    await press('stub-add-set-title');
+    await press('stub-add-save');
     expectToday();
     await addEntry('Dreams');
     expect(screen.getByText('add-screen')).toBeTruthy();
-    expect(screen.queryByText('stub-no-dream')).toBeNull();
     await press('stub-add-back');
     expectToday();
     expect(screen.queryByText('No dream today')).toBeNull();
@@ -2136,8 +1877,8 @@ describe('App add-entry page opened from Today and the log', () => {
   it('a draft opened from Today goes to the add-entry page, and the check saves it finished', async () => {
     mockLibrary.dreams = [todayDraft];
     await renderApp();
-    expect(screen.getByText('capture-screen')).toBeTruthy();
-    await press('stub-no-dream');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    await press('stub-add-back');
     await press('Half a dream');
     expect(screen.getByText('add-screen')).toBeTruthy();
     await press('stub-add-save');
@@ -2200,7 +1941,7 @@ describe('App launch cap timer', () => {
     }
   });
 
-  it('a late fire after the launch decided sets no capture state', async () => {
+  it('a late fire after the launch decided opens no launch page', async () => {
     jest.useFakeTimers();
     try {
       mockLibrary.dreams = [todayDream];
@@ -2210,9 +1951,10 @@ describe('App launch cap timer', () => {
       });
       expectToday();
       await addEntry('Dreams');
-      // Not a launch page: it opens the add-entry page and has no "No dream".
+      // Not a launch page: it opens the add-entry page, and backing out empty is not No dream.
       expect(screen.getByText('add-screen')).toBeTruthy();
-      expect(screen.queryByText('stub-no-dream')).toBeNull();
+      await press('stub-add-back');
+      expect(screen.queryByText('No dream today')).toBeNull();
     } finally {
       jest.useRealTimers();
     }
@@ -2254,10 +1996,20 @@ describe('App resume on a new day', () => {
     await settle();
   };
   const expectLaunchCapture = () => {
-    expect(screen.getByText('capture-screen')).toBeTruthy();
-    expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
-    expect(screen.getByText('stub-no-dream')).toBeTruthy();
-    expect(screen.getByLabelText('No dream, go to Today')).toBeTruthy();
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(screen.getByText('add-journal:dreams')).toBeTruthy();
+    expect(screen.getByText('add-body:')).toBeTruthy();
+    expect(screen.getByText('add-autofocus:true')).toBeTruthy();
+  };
+  /** From the launch page: type something, then Save draft (nothing counts as done). */
+  const saveLaunchDraft = async () => {
+    await press('stub-add-set-body');
+    await press('stub-add-back');
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Save draft')
+        ?.onPress?.(),
+    );
   };
 
   beforeEach(() => {
@@ -2273,24 +2025,22 @@ describe('App resume on a new day', () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  it('from Today with nothing done on the new day: launch capture, then No dream lands on Today', async () => {
+  it('from Today with nothing done on the new day: launch page, then back (empty) lands on Today as No dream', async () => {
     await launch();
     expectToday();
     await awayUntil(DAY2);
     expectLaunchCapture();
-    await press('stub-no-dream');
+    await press('stub-add-back');
     expectToday();
     expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
-  it('the jump is a launch capture: saving returns to Today', async () => {
+  it('the jump is a launch page: saving returns to Today', async () => {
     await launch();
     await awayUntil(DAY2);
     expectLaunchCapture();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
+    await press('stub-add-set-title');
+    await press('stub-add-save');
     expectToday();
   });
 
@@ -2322,7 +2072,7 @@ describe('App resume on a new day', () => {
       },
       'search-screen',
     ],
-  ] as const)('from %s: launch capture', async (_n, open, marker) => {
+  ] as const)('from %s: launch page', async (_n, open, marker) => {
     await launch();
     await open();
     expect(screen.getByText(marker)).toBeTruthy();
@@ -2336,7 +2086,7 @@ describe('App resume on a new day', () => {
     await launch();
     await awayUntil(DAY2);
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('stays when No dream was chosen for the new day', async () => {
@@ -2344,7 +2094,7 @@ describe('App resume on a new day', () => {
     await launch();
     await awayUntil(DAY2);
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('with auto-open off it does nothing at all, even from another screen', async () => {
@@ -2353,7 +2103,7 @@ describe('App resume on a new day', () => {
     await pressLabel('Open Journals');
     await awayUntil(DAY2);
     expect(screen.getByText('journals-screen')).toBeTruthy();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('uses the setting as changed in Settings, not the one read at launch', async () => {
@@ -2361,15 +2111,15 @@ describe('App resume on a new day', () => {
     await pressLabel('Open Settings');
     await fireEvent(screen.getByLabelText('Open dream capture on launch'), 'valueChange', false);
     await awayUntil(DAY2);
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('stays on the add-entry page (a Life entry from Today)', async () => {
     await launch();
     await addEntry('Life');
     await awayUntil(DAY2);
+    // Not replaced by a launch page (which would be a Dreams page).
     expect(screen.getByText('add-journal:life')).toBeTruthy();
-    expect(screen.queryByText('capture-screen')).toBeNull();
   });
 
   it('stays on the add-entry page with text typed', async () => {
@@ -2378,7 +2128,6 @@ describe('App resume on a new day', () => {
     await press('stub-add-set-body');
     await awayUntil(DAY2);
     expect(screen.getByText('add-body:some words')).toBeTruthy();
-    expect(screen.queryByText('capture-screen')).toBeNull();
   });
 
   it('stays while a delete is in flight', async () => {
@@ -2391,9 +2140,9 @@ describe('App resume on a new day', () => {
     );
     await alertDelete();
     await awayUntil(DAY2);
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
     await act(async () => resolve());
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('stays on a same-day resume', async () => {
@@ -2413,7 +2162,7 @@ describe('App resume on a new day', () => {
       await jest.advanceTimersByTimeAsync(13 * 3600_000);
     });
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
     expect(screen.queryByText('Day one dream')).toBeNull();
   });
 
@@ -2421,7 +2170,7 @@ describe('App resume on a new day', () => {
     await launch();
     await awayUntil(DAY2);
     expectLaunchCapture();
-    await press('stub-no-dream');
+    await press('stub-add-back');
     expectToday();
     expect(screen.getByText('No dream today')).toBeTruthy();
     // The next midnight happens in the foreground (the pending timer fires ~15 h later).
@@ -2431,7 +2180,7 @@ describe('App resume on a new day', () => {
     // The day really rolled (the skip belonged to the earlier day) and nothing redirected.
     expectToday();
     expect(screen.queryByText('No dream today')).toBeNull();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('an edit session opened from an entry blocks the resume jump', async () => {
@@ -2440,8 +2189,8 @@ describe('App resume on a new day', () => {
     await press('stub-detail-edit');
     expect(screen.getByText('add-screen')).toBeTruthy();
     await awayUntil(DAY2);
-    expect(screen.getByText('add-screen')).toBeTruthy();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    // Still the edit, not a fresh launch page.
+    expect(screen.getByText('add-title:Day one dream')).toBeTruthy();
   });
 
   it('inactive then active on the same day does not jump', async () => {
@@ -2451,7 +2200,7 @@ describe('App resume on a new day', () => {
     await emit('inactive');
     await emit('active');
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
   });
 
   it('inactive then active across midnight jumps', async () => {
@@ -2470,9 +2219,7 @@ describe('App resume on a new day', () => {
     await emit('background');
     await emit('active');
     expectLaunchCapture();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-finish-later');
+    await saveLaunchDraft();
     expectToday();
     await emit('background');
     await emit('active');
@@ -2483,20 +2230,18 @@ describe('App resume on a new day', () => {
     await launch();
     await awayUntil(DAY2);
     expectLaunchCapture();
-    // Finish later leaves nothing done, so only the once-per-day rule keeps capture away.
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-finish-later');
+    // A draft leaves nothing done, so only the once-per-day rule keeps the launch page away.
+    await saveLaunchDraft();
     expectToday();
     await awayUntil(new Date(2026, 9, 11, 21, 0, 0));
     expectToday();
-    expect(screen.queryByText('capture-screen')).toBeNull();
+    expect(screen.queryByText('add-screen')).toBeNull();
     await awayUntil(new Date(2026, 9, 12, 8, 0, 0));
     expectLaunchCapture();
   });
 });
 
-describe('App leaving a capture', () => {
+describe('App leaving the launch page', () => {
   const marker = () => __fs.read(`${DOC}/no-dream.json`);
   const press_ = (text: string) =>
     act(async () => {
@@ -2504,17 +2249,15 @@ describe('App leaving a capture', () => {
         .find((b) => b.text === text)
         ?.onPress?.();
     });
-  const startRecording = () => press('stub-capture-busy');
 
   beforeEach(() => {
     mockLibrary.dreams = [oldDream];
-    mockRecorderStop.mockResolvedValue({ uri: 'file:///cache/r.m4a', durationMs: 1000 });
   });
 
-  describe('the launch capture', () => {
-    it('idle arrow counts as No dream and lands on Today', async () => {
+  describe('the launch page', () => {
+    it('idle back arrow counts as No dream and lands on Today', async () => {
       await renderApp();
-      await fireEvent.press(screen.getByLabelText('No dream, go to Today'));
+      await press('stub-add-back');
       await flush();
       expectToday();
       expect(screen.getByText('No dream today')).toBeTruthy();
@@ -2532,79 +2275,49 @@ describe('App leaving a capture', () => {
       expect(Alert.alert).not.toHaveBeenCalled();
     });
 
-    it('the No dream button still works', async () => {
-      await renderApp();
-      await press('stub-no-dream');
-      await flush();
-      expectToday();
-      expect(marker()).toContain(todayKeyNow());
-    });
-
     it('a marker write failure still navigates to Today', async () => {
       __fs.failWhen('write', (uri) => uri.endsWith('no-dream.json'));
       __fs.failWhen('create', (uri) => uri.endsWith('no-dream.json'));
       await renderApp();
-      await fireEvent.press(screen.getByLabelText('No dream, go to Today'));
+      await press('stub-add-back');
       await flush();
       expectToday();
       expect(screen.getByText('No dream today')).toBeTruthy();
       expect(marker()).toBeUndefined();
     });
 
-    it('mid-recording Android back asks; Keep recording stays and marks nothing', async () => {
+    it('with content, back asks and marks nothing; Keep writing stays', async () => {
       await renderApp();
-      await startRecording();
-      expect(await hardwareBack()).toBe(true);
-      expect(Alert.alert).toHaveBeenCalledTimes(1);
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Discard this recording?',
-        expect.any(String),
-        expect.any(Array),
-      );
-      await press_('Keep recording');
+      await press('stub-add-set-body');
+      await press('stub-add-back');
+      await press_('Keep writing');
       await flush();
-      expect(screen.getByText('capture-screen')).toBeTruthy();
+      expect(screen.getByText('add-screen')).toBeTruthy();
+      expect(screen.getByText('add-body:some words')).toBeTruthy();
+      expect(marker()).toBeUndefined();
+    });
+
+    it('with content, Discard goes to Today without a marker', async () => {
+      await renderApp();
+      await press('stub-add-set-body');
+      await hardwareBack();
+      await press_('Discard');
+      await flush();
+      expectToday();
+      expect(screen.queryByText('No dream today')).toBeNull();
       expect(marker()).toBeUndefined();
       expect(discardRecording).not.toHaveBeenCalled();
     });
 
-    it('mid-recording Discard stops, deletes the cache file, then marks No dream and lands on Today', async () => {
+    it('with content, Save draft saves a draft, marks nothing and lands on Today', async () => {
       await renderApp();
-      await startRecording();
-      await hardwareBack();
-      await press_('Discard');
+      await press('stub-add-set-body');
+      await press('stub-add-back');
+      await press_('Save draft');
       await flush();
-      expect(mockRecorderStop).toHaveBeenCalledTimes(1);
-      expect(discardRecording).toHaveBeenCalledWith('file:///cache/r.m4a');
+      expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
       expectToday();
-      expect(screen.getByText('No dream today')).toBeTruthy();
-      expect(marker()).toContain(todayKeyNow());
-      // Not asked again after the discard.
-      jest.mocked(Alert.alert).mockClear();
-      expect(await hardwareBack()).toBe(false);
-      expect(Alert.alert).not.toHaveBeenCalled();
-    });
-
-    it('a recorder stop failure stays on the capture and writes no marker', async () => {
-      mockRecorderStop.mockRejectedValue(new Error('stop failed'));
-      await renderApp();
-      await startRecording();
-      await hardwareBack();
-      await press_('Discard');
-      await flush();
-      expect(screen.getByText('capture-screen')).toBeTruthy();
-      expect(discardRecording).not.toHaveBeenCalled();
       expect(marker()).toBeUndefined();
-    });
-
-    it('the arrow while recording discards through the screen, then marks No dream', async () => {
-      await renderApp();
-      await startRecording();
-      await press('stub-recording-arrow');
-      await press_('Discard');
-      await flush();
-      expectToday();
-      expect(marker()).toContain(todayKeyNow());
     });
 
     it('opens Today on relaunch the same day after leaving', async () => {
@@ -2614,6 +2327,16 @@ describe('App leaving a capture', () => {
       await view.unmount();
       await renderApp();
       expectToday();
+    });
+
+    it('saving from it marks nothing', async () => {
+      await renderApp();
+      await press('stub-add-set-title');
+      await press('stub-add-save');
+      await flush();
+      expectToday();
+      expect(saveDream).toHaveBeenCalled();
+      expect(marker()).toBeUndefined();
     });
   });
 
@@ -2654,30 +2377,6 @@ describe('App leaving a capture', () => {
       expect(screen.getByText('log-journal:dreams')).toBeTruthy();
       expect(marker()).toBeUndefined();
     });
-  });
-
-  it('Read it back and Review back do not mark No dream', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    expect(await hardwareBack()).toBe(true);
-    await press_('Keep');
-    expect(marker()).toBeUndefined();
-    await press('Continue');
-    await press('stub-review-back');
-    expect(screen.getByText('Read it back')).toBeTruthy();
-    expect(marker()).toBeUndefined();
-  });
-
-  it('a normal record-and-save flow still works and marks nothing', async () => {
-    await renderApp();
-    await press('stub-save-recording');
-    await press('Continue');
-    await press('stub-set-title');
-    await press('stub-done');
-    await flush();
-    expectToday();
-    expect(saveDream).toHaveBeenCalled();
-    expect(marker()).toBeUndefined();
   });
 });
 
@@ -2721,7 +2420,6 @@ describe('App custom journals', () => {
     expect(screen.getByRole('menuitem', { name: /^Life,/ })).toBeTruthy();
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
     expect(screen.getByText('add-journal:j_g1')).toBeTruthy();
-    expect(screen.queryByText('stub-no-dream')).toBeNull();
   });
 
   it('shows the custom entry on Today and saves a new one into its journal, back to Today', async () => {
@@ -2786,7 +2484,7 @@ describe('App custom journals', () => {
       expect(screen.getByRole('menuitem', { name: /^Gratitude,/ })).toBeTruthy();
     });
 
-    it('opens Dream capture at 1000 ms when the journals never load, with built-ins only', async () => {
+    it('opens the Dreams page at 1000 ms when the journals never load, with built-ins only', async () => {
       jest.useFakeTimers();
       try {
         mockLibrary.dreams = [todayDream];
@@ -2795,12 +2493,12 @@ describe('App custom journals', () => {
         await act(async () => {
           jest.advanceTimersByTime(999);
         });
-        expect(screen.queryByText('capture-screen')).toBeNull();
+        expect(screen.queryByText('add-screen')).toBeNull();
         await act(async () => {
           jest.advanceTimersByTime(1);
         });
-        expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
-        expect(screen.getByText('stub-no-dream')).toBeTruthy();
+        expect(screen.getByText('add-journal:dreams')).toBeTruthy();
+        expect(screen.getByText('add-offered:dreams,life')).toBeTruthy();
       } finally {
         jest.useRealTimers();
       }

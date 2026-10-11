@@ -34,8 +34,8 @@ export type EntryAudio = {
 };
 
 /**
- * The entry being written or edited on the add-entry page, kept above the screen. Separate from
- * `useDreamSession` (the old Capture / Read it back / Review flow): one page, two text fields.
+ * The entry being written or edited on the add-entry page, kept above the screen: one page, a
+ * title and a body, with an optional voice recording.
  */
 export type EntrySession = {
   /** 'new' starts empty, 'draft' reopens a stored draft, 'edit' reopens a finished entry. */

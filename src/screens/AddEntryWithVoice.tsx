@@ -87,6 +87,9 @@ export function AddEntryWithVoice({
   const [tagsOpen, setTagsOpen] = useState(false);
   const [tagFocusSignal, setTagFocusSignal] = useState(0);
   const tagsHaveContent = tags.length > 0 || tagDraft.trim().length > 0;
+  // Once the row has had content in this session it stays open (latched into `tagsOpen`), so
+  // removing the last tag or clearing the text never makes it vanish mid-edit.
+  if (tagsHaveContent && !tagsOpen) setTagsOpen(true);
   const tagsVisible = tagsHaveContent || tagsOpen;
 
   const shown = audio && !audio.removed ? audio : undefined;

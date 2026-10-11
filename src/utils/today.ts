@@ -53,7 +53,7 @@ export function dayStatus(
   };
 }
 
-/** Where the app opens: Dream capture only when auto-open is on and today is not yet settled. */
+/** Where the app opens: the Dreams add-entry page only when auto-open is on and today is not yet settled. */
 export function launchScreen({
   dreamToday,
   skippedToday,
@@ -62,8 +62,8 @@ export function launchScreen({
   dreamToday: boolean;
   skippedToday: boolean;
   autoOpen: boolean;
-}): 'today' | 'capture' {
-  return autoOpen && !dreamToday && !skippedToday ? 'capture' : 'today';
+}): 'today' | 'add' {
+  return autoOpen && !dreamToday && !skippedToday ? 'add' : 'today';
 }
 
 /** Milliseconds from `now` to the next local midnight. Built from date parts so DST days are right. */

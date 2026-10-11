@@ -80,7 +80,7 @@ export function DreamDetailScreen({
   // An untitled Life entry has no heading: the header carries its date, and the body leads.
   const untitledLife = journal.kind === 'journal' && row.ownTitle === '';
   const created = new Date(dream.createdAt);
-  // Same date format as Read it back and Review's header.
+  // Same date format as the add-entry page's header.
   const headerDate = Number.isNaN(created.getTime())
     ? copy.dateFallback
     : `${copy.datePrefix}${formatToday(created)}`;

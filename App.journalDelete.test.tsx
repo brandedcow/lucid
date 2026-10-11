@@ -28,9 +28,6 @@ jest.mock('expo-audio', () => ({
 }));
 
 // The recording flow is not under test here and needs native modules.
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
-jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
-jest.mock('./src/screens/ReviewScreen', () => ({ ReviewScreen: () => null }));
 
 // What the world looked like at the moment the registry entry was removed, and how often it was.
 let mockRemoveJournalCalls: { id: string; entriesLeft: string[] }[] = [];

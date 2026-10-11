@@ -31,13 +31,13 @@ npm run format       # apply Prettier
 ## Structure
 
 ```
-App.tsx              entry; switches between the capture, read-it-back, review, Dream log and Dream entry screens
+App.tsx              entry; switches between Today, the journals, the Dream log, Add entry, Search, Settings and Dream entry screens
 src/
-  screens/           CaptureScreen (+ capture/IdleView, ListeningView), ReadItBackScreen, ReviewScreen, DreamLogScreen, DreamDetailScreen
-  components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionInput, DreamChips
-  hooks/             useDreamRecorder, useLiveTranscription, useDreamSession, useDreamLibrary, useLogView
-  services/          dreamStorage (local audio files + dreams.json)
-  utils/             format, tags, emotions, capitalizeFirst, fadeTail, dreamLog, paragraphs, sessionNavigation
+  screens/           TodayScreen, AddEntryScreen, AddEntryWithVoice, DreamLogScreen, DreamDetailScreen, JournalsScreen, SearchScreen, SettingsScreen
+  components/        RecordingPanel, RecordingPlayer, VoiceAttachmentCard, JournalPicker, TagInput, EmotionInput, DreamChips, EntryRow, and others
+  hooks/             useDreamRecorder, useEntrySession, useEntryHistory, useRecordingPlayback, useDreamLibrary, useJournals, useToday, useLogView, useSettings
+  services/          dreamStorage (local audio files + dreams.json), journalStorage, settingsStorage, dayMarker
+  utils/             format, tags, emotions, capitalizeFirst, dreamLog, paragraphs, sessionNavigation, journals, today, waveform
   types/             dream (Dream, DreamDetails), entry (EntryType)
   theme/             colors, spacing, fonts
   test/              fakeFileSystem (in-memory expo-file-system for Jest)

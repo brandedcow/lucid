@@ -26,7 +26,6 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(),
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0.6, durationMs: 0 };
 jest.mock('./src/hooks/useDreamRecorder', () => ({
   useDreamRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
@@ -464,5 +463,89 @@ describe('App voice entry', () => {
       expect(saved?.status).toBeUndefined();
       expect(__fs.has(DRAFT_AUDIO)).toBe(false);
     });
+  });
+});
+
+describe('App launch page with voice', () => {
+  const marker = () => __fs.read(`${DOC}/no-dream.json`);
+  const dayKey = (() => {
+    const d = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+  })();
+  async function launch() {
+    // Auto-open on: nothing in the Dreams journal today, so the app opens the Dreams page.
+    __fs.put(`${DOC}/settings.json`, JSON.stringify({ autoOpenDreamCapture: true }));
+    await render(<App />);
+    await settle();
+    expect(byLabel('Title')).toBeTruthy();
+    expect(screen.queryByRole('header', { name: 'Today' })).toBeNull();
+  }
+
+  it('opens the add-entry page for Dreams, with the voice toolbar', async () => {
+    await launch();
+    expect(byLabel('Journal: Dreams')).toBeTruthy();
+    expect(byLabel('Record voice note')).toBeTruthy();
+  });
+
+  it('back on the empty page is No dream: marker written, Today, no alert', async () => {
+    await launch();
+    await press(byLabel('Back'));
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    expect(marker()).toContain(dayKey);
+  });
+
+  it('back while recording asks first; Keep recording stays and marks nothing', async () => {
+    await launch();
+    await press(byLabel('Record voice note'));
+    await press(byLabel('Back'));
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      'Discard this recording?',
+      'Your recording will be deleted.',
+      expect.any(Array),
+    );
+    await choose('Keep recording');
+    expect(byLabel('Stop recording')).toBeTruthy();
+    expect(marker()).toBeUndefined();
+    expect(mockRec.stop).not.toHaveBeenCalled();
+  });
+
+  it('Android back while recording asks; Discard stops, deletes the cache file, then counts as No dream', async () => {
+    await launch();
+    await press(byLabel('Record voice note'));
+    expect(await hardwareBack()).toBe(true);
+    await choose('Discard');
+    expect(mockRec.stop).toHaveBeenCalledTimes(1);
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    expect(marker()).toContain(dayKey);
+    expect(index()).toHaveLength(2);
+  });
+
+  it('with a finished recording, back asks Save draft / Discard / Keep writing and is not No dream', async () => {
+    await launch();
+    await record();
+    await press(byLabel('Back'));
+    expect(lastButtons().map((b) => b.text)).toEqual(['Save draft', 'Discard', 'Keep writing']);
+    await choose('Discard');
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    expect(marker()).toBeUndefined();
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(index()).toHaveLength(2);
+  });
+
+  it('records and saves a Dream from the launch page: audio stored, back on Today, no marker', async () => {
+    await launch();
+    await fireEvent.changeText(byLabel('Title'), 'Flying');
+    await record();
+    await press(byLabel('Save dream'));
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    const saved = index().find((d) => d.title === 'Flying');
+    expect(saved).toMatchObject({ durationMs: 4000 });
+    expect(saved?.journalId).toBe('dreams');
+    expect(saved?.audioFileName).toBeDefined();
+    expect(__fs.has(CACHE)).toBe(false);
+    expect(marker()).toBeUndefined();
   });
 });

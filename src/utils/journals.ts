@@ -54,10 +54,6 @@ export const showsEmotion = (_kind: EntryType): boolean => true;
 
 /** Every user-facing noun or phrase that differs by kind. Dream values are the strings in use today. */
 export type JournalCopy = {
-  captureHeadline: string;
-  tips: readonly string[];
-  /** The "No dream" button on capture; null when the kind has none. */
-  skipLabel: string | null;
   saveButton: string;
   newButton: string;
   logHeader: string;
@@ -66,8 +62,6 @@ export type JournalCopy = {
   emptyBody: string;
   noMatchTitle: string;
   unreadableLog: string;
-  discardTitle: string;
-  discardBody: string;
   discardChangesMessage: string;
   deleteTitle: string;
   deleteBodyWithAudio: string;
@@ -82,8 +76,6 @@ export type JournalCopy = {
   datePrefix: string;
   /** The date line when there is no date, e.g. "Dream" or "Life". */
   dateFallback: string;
-  titlePlaceholder: string;
-  readItBackTextLabel: string;
   untitled: string;
   editLabel: string;
   deleteLabel: string;
@@ -92,9 +84,6 @@ export type JournalCopy = {
 };
 
 const DREAM_COPY: JournalCopy = {
-  captureHeadline: 'What happened in my dream?',
-  tips: ['Stay still', 'Work backwards', 'Record the emotion', 'Think in the present tense'],
-  skipLabel: 'No dream',
   saveButton: 'Save dream',
   newButton: 'New dream',
   logHeader: 'Dreams',
@@ -103,8 +92,6 @@ const DREAM_COPY: JournalCopy = {
   emptyBody: 'Tap New dream to record one.',
   noMatchTitle: 'No dreams match',
   unreadableLog: 'Your saved dreams could not be read. Your recordings are safe.',
-  discardTitle: 'Discard this dream?',
-  discardBody: 'Your recording and text will be deleted.',
   discardChangesMessage: 'Your changes to this dream will be lost.',
   deleteTitle: 'Delete this dream?',
   deleteBodyWithAudio: "The recording and text will be permanently deleted. This can't be undone.",
@@ -119,8 +106,6 @@ const DREAM_COPY: JournalCopy = {
     'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
   datePrefix: 'Dream · ',
   dateFallback: 'Dream',
-  titlePlaceholder: 'Name this dream',
-  readItBackTextLabel: 'Dream text',
   untitled: 'Untitled dream',
   editLabel: 'Edit dream',
   deleteLabel: 'Delete dream',
@@ -130,9 +115,6 @@ const DREAM_COPY: JournalCopy = {
 };
 
 const JOURNAL_COPY: JournalCopy = {
-  captureHeadline: 'What happened today?',
-  tips: ['Start anywhere', 'Say it as it comes', 'Note how you felt', 'Keep it short or long'],
-  skipLabel: null,
   saveButton: 'Save entry',
   newButton: 'New entry',
   logHeader: 'Life',
@@ -141,8 +123,6 @@ const JOURNAL_COPY: JournalCopy = {
   emptyBody: 'Tap New entry to record one.',
   noMatchTitle: 'No entries match',
   unreadableLog: 'Your saved entries could not be read. Your recordings are safe.',
-  discardTitle: 'Discard this entry?',
-  discardBody: 'Your recording and text will be deleted.',
   discardChangesMessage: 'Your changes to this entry will be lost.',
   deleteTitle: 'Delete this entry?',
   deleteBodyWithAudio: "The recording and text will be permanently deleted. This can't be undone.",
@@ -157,8 +137,6 @@ const JOURNAL_COPY: JournalCopy = {
     'Your saved entries could not be read, so this entry was not saved. Your recording is still here.',
   datePrefix: 'Life · ',
   dateFallback: 'Life',
-  titlePlaceholder: 'Title (optional)',
-  readItBackTextLabel: 'Entry text',
   untitled: 'Untitled entry',
   editLabel: 'Edit entry',
   deleteLabel: 'Delete entry',

@@ -600,6 +600,15 @@ describe('toolbar', () => {
       expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
     });
 
+    it('keeps the row open after the last tag of a tagged entry is removed, until # closes it', async () => {
+      await renderPage({ open: { dream: { ...stored, tags: ['water'] }, as: 'edit' } });
+      await press('Remove tag water');
+      expect(screen.queryByText('water')).toBeNull();
+      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+      await press('Add tags');
+      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+    });
+
     it('keeps the row when tag text is typed', async () => {
       await renderPage();
       await press('Add tags');

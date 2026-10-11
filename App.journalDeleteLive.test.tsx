@@ -28,23 +28,11 @@ jest.mock('expo-audio', () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
-jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
 jest.mock('./src/screens/AddEntryScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
     AddEntryScreen: ({ onSave }: any) => (
       <Pressable onPress={onSave}>
-        <Text>stub-done</Text>
-      </Pressable>
-    ),
-  };
-});
-jest.mock('./src/screens/ReviewScreen', () => {
-  const { Pressable, Text } = require('react-native');
-  return {
-    ReviewScreen: ({ onDone }: any) => (
-      <Pressable onPress={onDone}>
         <Text>stub-done</Text>
       </Pressable>
     ),
@@ -73,17 +61,8 @@ jest.mock('./src/screens/JournalsScreen', () => {
     },
   };
 });
-let mockSession: any = null;
 let mockEntrySession: any = null;
 let mockSaveGate: Promise<unknown> | null = null;
-jest.mock('./src/hooks/useDreamSession', () => ({
-  useDreamSession: () =>
-    new Proxy(
-      { session: mockSession, save: () => mockSaveGate, isSaving: () => false },
-      { get: (t: any, k) => (k in t ? t[k] : jest.fn()) },
-    ),
-}));
-
 jest.mock('./src/hooks/useEntrySession', () => ({
   ...jest.requireActual('./src/hooks/useEntrySession'),
   useEntrySession: () =>
@@ -210,7 +189,6 @@ beforeEach(() => {
   mockGate = null;
   mockAfterDelete = null;
   mockAsk = null;
-  mockSession = null;
   mockEntrySession = null;
   mockSaveGate = null;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -221,7 +199,14 @@ afterEach(() => jest.restoreAllMocks());
 
 describe('App journal delete live guards', () => {
   it('refuses to ask while a session is open for that journal', async () => {
-    mockSession = { journalId: 'j_g1', origin: 'write', title: '', tags: [] };
+    mockEntrySession = {
+      journalId: 'j_g1',
+      origin: 'new',
+      title: '',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await ask('j_g1');
@@ -234,7 +219,14 @@ describe('App journal delete live guards', () => {
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await ask('j_g1');
     expect(Alert.alert).toHaveBeenCalledTimes(1);
-    mockSession = { journalId: 'j_g1', origin: 'write', title: '', tags: [] };
+    mockEntrySession = {
+      journalId: 'j_g1',
+      origin: 'new',
+      title: '',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     await press('journals-back');
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await pressAlert('Delete');

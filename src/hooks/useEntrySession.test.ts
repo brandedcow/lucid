@@ -391,6 +391,24 @@ describe('useEntrySession save (real saveDream, fake file system)', () => {
     expect(result.current.saving).toBe(false);
   });
 
+  it('shows the specific Alert and keeps the session when the index is unreadable', async () => {
+    __fs.put(INDEX, '{not json');
+    const { result } = await open();
+    await act(async () => result.current.startNew());
+    await act(async () => result.current.setTitle('x'));
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.save('saved');
+    });
+    expect(ok).toBe(false);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Could not save your dream',
+      'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
+    );
+    expect(result.current.session?.title).toBe('x');
+    expect(__fs.read(INDEX)).toBe('{not json');
+  });
+
   it('ignores a second save while one is in flight', async () => {
     const { result } = await open();
     await act(async () => {

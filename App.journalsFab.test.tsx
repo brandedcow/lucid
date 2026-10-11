@@ -26,7 +26,6 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(),
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
 jest.mock('./src/screens/AddEntryScreen', () => {
   const { Text, Pressable } = jest.requireActual('react-native');
   return {
