@@ -46,6 +46,13 @@ export const discardChangesMessage = (kind: EntryType): string =>
 export const DISCARD_CHANGES_KEEP = 'Keep editing';
 export const DISCARD_CHANGES_DISCARD = 'Discard';
 
+/** The leave prompt on the add-entry page when it holds something typed. */
+export const LEAVE_ENTRY_TITLE = 'Save a draft?';
+export const LEAVE_ENTRY_MESSAGE = 'Keep what you wrote to finish later, or discard it.';
+export const LEAVE_ENTRY_SAVE_DRAFT = 'Save draft';
+export const LEAVE_ENTRY_DISCARD = 'Discard';
+export const LEAVE_ENTRY_KEEP = 'Keep writing';
+
 export type ReadItBackBack = 'review' | 'confirmDiscard' | 'capture' | 'list';
 
 /**
@@ -78,6 +85,7 @@ export type FlowReturn = 'today' | 'log';
 export type BackInput = {
   screen:
     | 'capture'
+    | 'add'
     | 'readItBack'
     | 'review'
     | 'log'
@@ -120,7 +128,8 @@ export type BackInput = {
  * - `journals`: Journals home (a log, or Search, whose view App also resets).
  * - `search`: the Search results, state kept.
  * - `log`: that journal's log.
- * - `chain`: Read it back and Review keep their own rules (`readItBackBack`, `reviewBack`).
+ * - `chain`: the add-entry page, Read it back and Review keep their own rules (App's `backFromAdd`,
+ *   `readItBackBack`, `reviewBack`).
  */
 export type BackTarget =
   | { to: 'exit' }
@@ -162,6 +171,7 @@ export function backTarget(input: BackInput): BackTarget {
       return input.detailFrom === 'search'
         ? { to: 'search' }
         : { to: 'log', journalId: input.journalId };
+    case 'add':
     case 'readItBack':
     case 'review':
       return { to: 'chain' };

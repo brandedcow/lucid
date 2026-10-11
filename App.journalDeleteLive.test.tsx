@@ -29,6 +29,16 @@ jest.mock('expo-audio', () => ({
 
 jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
 jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
+jest.mock('./src/screens/AddEntryScreen', () => {
+  const { Pressable, Text } = require('react-native');
+  return {
+    AddEntryScreen: ({ onSave }: any) => (
+      <Pressable onPress={onSave}>
+        <Text>stub-done</Text>
+      </Pressable>
+    ),
+  };
+});
 jest.mock('./src/screens/ReviewScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
@@ -63,11 +73,21 @@ jest.mock('./src/screens/JournalsScreen', () => {
   };
 });
 let mockSession: any = null;
+let mockEntrySession: any = null;
 let mockSaveGate: Promise<unknown> | null = null;
 jest.mock('./src/hooks/useDreamSession', () => ({
   useDreamSession: () =>
     new Proxy(
       { session: mockSession, save: () => mockSaveGate, isSaving: () => false },
+      { get: (t: any, k) => (k in t ? t[k] : jest.fn()) },
+    ),
+}));
+
+jest.mock('./src/hooks/useEntrySession', () => ({
+  ...jest.requireActual('./src/hooks/useEntrySession'),
+  useEntrySession: () =>
+    new Proxy(
+      { session: mockEntrySession, save: () => mockSaveGate, isSaving: () => false },
       { get: (t: any, k) => (k in t ? t[k] : jest.fn()) },
     ),
 }));
@@ -190,6 +210,7 @@ beforeEach(() => {
   mockAfterDelete = null;
   mockAsk = null;
   mockSession = null;
+  mockEntrySession = null;
   mockSaveGate = null;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation(() => ({ remove: () => {} }));
@@ -221,7 +242,7 @@ describe('App journal delete live guards', () => {
   });
 
   it('refuses while a save is in flight', async () => {
-    // A draft on Today opens Review; Done starts a save that stays pending.
+    // A draft on Today opens the add-entry page; the check starts a save that stays pending.
     __fs.put(
       `${DOC}/dreams.json`,
       JSON.stringify([...RECORDS, rec('dr', 'Unfinished', { status: 'draft' })]),
@@ -229,7 +250,7 @@ describe('App journal delete live guards', () => {
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await press('journals-back');
-    mockSession = { journalId: 'dreams', origin: 'draft', title: 'x', tags: [] };
+    mockEntrySession = { journalId: 'dreams', origin: 'draft', title: 'x', body: '', tags: [] };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);
@@ -255,7 +276,7 @@ describe('App journal delete live guards', () => {
     expect(Alert.alert).toHaveBeenCalledTimes(1);
     const buttons = lastButtons();
     await press('journals-back');
-    mockSession = { journalId: 'dreams', origin: 'draft', title: 'x', tags: [] };
+    mockEntrySession = { journalId: 'dreams', origin: 'draft', title: 'x', body: '', tags: [] };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);

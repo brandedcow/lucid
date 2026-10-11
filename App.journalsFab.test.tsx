@@ -25,39 +25,28 @@ jest.mock('expo-audio', () => ({
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
 }));
-jest.mock('./src/screens/CaptureScreen', () => {
+jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
+jest.mock('./src/screens/AddEntryScreen', () => {
   const { Text, Pressable } = jest.requireActual('react-native');
   return {
-    CaptureScreen: (p: { journal: { id: string }; onBack: () => void; onWrite: () => void }) => (
+    AddEntryScreen: (p: {
+      journal: { id: string };
+      onBack: () => void;
+      onBodyChange: (t: string) => void;
+      onSave: () => void;
+    }) => (
       <>
-        <Text>{`capture-journal:${p.journal.id}`}</Text>
+        <Text>{`add-journal:${p.journal.id}`}</Text>
         <Pressable onPress={p.onBack}>
-          <Text>stub-capture-back</Text>
+          <Text>stub-add-back</Text>
         </Pressable>
-        <Pressable onPress={p.onWrite}>
-          <Text>stub-write</Text>
+        <Pressable onPress={() => p.onBodyChange('some words')}>
+          <Text>stub-add-body</Text>
+        </Pressable>
+        <Pressable onPress={p.onSave}>
+          <Text>stub-add-save</Text>
         </Pressable>
       </>
-    ),
-  };
-});
-jest.mock('./src/screens/ReadItBackScreen', () => {
-  const { Text, Pressable } = jest.requireActual('react-native');
-  return {
-    ReadItBackScreen: (p: { onContinue: () => void }) => (
-      <Pressable onPress={p.onContinue}>
-        <Text>stub-continue</Text>
-      </Pressable>
-    ),
-  };
-});
-jest.mock('./src/screens/ReviewScreen', () => {
-  const { Text, Pressable } = jest.requireActual('react-native');
-  return {
-    ReviewScreen: (p: { onDone: () => void }) => (
-      <Pressable onPress={p.onDone}>
-        <Text>stub-done</Text>
-      </Pressable>
     ),
   };
 });
@@ -162,32 +151,32 @@ describe('App Add entry button on Journals home', () => {
     expect(screen.queryByLabelText('Add entry')).toBeNull();
   });
 
-  it('picking a journal opens its capture; Back returns to Today', async () => {
+  it('picking a journal opens the add-entry page; Back returns to Today', async () => {
     await renderApp();
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
-    expect(screen.getByText('capture-journal:j_g1')).toBeTruthy();
-    await press('stub-capture-back');
+    expect(screen.getByText('add-journal:j_g1')).toBeTruthy();
+    await press('stub-add-back');
     expectToday();
   });
 
-  it('Android back from that capture returns to Today', async () => {
+  it('Android back from that page returns to Today', async () => {
     await renderApp();
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Travel,/ }));
-    expect(screen.getByText('capture-journal:j_t1')).toBeTruthy();
+    expect(screen.getByText('add-journal:j_t1')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
     expectToday();
   });
 
-  it('a Dreams capture started here returns to Today without marking No dream', async () => {
+  it('a Dreams page started here returns to Today without marking No dream', async () => {
     await renderApp();
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Dreams,/ }));
-    await press('stub-capture-back');
+    await press('stub-add-back');
     expectToday();
     expect(screen.queryByText('No dream today')).toBeNull();
   });
@@ -197,9 +186,8 @@ describe('App Add entry button on Journals home', () => {
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
-    await press('stub-write');
-    await press('stub-continue');
-    await press('stub-done');
+    await press('stub-add-body');
+    await press('stub-add-save');
     await settle();
     expectToday();
     const stored = JSON.parse(__fs.read(`${DOC}/dreams.json`) ?? '[]') as { journalId?: string }[];

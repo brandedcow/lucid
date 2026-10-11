@@ -310,5 +310,7 @@ describe('backTarget', () => {
   it('Read it back and Review keep their own chains', () => {
     expect(backTarget({ screen: 'readItBack', journalId: 'life' })).toEqual({ to: 'chain' });
     expect(backTarget({ screen: 'review', journalId: 'dreams' })).toEqual({ to: 'chain' });
+    // The add-entry page decides in App (`backFromAdd`).
+    expect(backTarget({ screen: 'add', journalId: 'dreams' })).toEqual({ to: 'chain' });
   });
 });
