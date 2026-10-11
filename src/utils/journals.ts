@@ -158,3 +158,7 @@ const JOURNAL_COPY: JournalCopy = {
 
 export const journalCopy = (kind: EntryType): JournalCopy =>
   kind === 'dream' ? DREAM_COPY : JOURNAL_COPY;
+
+/** Singular noun for one entry of this kind, e.g. "Dream" or "Life". Keyed by kind so a new kind is a type error. */
+const ENTRY_NOUNS: Record<EntryType, string> = { dream: 'Dream', journal: 'Life' };
+export const entryNoun = (kind: EntryType): string => ENTRY_NOUNS[kind];

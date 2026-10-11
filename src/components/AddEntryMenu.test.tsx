@@ -1,4 +1,4 @@
-import { BackHandler, Text } from 'react-native';
+import { AccessibilityInfo, BackHandler, StyleSheet, Text } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { AddEntryMenu, FAB_SIZE } from './AddEntryMenu';
 import { BUILT_IN_JOURNALS, journalCopy } from '../utils/journals';
@@ -6,8 +6,11 @@ import { BUILT_IN_JOURNALS, journalCopy } from '../utils/journals';
 let backHandler: (() => boolean | null | undefined) | null = null;
 const remove = jest.fn();
 let addSpy: jest.SpyInstance;
+let reduceSpy: jest.SpyInstance;
 
 beforeEach(() => {
+  jest.useFakeTimers();
+  reduceSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
   backHandler = null;
   remove.mockClear();
   addSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, handler) => {
@@ -15,7 +18,14 @@ beforeEach(() => {
     return { remove };
   });
 });
-afterEach(() => addSpy.mockRestore());
+afterEach(() => {
+  addSpy.mockRestore();
+  reduceSpy.mockRestore();
+  jest.useRealTimers();
+});
+
+/** Run the 220 ms slide/fade to its end. */
+const finishAnimation = () => act(() => jest.advanceTimersByTime(400));
 
 const fab = () => screen.getByLabelText('Add entry', { hidden: true });
 const open = () => fireEvent.press(fab());
@@ -33,6 +43,7 @@ describe('AddEntryMenu', () => {
     await open();
     expect(fab().props.accessibilityState).toMatchObject({ expanded: true });
     await fireEvent.press(screen.getByLabelText('Close menu'));
+    await finishAnimation();
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
@@ -41,6 +52,7 @@ describe('AddEntryMenu', () => {
     await open();
     expect(screen.getAllByRole('menuitem')).toHaveLength(2);
     await open();
+    await finishAnimation();
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
@@ -57,8 +69,10 @@ describe('AddEntryMenu', () => {
     BUILT_IN_JOURNALS.forEach((j, i) => {
       const hint = journalCopy(j.kind).newButton;
       expect(items[i].props.accessibilityLabel).toBe(`${j.name}, ${hint}`);
-      expect(items[i]).toHaveStyle({ minHeight: 44 });
+      expect(items[i]).toHaveStyle({ minHeight: 88, borderRadius: 16 });
+      expect(within(items[i]).getByText('›', { hidden: true })).toBeTruthy();
     });
+    expect(screen.getByRole('header', { name: 'Add entry' })).toBeTruthy();
     expect(screen.getByText('Dreams')).toBeTruthy();
     expect(screen.getByText(journalCopy('journal').newButton)).toBeTruthy();
     expect(within(items[0]).getByText(journalCopy('dream').newButton)).toBeTruthy();
@@ -71,7 +85,10 @@ describe('AddEntryMenu', () => {
     await fireEvent.press(screen.getAllByRole('menuitem')[1]);
     expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick).toHaveBeenCalledWith(BUILT_IN_JOURNALS[1].id);
+    expect(fab().props.accessibilityState).toMatchObject({ expanded: false });
+    await finishAnimation();
     expect(screen.queryByRole('menuitem')).toBeNull();
+    expect(onPick).toHaveBeenCalledTimes(1);
   });
 
   it('closes from the backdrop without calling onPick', async () => {
@@ -79,6 +96,7 @@ describe('AddEntryMenu', () => {
     await renderMenu({ onPick });
     await open();
     await fireEvent.press(screen.getByLabelText('Close menu'));
+    await finishAnimation();
     expect(screen.queryByRole('menuitem')).toBeNull();
     expect(onPick).not.toHaveBeenCalled();
   });
@@ -93,6 +111,7 @@ describe('AddEntryMenu', () => {
       handled = backHandler?.();
     });
     expect(handled).toBe(true);
+    await finishAnimation();
     expect(screen.queryByRole('menuitem')).toBeNull();
     expect(remove).toHaveBeenCalled();
   });
@@ -131,19 +150,62 @@ describe('AddEntryMenu', () => {
   it('is a modal layer when open', async () => {
     await renderMenu();
     await open();
-    expect(screen.getByLabelText('Close menu').parent?.props.accessibilityViewIsModal).toBe(true);
+    expect(screen.getByLabelText('Close menu').parent?.parent?.props.accessibilityViewIsModal).toBe(
+      true,
+    );
   });
 
-  it('positions the button and card from bottomInset', async () => {
+  it('is a bottom sheet pinned to the bottom, padded by bottomInset', async () => {
     const view = await renderMenu();
     await open();
     expect(fab()).toHaveStyle({ width: FAB_SIZE, height: FAB_SIZE, right: 24, bottom: 16 });
-    const card = screen.getAllByRole('menuitem')[0].parent!;
-    expect(card).toHaveStyle({ bottom: 16 + FAB_SIZE + 8, right: 24 });
+    const sheet = screen.getByRole('header', { name: 'Add entry' }).parent!;
+    const style = StyleSheet.flatten(sheet.props.style);
+    expect(style).toMatchObject({
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      maxHeight: '70%',
+      paddingBottom: 24,
+    });
     await view.rerender(
       <AddEntryMenu journals={BUILT_IN_JOURNALS} onPick={jest.fn()} bottomInset={34} />,
     );
     expect(fab()).toHaveStyle({ bottom: 50 });
-    expect(screen.getAllByRole('menuitem')[0].parent!).toHaveStyle({ bottom: 50 + FAB_SIZE + 8 });
+    expect(StyleSheet.flatten(sheet.props.style).paddingBottom).toBe(34 + 24);
+  });
+
+  it('keeps the sheet mounted until the exit animation ends', async () => {
+    await renderMenu();
+    await open();
+    await finishAnimation();
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    await finishAnimation();
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('with Reduce Motion it opens and closes without any animation', async () => {
+    reduceSpy.mockResolvedValue(true);
+    await renderMenu();
+    await act(async () => {});
+    await open();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('reopening while it is closing keeps it open', async () => {
+    await renderMenu();
+    await open();
+    await finishAnimation();
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    await open();
+    await finishAnimation();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    expect(fab().props.accessibilityState).toMatchObject({ expanded: true });
   });
 });

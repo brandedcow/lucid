@@ -28,6 +28,12 @@ export function formatEntryDateTime(date: Date): string {
   return plainSpaces(`${day} · ${time}`);
 }
 
+/** "6:22 AM". Never throws; an invalid date gives an empty string. */
+export function formatTimeOfDay(date: Date): string {
+  if (Number.isNaN(date.getTime())) return '';
+  return plainSpaces(date.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' }));
+}
+
 /** "Sep 23", plus the year ("Sep 23, 2025") when it is not the current year. Empty for an invalid date. */
 export function formatShortDate(date: Date, now: Date = new Date()): string {
   if (Number.isNaN(date.getTime())) return '';

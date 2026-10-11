@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Entry } from '../types/dream';
 import { FAB_SIZE } from '../components/AddEntryMenu';
+import { colors } from '../theme';
 import { LIFE_JOURNAL } from '../types/entry';
 import { TodayScreen } from './TodayScreen';
 
@@ -98,9 +99,12 @@ describe('TodayScreen', () => {
     await setup();
     const rows = screen.getByTestId('today-list').props.data;
     expect(rows.map((r: { dream: Entry }) => r.dream.id)).toEqual(['life', 'draft', 'dream']);
-    expect(screen.getByText('Life')).toBeTruthy();
-    expect(screen.getByText(/Draft · .*Dreams/)).toBeTruthy();
-    expect(screen.getByText('Dreams')).toBeTruthy();
+    expect(screen.getByText('Life · 12:15 PM')).toBeTruthy();
+    expect(screen.getByText('Dream · 6:30 AM')).toBeTruthy();
+    expect(screen.getByText(/DRAFT · /)).toBeTruthy();
+    expect(
+      screen.getByLabelText(/^Untitled\. Dreams, 9:00 AM\. Draft\. Tap to finish$/),
+    ).toBeTruthy();
     expect(screen.queryByText('Old news')).toBeNull();
     expect(screen.queryByText('No dream today')).toBeNull();
   });
@@ -155,7 +159,7 @@ describe('TodayScreen', () => {
     await fireEvent.press(screen.getByText('Long walk'));
     expect(onOpenEntry).toHaveBeenCalledWith(LIFE);
     expect(onOpenDraft).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByText(/Draft · /));
+    await fireEvent.press(screen.getByLabelText(/Draft\. Tap to finish$/));
     expect(onOpenDraft).toHaveBeenCalledWith(DRAFT);
   });
 
@@ -188,6 +192,7 @@ describe('TodayScreen', () => {
     expect(items.map((i) => i.props.accessibilityLabel.split(',')[0])).toEqual(['Dreams', 'Life']);
     await fireEvent.press(items[1]);
     expect(onNewEntry).toHaveBeenCalledWith('life');
+    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull()); // sheet slides out first
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getAllByRole('menuitem')[0]);
     expect(onNewEntry).toHaveBeenLastCalledWith('dreams');
@@ -206,6 +211,25 @@ describe('TodayScreen', () => {
     await setup();
     const style = StyleSheet.flatten(screen.getByTestId('today-list').props.contentContainerStyle);
     expect(style.paddingBottom).toBe(34 + 16 + FAB_SIZE + 24);
+  });
+
+  it('renders flat rows with the full body and no horizontal padding on the list', async () => {
+    const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i}.`).join(' ');
+    await setup({ dreams: [entry({ id: 'long', transcript: long })] });
+    expect(screen.getByText(long)).toBeTruthy();
+    expect(screen.getByText(long).props.numberOfLines).toBeUndefined();
+    expect(screen.getByText(/^Dream · /)).toBeTruthy();
+    const list = StyleSheet.flatten(screen.getByTestId('today-list').props.contentContainerStyle);
+    expect(list.paddingHorizontal).toBeUndefined();
+    expect(list.paddingLeft).toBeUndefined();
+    expect(list.paddingRight).toBeUndefined();
+  });
+
+  it('ends the list with one hairline', async () => {
+    await setup();
+    const rule = StyleSheet.flatten(screen.getByTestId('today-end-rule').props.style);
+    expect(rule.borderTopWidth).toBe(StyleSheet.hairlineWidth);
+    expect(rule.borderTopColor).toBe(colors.border);
   });
 
   it('has no back arrow', async () => {

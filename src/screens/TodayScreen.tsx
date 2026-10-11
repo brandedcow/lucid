@@ -129,6 +129,7 @@ export function TodayScreen({
         <Text style={styles.skipLine}>{TODAY_COPY.noDream}</Text>
       ) : (
         <SwipeEntryRow
+          variant="today"
           dream={item.dream}
           copy={journalCopy(kindOf(journalOf(item.dream)))}
           journalLabel={journalLabel(item.dream)}
@@ -158,6 +159,7 @@ export function TodayScreen({
         data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
+        ListFooterComponent={<View testID="today-end-rule" style={styles.endRule} />}
         contentContainerStyle={[
           styles.list,
           { paddingBottom: insets.bottom + spacing.md + FAB_SIZE + spacing.lg },
@@ -239,8 +241,15 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 30 },
   date: { color: colors.muted, fontSize: 14 },
   body: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  skipLine: { color: colors.muted, fontSize: 16, paddingBottom: spacing.md },
+  // No horizontal padding: each row owns its own 24pt padding and top hairline.
+  list: { paddingTop: spacing.md },
+  endRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  skipLine: {
+    color: colors.muted,
+    fontSize: 16,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
   empty: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.sm },
   emptyBody: { color: colors.muted, fontSize: 16 },
 });
