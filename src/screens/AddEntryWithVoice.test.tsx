@@ -3,6 +3,8 @@ import { useEffect } from 'react';
 import { Alert, AlertButton, TextInput } from 'react-native';
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
+import { fakeKeyboard } from '../test/fakeKeyboard';
+import { bodyText } from '../test/bodyText';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { AddEntryWithVoice } from './AddEntryWithVoice';
@@ -64,7 +66,13 @@ const stored: Dream = {
   waveform: [0.2, 0.6, 0.9],
 };
 
-function Harness({ open }: { open?: { dream: Dream; as: 'draft' | 'edit' } }) {
+function Harness({
+  open,
+  knownTags,
+}: {
+  open?: { dream: Dream; as: 'draft' | 'edit' };
+  knownTags?: string[];
+}) {
   const entry = useEntrySession(BUILT_IN_JOURNALS);
   const { session } = entry;
   // The mic and the check read the latest session through this.
@@ -87,6 +95,7 @@ function Harness({ open }: { open?: { dream: Dream; as: 'draft' | 'edit' } }) {
       body={session.body}
       onBodyChange={entry.setBody}
       bodyBaseFrom={session.materializedFrom}
+      knownTags={knownTags}
       date="Sunday, October 6"
       saving={entry.saving}
       onSave={() => void entry.save('saved').then((ok) => ok && events.onSaved())}
@@ -453,15 +462,15 @@ describe('toolbar', () => {
     await typeBody('first second');
     expect(disabled('Undo')).toBe(false);
     await press('Undo');
-    expect(body().props.value).toBe('first');
+    expect(bodyText(body())).toBe('first');
     expect(disabled('Redo')).toBe(false);
     await press('Undo');
-    expect(body().props.value).toBe('');
+    expect(bodyText(body())).toBe('');
     expect(disabled('Undo')).toBe(true);
     await press('Redo');
-    expect(body().props.value).toBe('first');
+    expect(bodyText(body())).toBe('first');
     await press('Redo');
-    expect(body().props.value).toBe('first second');
+    expect(bodyText(body())).toBe('first second');
     expect(disabled('Redo')).toBe(true);
   });
 
@@ -508,9 +517,9 @@ describe('toolbar', () => {
     await press('Remove recording');
     await press('Undo');
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
-    expect(body().props.value).toBe('words');
+    expect(bodyText(body())).toBe('words');
     await press('Undo');
-    expect(body().props.value).toBe('');
+    expect(bodyText(body())).toBe('');
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
     expect(disabled('Undo')).toBe(true);
   });
@@ -583,7 +592,7 @@ describe('toolbar', () => {
       await renderPage();
       await typeBody('hello');
       await press('Add tags');
-      expect(body().props.value).toBe('hello #');
+      expect(bodyText(body())).toBe('hello #');
       expect(sessionApi?.session?.body).toBe('hello #');
       expect(focus).toHaveBeenCalled();
     });
@@ -593,14 +602,14 @@ describe('toolbar', () => {
       await typeBody('ab cd');
       await select(2);
       await press('Add tags');
-      expect(body().props.value).toBe('ab # cd');
+      expect(bodyText(body())).toBe('ab # cd');
       expect(body().props.selection).toEqual({ start: 4, end: 4 });
     });
 
     it('inserts # at the start of an empty body without a space', async () => {
       await renderPage();
       await press('Add tags');
-      expect(body().props.value).toBe('#');
+      expect(bodyText(body())).toBe('#');
     });
 
     it('is its own undo step, apart from the typing before it', async () => {
@@ -608,9 +617,9 @@ describe('toolbar', () => {
       await typeBody('hello');
       await press('Add tags');
       await press('Undo');
-      expect(body().props.value).toBe('hello');
+      expect(bodyText(body())).toBe('hello');
       await press('Redo');
-      expect(body().props.value).toBe('hello #');
+      expect(bodyText(body())).toBe('hello #');
     });
 
     it('is locked while saving', async () => {
@@ -646,19 +655,19 @@ describe('toolbar', () => {
       await renderPage({
         open: { dream: { ...stored, tags: ['water', 'Bad Dream'] }, as: 'edit' },
       });
-      expect(body().props.value).toBe('old text\n#water #bad-dream');
+      expect(bodyText(body())).toBe('old text\n#water #bad-dream');
       expect(entryHasEdits(sessionApi!.session!)).toBe(false);
       expect(disabled('Undo')).toBe(false);
       await press('Undo');
-      expect(body().props.value).toBe('old text');
+      expect(bodyText(body())).toBe('old text');
       expect(disabled('Undo')).toBe(true);
       await press('Redo');
-      expect(body().props.value).toBe('old text\n#water #bad-dream');
+      expect(bodyText(body())).toBe('old text\n#water #bad-dream');
     });
 
     it('writes odd old tags in sanitized (v1.2 becomes #v1-2)', async () => {
       await renderPage({ open: { dream: { ...stored, tags: ['v1.2', 'a/b'] }, as: 'draft' } });
-      expect(body().props.value).toBe('old text\n#v1-2 #a-b');
+      expect(bodyText(body())).toBe('old text\n#v1-2 #a-b');
     });
 
     it('has no undo step when the body already holds every tag', async () => {
@@ -667,5 +676,198 @@ describe('toolbar', () => {
       });
       expect(disabled('Undo')).toBe(true);
     });
+  });
+});
+
+describe('tag suggestions', () => {
+  const disabledOf = (label: string) =>
+    screen.getByLabelText(label).props.accessibilityState.disabled;
+  const body = () => screen.getByLabelText('Entry text');
+  const KNOWN = ['dream', 'water', 'waterfall', 'flying'];
+  const select = (start: number, end = start) =>
+    fireEvent(body(), 'selectionChange', { nativeEvent: { selection: { start, end } } });
+  const type = async (text: string, cursor = text.length) => {
+    await fireEvent(body(), 'focus');
+    await fireEvent.changeText(body(), text);
+    await select(cursor);
+    await advance(600);
+  };
+  const press = async (label: string) => {
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+  };
+  const pills = () =>
+    screen
+      .queryAllByRole('button')
+      .map((b) => b.props.accessibilityLabel as string)
+      .filter((l) => /^(Tag|Create) #/.test(l ?? ''));
+  const dock = () => screen.getByTestId('entry-bottom-dock');
+
+  it('is hidden with no token, and not in the tree', async () => {
+    await renderPage({ knownTags: KNOWN });
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    await type('plain words');
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    await type('a #wa b', 7); // cursor after the tag's space-separated end: not in a token
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+  });
+
+  it('sits in the dock directly above the toolbar', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('a #');
+    const tree = JSON.stringify(dock().props.children ? screen.toJSON() : null);
+    expect(tree.indexOf('"tag-suggestions"')).toBeGreaterThan(-1);
+    expect(tree.indexOf('"Undo"')).toBeGreaterThan(tree.indexOf('"tag-suggestions"'));
+  });
+
+  it('shows every existing tag (capped) for a bare "#"', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => `t${i}`);
+    await renderPage({ knownTags: many });
+    await type('#');
+    expect(pills()).toEqual(many.slice(0, 8).map((t) => `Tag #${t}`));
+  });
+
+  it('filters by prefix then substring, with a Create hint first for a new word', async () => {
+    await renderPage({ knownTags: [...KNOWN, 'sea-water'] });
+    await type('x #wat');
+    expect(pills()).toEqual(['Create #wat', 'Tag #water', 'Tag #waterfall', 'Tag #sea-water']);
+    await type('x #wolf');
+    expect(pills()).toEqual(['Create #wolf']);
+  });
+
+  it('has no Create hint for an exact existing tag', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('#water');
+    expect(pills()[0]).toBe('Tag #water');
+    expect(pills().some((l) => l.startsWith('Create'))).toBe(false);
+  });
+
+  it('works mid-sentence: the cursor inside a tag in the middle of the text', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('before #fl after', 10);
+    expect(pills()).toEqual(['Tag #flying', 'Create #fl'].reverse());
+  });
+
+  it('hides for a range selection', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('a #wa');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+    await select(2, 5);
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+  });
+
+  it('completes the word on tap: text, cursor and focus, as ONE undo step', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await renderPage({ knownTags: KNOWN });
+    await type('see #wa now', 7);
+    await press('Tag #water');
+    expect(bodyText(body())).toBe('see #water now');
+    expect(sessionApi?.session?.body).toBe('see #water now');
+    expect(body().props.selection).toEqual({ start: 11, end: 11 });
+    expect(focus).toHaveBeenCalled();
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    await press('Undo');
+    expect(bodyText(body())).toBe('see #wa now');
+    expect(disabledOf('Undo')).toBe(false); // the typing before is a separate step
+    await press('Redo');
+    expect(bodyText(body())).toBe('see #water now');
+  });
+
+  it('completes at the end of the text, adding one trailing space', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('hi #dr');
+    await press('Tag #dream');
+    expect(bodyText(body())).toBe('hi #dream ');
+    expect(body().props.selection).toEqual({ start: 10, end: 10 });
+  });
+
+  it('the Create hint only dismisses the bar; the text stays', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('hi #new');
+    await press('Create #new');
+    expect(bodyText(body())).toBe('hi #new');
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    // Another token brings it back.
+    await type('hi #new #fl');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+  });
+
+  it('the # button shows the bar at once with all existing tags', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('word');
+    await press('Add tags');
+    expect(bodyText(body())).toBe('word #');
+    expect(pills()).toEqual(KNOWN.map((t) => `Tag #${t}`));
+  });
+
+  it('is hidden while saving, and the body is not editable', async () => {
+    jest.mocked(saveDream).mockReturnValue(new Promise<Dream>(() => {}));
+    await renderPage({ knownTags: KNOWN });
+    await fireEvent.changeText(screen.getByLabelText('Title'), 'T');
+    await type('a #wa');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    expect(body().props.editable).toBe(false);
+  });
+
+  it('undo and redo put the cursor at the end of the changed region, within the text', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('abc def');
+    await select(3);
+    await type('abc XY def', 6);
+    await press('Undo');
+    expect(bodyText(body())).toBe('abc def');
+    expect(body().props.selection).toEqual({ start: 4, end: 4 });
+    await press('Redo');
+    expect(bodyText(body())).toBe('abc XY def');
+    expect(body().props.selection).toEqual({ start: 7, end: 7 });
+  });
+
+  it('typing a tag character by character follows the normal typing steps (one step per pause)', async () => {
+    await renderPage({ knownTags: KNOWN });
+    for (const t of ['#', '#w', '#wa', '#wat']) await fireEvent.changeText(body(), t);
+    await advance(600);
+    await press('Undo');
+    expect(bodyText(body())).toBe('');
+  });
+
+  it('shows only while the body has focus: hides on blur, and when the keyboard closes', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('a #wa');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+    await fireEvent(body(), 'blur');
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+    await fireEvent(body(), 'focus');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+  });
+
+  it('a pill tap does not need focus to move: the bar is still there until the tap completes', async () => {
+    await renderPage({ knownTags: KNOWN });
+    await type('a #wa');
+    // No blur happens for a pill press; the press still completes.
+    await press('Tag #water');
+    expect(bodyText(body())).toBe('a #water ');
+  });
+
+  it('offers stored tags in their inline form, deduped, dropping ones that cannot be inline', async () => {
+    await renderPage({
+      knownTags: ['bad dream', 'v1.2', 'bad-dream', '2024', '', 'x'.repeat(41), 'ok'],
+    });
+    await type('#');
+    expect(pills()).toEqual(['Tag #bad-dream', 'Tag #v1-2', 'Tag #ok']);
+    await press('Tag #bad-dream');
+    expect(bodyText(body())).toBe('#bad-dream ');
+  });
+
+  it('hides when the keyboard hides', async () => {
+    const kb = fakeKeyboard();
+    await renderPage({ knownTags: KNOWN });
+    await type('a #wa');
+    expect(screen.queryByTestId('tag-suggestions')).not.toBeNull();
+    await kb.emit('keyboardWillHide');
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
   });
 });

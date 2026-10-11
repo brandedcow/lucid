@@ -1,6 +1,7 @@
 import {
   activeToken,
   completeToken,
+  inlineTagFor,
   inlineTags,
   insertHash,
   materializeTags,
@@ -316,5 +317,16 @@ describe('materializeTags', () => {
   it('keeps emoji tags and round-trips through inlineTags', () => {
     const out = materializeTags('note', ['\u{1F319}', 'bad dream', 'Été']);
     expect(inlineTags(out)).toEqual(['\u{1F319}', 'bad-dream', 'été']);
+  });
+});
+
+describe('inlineTagFor', () => {
+  it('converts stored tags to their inline form, or null when they cannot be inline', () => {
+    expect(inlineTagFor('bad dream')).toBe('bad-dream');
+    expect(inlineTagFor('v1.2')).toBe('v1-2');
+    expect(inlineTagFor('Water')).toBe('water');
+    expect(inlineTagFor('2024')).toBeNull();
+    expect(inlineTagFor('')).toBeNull();
+    expect(inlineTagFor('x'.repeat(41))).toBeNull();
   });
 });

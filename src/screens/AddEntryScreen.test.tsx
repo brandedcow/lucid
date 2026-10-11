@@ -4,6 +4,7 @@ import { Platform, StyleSheet, Text } from 'react-native';
 import { entryJournalLocked, useEntrySession } from '../hooks/useEntrySession';
 import { saveDream } from '../services/dreamStorage';
 import { fakeKeyboard } from '../test/fakeKeyboard';
+import { bodyText } from '../test/bodyText';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS, Journal, journalOrDefault } from '../utils/journals';
 import { AddEntryScreen } from './AddEntryScreen';
@@ -116,7 +117,7 @@ describe('AddEntryScreen', () => {
     await fireEvent.changeText(screen.getByLabelText('Title'), 'Flooded hall');
     await fireEvent.changeText(screen.getByLabelText('Entry text'), 'it filled up');
     expect(screen.getByLabelText('Title').props.value).toBe('Flooded hall');
-    expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up');
+    expect(bodyText(screen.getByLabelText('Entry text'))).toBe('it filled up');
   });
 
   it('saves a finished entry with the body as the transcript and its #tags as the tags', async () => {
@@ -188,7 +189,7 @@ describe('AddEntryScreen', () => {
     await renderPage({ open: { dream: stored, as: 'edit' } });
     expect(screen.getByLabelText('Title').props.value).toBe('Old title');
     // The stored tag is written into the body.
-    expect(screen.getByLabelText('Entry text').props.value).toBe('old text\n#water');
+    expect(bodyText(screen.getByLabelText('Entry text'))).toBe('old text\n#water');
     // There is no emotion field on the page.
     expect(screen.queryByText(/feel/i)).toBeNull();
     await fireEvent.changeText(screen.getByLabelText('Entry text'), 'new text #water');
@@ -213,7 +214,7 @@ describe('AddEntryScreen', () => {
     const draft: Dream = { ...stored, status: 'draft', audioFileName: undefined, durationMs: 0 };
     await renderPage({ open: { dream: draft, as: 'draft' } });
     expect(screen.getByLabelText('Title').props.value).toBe('Old title');
-    expect(screen.getByLabelText('Entry text').props.value).toBe('old text\n#water');
+    expect(bodyText(screen.getByLabelText('Entry text'))).toBe('old text\n#water');
     await fireEvent.press(check());
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({ id: '7', status: 'saved', durationMs: 0 }),
@@ -380,7 +381,7 @@ describe('AddEntryScreen', () => {
       await openMenu();
       await fireEvent.press(option('Gratitude'));
       expect(screen.getByLabelText('Title').props.value).toBe('Flooded hall');
-      expect(screen.getByLabelText('Entry text').props.value).toBe('it filled up #hallway #half');
+      expect(bodyText(screen.getByLabelText('Entry text'))).toBe('it filled up #hallway #half');
       await fireEvent.press(check('Save entry'));
       await act(async () => {});
       expect(save).toHaveBeenCalledWith(

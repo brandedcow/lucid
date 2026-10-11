@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { TaggedBodyInput } from '../components/TaggedBodyInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
@@ -37,14 +38,18 @@ type Selection = { start: number; end: number };
  * - autoFocus: focus the title on open (a new entry).
  * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
  * - attachment: slot above the title for the voice attachment card (see AddEntryWithVoice).
+ * - suggestions: slot directly above the toolbar for the tag suggestion bar (see AddEntryWithVoice).
  * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits in the
  *   bottom dock, which is lifted above the keyboard (explicit padding on Android, where edge-to-edge
  *   means the window does not resize; KeyboardAvoidingView on iOS) and above the bottom safe-area
- *   inset when the keyboard is closed. A suggestion bar can later go in the dock above the toolbar.
+ *   inset when the keyboard is closed.
  * - onBodyBlur: the body lost focus (ends a typing step in the undo history).
+ * - onBodyFocus: the body gained focus (the tag suggestion bar only shows while it has focus).
  * - onBodySelectionChange: the body's cursor / selection moved (the page tracks it for the # button).
- * - bodySelection: forces the body's cursor (set after the # button inserts text); leave undefined
- *   otherwise so the input manages it.
+ * - bodySelection: forces the body's cursor (set after the # button or a tag suggestion changes the
+ *   text); leave undefined otherwise so the input manages it. The body input is a TaggedBodyInput:
+ *   it has no `value` prop, so a programmatic change to `body` (undo, redo, the # button, a tag
+ *   completion) remounts it.
  * - bodyFocusSignal: focuses the body each time this number changes (the # button).
  */
 export type AddEntryScreenProps = {
@@ -63,8 +68,10 @@ export type AddEntryScreenProps = {
   saveDisabled?: boolean;
   autoFocus?: boolean;
   attachment?: ReactNode;
+  suggestions?: ReactNode;
   toolbar?: ReactNode;
   onBodyBlur?: () => void;
+  onBodyFocus?: () => void;
   onBodySelectionChange?: (selection: Selection) => void;
   bodySelection?: Selection;
   bodyFocusSignal?: number;
@@ -86,8 +93,10 @@ export function AddEntryScreen({
   saveDisabled = false,
   autoFocus = false,
   attachment,
+  suggestions,
   toolbar,
   onBodyBlur,
+  onBodyFocus,
   onBodySelectionChange,
   bodySelection,
   bodyFocusSignal = 0,
@@ -95,11 +104,6 @@ export function AddEntryScreen({
   const copy = journalCopy(journal);
   const canSave =
     (!titleRequired(journal.kind) || title.trim().length > 0) && !saving && !saveDisabled;
-  const bodyInputRef = useRef<TextInput>(null);
-  useEffect(() => {
-    // 0 is the initial value, not a request.
-    if (bodyFocusSignal > 0) bodyInputRef.current?.focus();
-  }, [bodyFocusSignal]);
   const keyboard = useKeyboardInset();
   const { bottom: bottomInset } = useSafeAreaInsets();
   // The dock's bottom padding. Android: the keyboard height plus the system bar inset while open (the
@@ -185,24 +189,24 @@ export function AddEntryScreen({
             returnKeyType="next"
             style={styles.titleInput}
           />
-          <TextInput
-            ref={bodyInputRef}
-            value={body}
+          <TaggedBodyInput
+            text={body}
             onChangeText={onBodyChange}
             onBlur={onBodyBlur}
-            onSelectionChange={(e) => onBodySelectionChange?.(e.nativeEvent.selection)}
-            {...(bodySelection ? { selection: bodySelection } : {})}
+            onFocus={onBodyFocus}
+            onSelectionChange={onBodySelectionChange}
+            selection={bodySelection}
+            focusSignal={bodyFocusSignal}
             editable={!saving}
             placeholder="Start writing..."
             placeholderTextColor={colors.faint}
             accessibilityLabel="Entry text"
-            multiline
-            textAlignVertical="top"
+            testID="entry-body"
             style={styles.bodyInput}
           />
         </ScrollView>
         <View testID="entry-bottom-dock" style={{ paddingBottom: dockPadding }}>
-          {/* Suggestion bar slot: goes here, directly above the toolbar. */}
+          {suggestions}
           {toolbar}
         </View>
         {showMenu && (

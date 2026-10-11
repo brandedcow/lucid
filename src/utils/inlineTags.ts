@@ -156,6 +156,18 @@ function sanitizeForInline(raw: string): string {
 }
 
 /**
+ * The inline form of a stored tag ("bad dream" becomes "bad-dream", "v1.2" becomes "v1-2"), or null
+ * when it cannot be an inline tag (empty, only digits, over 40 characters).
+ */
+export function inlineTagFor(raw: string): string | null {
+  const conv = sanitizeForInline(raw);
+  if (!conv) return null;
+  const m = scanTags('#' + conv);
+  if (m.length !== 1 || m[0].end !== conv.length + 1 || m[0].tag !== conv) return null;
+  return conv;
+}
+
+/**
  * Appends tags missing from `body` as a final line of "#tag" tokens. Whitespace and terminator
  * characters in a tag become hyphens (a run becomes one; trailing "-" and "_" are trimmed), so
  * "bad dream" becomes #bad-dream and "v1.2" becomes #v1-2. Tags that are then empty, only digits or
@@ -166,10 +178,8 @@ export function materializeTags(body: string, tags: string[]): string {
   const present = inlineTags(body);
   const add: string[] = [];
   for (const raw of tags) {
-    const conv = sanitizeForInline(raw);
-    if (!conv) continue;
-    const m = scanTags('#' + conv);
-    if (m.length !== 1 || m[0].end !== conv.length + 1 || m[0].tag !== conv) continue;
+    const conv = inlineTagFor(raw);
+    if (conv === null) continue;
     if (present.indexOf(conv) !== -1 || add.indexOf(conv) !== -1) continue;
     add.push(conv);
   }

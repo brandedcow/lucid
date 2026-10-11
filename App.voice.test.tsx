@@ -3,6 +3,7 @@ import { Alert, AlertButton, BackHandler } from 'react-native';
 import App from './App';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
+import { bodyText } from './src/test/bodyText';
 
 // Integration tests for the voice attachment on the add-entry page: the real hooks, storage and
 // screens on the in-memory file system. Only native modules (recorder, player) are faked.
@@ -259,7 +260,7 @@ describe('App voice entry', () => {
         expect.any(Array),
       );
       await choose('Keep writing');
-      expect(byLabel('Entry text').props.value).toBe('some words');
+      expect(bodyText(byLabel('Entry text'))).toBe('some words');
       expect(screen.queryByLabelText('Stop recording')).toBeNull();
     });
 

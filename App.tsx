@@ -35,6 +35,7 @@ import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
 import { confirmDeleteJournal } from './src/utils/confirmDelete';
 import { formatToday } from './src/utils/format';
+import { tagsByUse } from './src/utils/tags';
 import {
   entriesFor,
   isBuiltInJournal,
@@ -255,6 +256,8 @@ export default function App() {
         : library.dreams,
     [library.dreams, deletingJournalId],
   );
+  // Existing tags for the add-entry page's suggestion bar.
+  const knownTags = useMemo(() => tagsByUse(library.dreams), [library.dreams]);
   const visibleJournals = useMemo(
     () => (deletingJournalId ? journals.filter((j) => j.id !== deletingJournalId) : journals),
     [journals, deletingJournalId],
@@ -652,6 +655,7 @@ export default function App() {
             body={entry.session.body}
             onBodyChange={entry.setBody}
             bodyBaseFrom={entry.session.materializedFrom}
+            knownTags={knownTags}
             date={entryDate}
             saving={entry.saving}
             autoFocus={entry.session.origin === 'new'}
