@@ -189,8 +189,64 @@ describe('backTarget', () => {
       to: 'none',
     });
   });
-  it('Journals home exits', () => {
-    expect(backTarget({ screen: 'journals', journalId: 'dreams' })).toEqual({ to: 'exit' });
+  it('Journals home goes to Today', () => {
+    expect(backTarget({ screen: 'journals', journalId: 'dreams' })).toEqual({ to: 'today' });
+  });
+  it('Today exits, Settings goes to Today', () => {
+    expect(backTarget({ screen: 'today', journalId: 'dreams' })).toEqual({ to: 'exit' });
+    expect(backTarget({ screen: 'settings', journalId: 'dreams' })).toEqual({ to: 'today' });
+  });
+  // Deliberate asymmetry: the launch capture exits even while busy (as it always has), while a
+  // non-launch capture is blocked while busy so Back cannot drop a live recording.
+  it('the launch Dreams capture exits, busy or not, whatever flowReturn says', () => {
+    for (const flowReturn of [undefined, 'today', 'log'] as const) {
+      expect(
+        backTarget({ screen: 'capture', journalId: 'dreams', captureLaunch: true, flowReturn }),
+      ).toEqual({ to: 'exit' });
+      expect(
+        backTarget({
+          screen: 'capture',
+          journalId: 'dreams',
+          captureLaunch: true,
+          flowReturn,
+          captureBusy: true,
+        }),
+      ).toEqual({ to: 'exit' });
+    }
+  });
+  it('a non-launch Dreams capture returns to Today or the Dreams log', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'log' })).toEqual({
+      to: 'log',
+      journalId: 'dreams',
+    });
+  });
+  it('a non-launch Dreams capture does nothing while recording', () => {
+    expect(
+      backTarget({
+        screen: 'capture',
+        journalId: 'dreams',
+        flowReturn: 'today',
+        captureBusy: true,
+      }),
+    ).toEqual({ to: 'none' });
+    expect(
+      backTarget({ screen: 'capture', journalId: 'dreams', flowReturn: 'log', captureBusy: true }),
+    ).toEqual({ to: 'none' });
+  });
+  it('Life capture returns to Today when opened from Today, else to its log', () => {
+    expect(backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'log' })).toEqual({
+      to: 'log',
+      journalId: 'life',
+    });
+    expect(
+      backTarget({ screen: 'capture', journalId: 'life', flowReturn: 'today', captureBusy: true }),
+    ).toEqual({ to: 'none' });
   });
   it('a log closes its search first, otherwise goes to Journals home', () => {
     expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
@@ -214,12 +270,28 @@ describe('backTarget', () => {
       to: 'search',
     });
   });
+  it('a detail opened from Today goes back to Today', () => {
+    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'today' })).toEqual({
+      to: 'today',
+    });
+    expect(backTarget({ screen: 'detail', journalId: 'dreams', detailFrom: 'today' })).toEqual({
+      to: 'today',
+    });
+  });
   it('a detail does nothing while its delete is in flight', () => {
     expect(
       backTarget({
         screen: 'detail',
         journalId: 'life',
         detailFrom: 'search',
+        detailDeleting: true,
+      }),
+    ).toEqual({ to: 'none' });
+    expect(
+      backTarget({
+        screen: 'detail',
+        journalId: 'life',
+        detailFrom: 'today',
         detailDeleting: true,
       }),
     ).toEqual({ to: 'none' });

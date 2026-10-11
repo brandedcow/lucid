@@ -47,6 +47,7 @@ const MAX_REPAUSES = 3;
 type Props = {
   /** `text` is the final live transcript; '' when live text is unsupported or empty. */
   onRecorded: (recording: FinishedRecording, text: string) => void;
+  /** Optional. Without it the "No dream" button is hidden (only the launch capture offers it). */
   onNoDream?: () => void;
   /** Write instead: start a dream with no recording. Never touches the microphone. */
   onWrite?: () => void;
@@ -55,8 +56,8 @@ type Props = {
   /** Optional, defaults to Dreams. Sets the wording (headline, tips, "No dream", Save, microphone message). */
   journal?: Journal;
   /**
-   * Optional. When given, the idle screen shows a back arrow that calls it (Life capture; Dreams
-   * capture passes none). It is not shown while recording.
+   * Optional. When given, the idle screen shows a back arrow that calls it (Life capture, and a
+   * Dreams capture opened from Today or the log; the launch capture passes none). It is not shown while recording.
    */
   onBack?: () => void;
   /** Optional. Called with true when recording starts and false when the screen is idle again, so the parent can hold Android back while recording. */
@@ -245,7 +246,7 @@ export function CaptureScreen({
           onWrite={() => onWrite?.()}
           headline={copy.captureHeadline}
           tips={copy.tips}
-          skipLabel={copy.skipLabel}
+          skipLabel={onNoDream ? copy.skipLabel : null}
           onBack={onBack}
         />
       ) : (

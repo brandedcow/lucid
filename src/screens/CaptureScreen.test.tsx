@@ -397,9 +397,10 @@ describe('CaptureScreen No dream', () => {
     expect(mockRec.start).not.toHaveBeenCalled();
   });
 
-  it('does nothing when no onNoDream is given', async () => {
+  it('hides No dream when no onNoDream is given', async () => {
     await render(<CaptureScreen onRecorded={jest.fn()} />);
-    await fireEvent.press(screen.getByText('No dream'));
+    expect(screen.queryByText('No dream')).toBeNull();
+    expect(screen.getByText('Write instead')).toBeTruthy();
     expect(mockRec.start).not.toHaveBeenCalled();
   });
 });
@@ -644,6 +645,18 @@ describe('CaptureScreen back arrow', () => {
     );
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('Dreams capture: Back and No dream are independent (arrow with no No dream; No dream with no arrow)', async () => {
+    const onBack = jest.fn();
+    const view = await render(<CaptureScreen onRecorded={onRecordedStub} onBack={onBack} />);
+    expect(screen.getByLabelText('Back')).toBeTruthy();
+    expect(screen.queryByText('No dream')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    await view.rerender(<CaptureScreen onRecorded={onRecordedStub} onNoDream={jest.fn()} />);
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    expect(screen.getByText('No dream')).toBeTruthy();
   });
 
   it('hides Back while recording and reports the active state', async () => {
