@@ -343,9 +343,10 @@ const finishedDream = {
 };
 
 let addListener: jest.SpyInstance;
+// Handlers registered and not yet removed (the Today "+" menu adds and removes its own).
+let liveBackHandlers: (() => boolean)[] = [];
 const hardwareBack = async (): Promise<boolean> => {
-  const calls = addListener.mock.calls;
-  const handler = calls[calls.length - 1][1] as () => boolean;
+  const handler = liveBackHandlers[liveBackHandlers.length - 1];
   let result = false;
   await act(async () => {
     result = handler();
@@ -366,10 +367,16 @@ async function renderApp() {
 }
 
 const press = (label: string) => fireEvent.press(screen.getByText(label));
-/** The Today page is showing (its bottom buttons are unique to it). */
+/** The Today page is showing (its "+" button is unique to it). */
 const expectToday = () => {
-  expect(screen.getByText('New dream')).toBeTruthy();
-  expect(screen.getByText('New Life entry')).toBeTruthy();
+  expect(screen.getByLabelText('Add entry')).toBeTruthy();
+  expect(screen.queryByText('New dream')).toBeNull();
+  expect(screen.queryByText('New Life entry')).toBeNull();
+};
+/** On Today: open the "+" menu and pick a journal ("Dreams" or "Life"). */
+const addEntry = async (journal: 'Dreams' | 'Life') => {
+  await fireEvent.press(screen.getByLabelText('Add entry'));
+  await fireEvent.press(screen.getByRole('menuitem', { name: new RegExp(`^${journal},`) }));
 };
 const pressLabel = (label: string) => fireEvent.press(screen.getByLabelText(label));
 /** From Today: Journals home, then the Dream log. */
@@ -396,7 +403,17 @@ beforeEach(() => {
   mockLibrary.afterRemoveFilter = undefined;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as any);
-  addListener = jest.spyOn(BackHandler, 'addEventListener');
+  liveBackHandlers = [];
+  addListener = jest
+    .spyOn(BackHandler, 'addEventListener')
+    .mockImplementation((_event, handler) => {
+      liveBackHandlers.push(handler as () => boolean);
+      return {
+        remove: () => {
+          liveBackHandlers = liveBackHandlers.filter((h) => h !== handler);
+        },
+      };
+    });
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -1595,7 +1612,7 @@ describe('App launch rule', () => {
     await render(<App />);
     await flush();
     expect(screen.queryByText('capture-screen')).toBeNull();
-    expect(screen.queryByText('New dream')).toBeNull();
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
     await act(async () => {
       mockLibrary.push?.([]);
     });
@@ -1810,19 +1827,19 @@ describe('App captures opened from Today and the log', () => {
 
   it('Dream capture from Today has a back arrow, no "No dream", and returns to Today', async () => {
     await renderApp();
-    await press('New dream');
+    await addEntry('Dreams');
     expect(screen.getByText('capture-journal:dreams')).toBeTruthy();
     expect(screen.queryByText('stub-no-dream')).toBeNull();
     await press('stub-capture-back');
     expectToday();
-    await press('New dream');
+    await addEntry('Dreams');
     expect(await hardwareBack()).toBe(true);
     expectToday();
   });
 
   it('saving a Dream from Today returns to Today', async () => {
     await renderApp();
-    await press('New dream');
+    await addEntry('Dreams');
     await press('stub-save-recording');
     await press('Continue');
     await press('stub-set-title');
@@ -1864,24 +1881,24 @@ describe('App captures opened from Today and the log', () => {
     await press('stub-set-title');
     await press('stub-done');
     expectToday();
-    await press('New dream');
+    await addEntry('Dreams');
     expect(screen.getByText('stub-capture-back')).toBeTruthy();
     expect(screen.queryByText('stub-no-dream')).toBeNull();
   });
 
   it('Life capture from Today returns to Today by arrow, Android back and save', async () => {
     await renderApp();
-    await press('New Life entry');
+    await addEntry('Life');
     expect(screen.getByText('capture-journal:life')).toBeTruthy();
     expect(screen.queryByText('stub-no-dream')).toBeNull();
     await press('stub-capture-back');
     expectToday();
 
-    await press('New Life entry');
+    await addEntry('Life');
     expect(await hardwareBack()).toBe(true);
     expectToday();
 
-    await press('New Life entry');
+    await addEntry('Life');
     await press('stub-type-instead');
     await press('Continue');
     await press('stub-done');
@@ -1966,7 +1983,7 @@ describe('App launch cap timer', () => {
         await jest.advanceTimersByTimeAsync(2000);
       });
       expectToday();
-      await press('New dream');
+      await addEntry('Dreams');
       // Not a launch capture: it has a back arrow and no "No dream".
       expect(screen.getByText('stub-capture-back')).toBeTruthy();
       expect(screen.queryByText('stub-no-dream')).toBeNull();
@@ -2123,7 +2140,7 @@ describe('App resume on a new day', () => {
 
   it('stays mid-capture (a Life capture from Today)', async () => {
     await launch();
-    await press('New Life entry');
+    await addEntry('Life');
     await awayUntil(DAY2);
     expect(screen.getByText('capture-journal:life')).toBeTruthy();
     expect(screen.getByText('stub-capture-back')).toBeTruthy();
@@ -2131,7 +2148,7 @@ describe('App resume on a new day', () => {
 
   it('stays on Read it back', async () => {
     await launch();
-    await press('New dream');
+    await addEntry('Dreams');
     await press('stub-type-instead');
     expect(screen.getByText('Read it back')).toBeTruthy();
     await awayUntil(DAY2);
@@ -2141,7 +2158,7 @@ describe('App resume on a new day', () => {
 
   it('stays on Review', async () => {
     await launch();
-    await press('New dream');
+    await addEntry('Dreams');
     await press('stub-type-instead');
     await press('Continue');
     expect(screen.getByText('review-screen')).toBeTruthy();

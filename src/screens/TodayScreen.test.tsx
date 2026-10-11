@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Entry } from '../types/dream';
+import { FAB_SIZE } from '../components/AddEntryMenu';
 import { LIFE_JOURNAL } from '../types/entry';
 import { TodayScreen } from './TodayScreen';
 
@@ -59,8 +60,7 @@ function ui(o: Opts, h: Record<string, jest.Mock>) {
         onOpenEntry={h.onOpenEntry}
         onOpenDraft={h.onOpenDraft}
         onDeleteDream={h.onDeleteDream}
-        onNewDream={h.onNewDream}
-        onNewLifeEntry={h.onNewLifeEntry}
+        onNewEntry={h.onNewEntry}
         onOpenJournals={h.onOpenJournals}
         onOpenSettings={h.onOpenSettings}
       />
@@ -73,8 +73,7 @@ async function setup(o: Opts = {}) {
     onOpenEntry: jest.fn(),
     onOpenDraft: jest.fn(),
     onDeleteDream: jest.fn(),
-    onNewDream: jest.fn(),
-    onNewLifeEntry: jest.fn(),
+    onNewEntry: jest.fn(),
     onOpenJournals: jest.fn(),
     onOpenSettings: jest.fn(),
   };
@@ -160,7 +159,7 @@ describe('TodayScreen', () => {
     expect(onOpenDraft).toHaveBeenCalledWith(DRAFT);
   });
 
-  it('fires the header icons and bottom buttons', async () => {
+  it('fires the header icons', async () => {
     const h = await setup();
     const journals = screen.getByLabelText('Open Journals');
     const settings = screen.getByLabelText('Open Settings');
@@ -171,12 +170,42 @@ describe('TodayScreen', () => {
     }
     await fireEvent.press(journals);
     await fireEvent.press(settings);
-    await fireEvent.press(screen.getByLabelText('New dream'));
-    await fireEvent.press(screen.getByLabelText('New Life entry'));
     expect(h.onOpenJournals).toHaveBeenCalledTimes(1);
     expect(h.onOpenSettings).toHaveBeenCalledTimes(1);
-    expect(h.onNewDream).toHaveBeenCalledTimes(1);
-    expect(h.onNewLifeEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('has one "Add entry" button and no old bottom buttons', async () => {
+    await setup();
+    expect(screen.getAllByLabelText('Add entry')).toHaveLength(1);
+    expect(screen.queryByText('New dream')).toBeNull();
+    expect(screen.queryByText('New Life entry')).toBeNull();
+  });
+
+  it('the menu lists Dreams then Life and picking calls onNewEntry with the journal id', async () => {
+    const { onNewEntry } = await setup();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    const items = screen.getAllByRole('menuitem');
+    expect(items.map((i) => i.props.accessibilityLabel.split(',')[0])).toEqual(['Dreams', 'Life']);
+    await fireEvent.press(items[1]);
+    expect(onNewEntry).toHaveBeenCalledWith('life');
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getAllByRole('menuitem')[0]);
+    expect(onNewEntry).toHaveBeenLastCalledWith('dreams');
+    expect(onNewEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it('closes the menu when a delete starts', async () => {
+    const { rerender } = await setup();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    await rerender({ deletingId: 'life' });
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('pads the list clear of the "+" button using the bottom inset', async () => {
+    await setup();
+    const style = StyleSheet.flatten(screen.getByTestId('today-list').props.contentContainerStyle);
+    expect(style.paddingBottom).toBe(34 + 16 + FAB_SIZE + 24);
   });
 
   it('has no back arrow', async () => {

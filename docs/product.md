@@ -36,7 +36,7 @@ Use these terms consistently in UI copy, code and data models.
 | Emotion       | Free text about how a dream felt, entered like tags. Optional, never a fixed list or rating.                                                                                    |
 | Tag           | A label the user applies to entries (dreams and Life entries).                                                                                                                  |
 | No dream      | The one-tap option on dream capture for a morning with nothing to record. Counts as done for the day: the app then opens to Today, not Dream capture, for the rest of that day. |
-| Today         | The main screen: lists only today's entries, from every journal (drafts included), newest first, with buttons to start a Dream or a Life entry.                                 |
+| Today         | The main screen: lists only today's entries, from every journal (drafts included), newest first, with a "+" button to start a Dream or a Life entry.                            |
 | Draft         | A dream saved with "Finish later" that is not finished yet. Needs nothing to be saved (a brand-new dream with nothing at all is simply not kept).                               |
 | Transcript    | The text of a dream, from live on-device speech recognition or typed. The user can edit it.                                                                                     |
 | Dream log     | The screen that lists the Dreams journal's dreams and drafts by month, with a tag filter and search.                                                                            |
@@ -98,7 +98,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 - **Navigation:**
   - **Launch rule.** If no finished dream was created today and no "No dream" is recorded for today and "Open dream capture on launch" is on (the default), the app opens to Dream capture. Otherwise it opens to Today. The app waits briefly for its stored data before deciding, with a cap of 1000 ms: if the data is not ready by then, it opens Dream capture so capturing is never delayed. The launch capture has no back arrow, and Android back exits the app.
   - Saving a dream, "No dream" and "Finish later" from the launch capture all open Today.
-  - **Where capture returns.** A capture started from Today ("New dream", "New Life entry") returns to Today after a save and on back. A capture started from a log ("New dream" or "New entry") returns to that log. Dream capture opened from the Dream log has a back arrow to the Dream log and no "No dream" button (only the launch capture has it). A draft opened from Today returns to Today; from a log, to that log. Saving an edit returns to the entry, which keeps its origin (Today, a log or Search); deleting from an entry returns to where it was opened.
+  - **Where capture returns.** A capture started from Today (the "+" menu) returns to Today after a save and on back. A capture started from a log ("New dream" or "New entry") returns to that log. Dream capture opened from the Dream log has a back arrow to the Dream log and no "No dream" button (only the launch capture has it). A draft opened from Today returns to Today; from a log, to that log. Saving an edit returns to the entry, which keeps its origin (Today, a log or Search); deleting from an entry returns to where it was opened.
   - **Today.** It has a book icon at the top left (Open Journals), the title and date, and a gear at the top right (Open Settings). Android back on Today exits the app. Tapping a finished entry opens it, and back returns to Today. Tapping a draft reopens Review.
   - **Journals home** is reached from the book icon on Today. It has a back arrow, and Android back goes to Today. A log's back arrow goes to the Journals home (when the log's search field is open, back closes it first). Search is entered from the Journals home and its back goes there.
   - **Settings** is reached from the gear on Today. Its back arrow and Android back return to Today.
@@ -109,7 +109,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 - Today shows only entries created today, from any journal (drafts included), newest first, in one list. Each row says whether it is a Dream or Life. Rows swipe to delete like in the logs. Which day an entry belongs to follows when it was first stored, in the device's local time.
 - If "No dream" was chosen today and there is no dream or draft today, a quiet "No dream today" line shows. With nothing at all, it says "Nothing here yet today." ("Nothing else yet today." under the "No dream today" line).
-- Two buttons at the bottom: "New dream" and "New Life entry". There is no search on Today; search is on the Journals home.
+- A round "+" floating button at the bottom right opens a small menu of journals (Dreams, then Life); picking one starts that capture, and a save or back returns to Today. Tapping outside the menu, or Android back, closes it; it also closes if a delete starts. When user-created journals are built (Part 1b), the menu will gain a "New journal" row. The logs keep their own "New dream" / "New entry" buttons. There is no search on Today; search is on the Journals home.
 - Whether today is done is worked out from the saved dreams and the "No dream" date, so deleting today's only finished dream makes the next launch open Dream capture again.
 
 ### Settings
@@ -120,7 +120,7 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 
 #### Planned, not built
 
-- A floating "+" add button in a log, as another way to add entries (idea).
+- A floating "+" add button in the logs, as another way to add entries (idea; Today already has one).
 - **User-created journals**: create, rename and delete. Deleting a journal raises a data-control question (what happens to its entries), to be decided with the user first.
 
 ### Tags

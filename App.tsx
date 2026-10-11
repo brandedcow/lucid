@@ -24,7 +24,7 @@ import {
   isSafetyCopyBlockedError,
 } from './src/services/dreamStorage';
 import type { Dream } from './src/types/dream';
-import { DREAMS_JOURNAL, LIFE_JOURNAL, type JournalId } from './src/types/entry';
+import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
 import { formatToday } from './src/utils/format';
 import {
@@ -613,8 +613,7 @@ export default function App() {
             onOpenDraft={(draft) => openDraft(draft, 'today')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.dream.id ?? null}
-            onNewDream={() => startCapture(DREAMS_JOURNAL, 'today')}
-            onNewLifeEntry={() => startCapture(LIFE_JOURNAL, 'today')}
+            onNewEntry={(id) => startCapture(id, 'today')}
             onOpenJournals={() => setScreen('journals')}
             onOpenSettings={() => setScreen('settings')}
           />

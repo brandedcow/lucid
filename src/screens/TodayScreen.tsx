@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MicIcon } from '../components/MicIcon';
+import { AddEntryMenu, FAB_SIZE } from '../components/AddEntryMenu';
 import { SwipeEntryRow, useSingleOpenRow } from '../components/SwipeEntryRow';
 import { BookIcon, GearIcon } from '../components/TodayIcons';
 import { colors, fonts, spacing } from '../theme';
+import { JournalId } from '../types/entry';
 import { Entry, hasAudio } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { formatToday } from '../utils/format';
 import { journalLabel } from '../utils/journalSearch';
-import { journalCopy, journalOf, kindOf } from '../utils/journals';
+import { BUILT_IN_JOURNALS, journalCopy, journalOf, kindOf } from '../utils/journals';
 import { entriesToday } from '../utils/today';
 
 /** All wording of the Today page, in one place. */
@@ -20,8 +21,6 @@ export const TODAY_COPY = {
   noDream: 'No dream today',
   nothingYet: 'Nothing here yet today.',
   nothingElse: 'Nothing else yet today.',
-  newDream: 'New dream',
-  newLife: 'New Life entry',
 } as const;
 
 /**
@@ -37,7 +36,7 @@ export const TODAY_COPY = {
  * - `onDeleteDream(dream)`: Delete was used on a row (swipe or screen-reader action) and confirmed
  *   here, with the row's own journal wording. The parent deletes.
  * - `deletingId`: the entry being deleted; its row is dimmed and swiping is off everywhere.
- * - `onNewDream()` / `onNewLifeEntry()`: the bottom buttons.
+ * - `onNewEntry(journalId)`: a journal was picked in the "+" menu (bottom right); the parent starts its capture.
  * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right).
  */
 type Props = {
@@ -49,15 +48,12 @@ type Props = {
   onOpenDraft: (dream: Entry) => void;
   onDeleteDream: (dream: Entry) => void;
   deletingId?: string | null;
-  onNewDream: () => void;
-  onNewLifeEntry: () => void;
+  onNewEntry: (journalId: JournalId) => void;
   onOpenJournals: () => void;
   onOpenSettings: () => void;
 };
 
 type Item = { type: 'skip' } | { type: 'entry'; dream: Entry };
-
-const FAB_CLEARANCE = 150;
 
 export function TodayScreen({
   dreams,
@@ -68,8 +64,7 @@ export function TodayScreen({
   onOpenDraft,
   onDeleteDream,
   deletingId = null,
-  onNewDream,
-  onNewLifeEntry,
+  onNewEntry,
   onOpenJournals,
   onOpenSettings,
 }: Props) {
@@ -163,7 +158,10 @@ export function TodayScreen({
         data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: insets.bottom + spacing.md + FAB_SIZE + spacing.lg },
+        ]}
         onScrollBeginDrag={closeOpenRow}
       />
     );
@@ -185,62 +183,49 @@ export function TodayScreen({
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={TODAY_COPY.openJournals}
-          onPress={onOpenJournals}
-          style={styles.iconButton}
-        >
-          <BookIcon />
-        </Pressable>
-        <View style={styles.titleWrap}>
-          <Text style={styles.title} accessibilityRole="header">
-            {TODAY_COPY.title}
-          </Text>
-          <Text style={styles.date}>{formatToday(new Date(`${todayKey}T12:00:00`))}</Text>
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={TODAY_COPY.openJournals}
+            onPress={onOpenJournals}
+            style={styles.iconButton}
+          >
+            <BookIcon />
+          </Pressable>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title} accessibilityRole="header">
+              {TODAY_COPY.title}
+            </Text>
+            <Text style={styles.date}>{formatToday(new Date(`${todayKey}T12:00:00`))}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={TODAY_COPY.openSettings}
+            onPress={onOpenSettings}
+            style={styles.iconButton}
+          >
+            <GearIcon />
+          </Pressable>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={TODAY_COPY.openSettings}
-          onPress={onOpenSettings}
-          style={styles.iconButton}
-        >
-          <GearIcon />
-        </Pressable>
-      </View>
 
-      <View style={styles.body}>{body}</View>
+        <View style={styles.body}>{body}</View>
+      </SafeAreaView>
 
-      <View
-        pointerEvents="box-none"
-        style={[styles.fabWrap, { bottom: insets.bottom + spacing.md }]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={TODAY_COPY.newDream}
-          onPress={onNewDream}
-          style={styles.fab}
-        >
-          <MicIcon color={colors.accentDark} size={20} />
-          <Text style={styles.fabLabel}>{TODAY_COPY.newDream}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={TODAY_COPY.newLife}
-          onPress={onNewLifeEntry}
-          style={styles.secondary}
-        >
-          <Text style={styles.secondaryLabel}>{TODAY_COPY.newLife}</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
+      <AddEntryMenu
+        journals={BUILT_IN_JOURNALS}
+        onPick={onNewEntry}
+        disabled={deletingId != null}
+        bottomInset={insets.bottom}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,28 +239,8 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontFamily: fonts.serif, fontSize: 30 },
   date: { color: colors.muted, fontSize: 14 },
   body: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: FAB_CLEARANCE },
+  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   skipLine: { color: colors.muted, fontSize: 16, paddingBottom: spacing.md },
   empty: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.sm },
   emptyBody: { color: colors.muted, fontSize: 16 },
-  fabWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: spacing.sm },
-  fab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    height: 52,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 26,
-    backgroundColor: colors.accent,
-  },
-  fabLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
-  secondary: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.accent,
-  },
-  secondaryLabel: { color: colors.accent, fontSize: 16 },
 });
