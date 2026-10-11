@@ -544,7 +544,7 @@ describe('toolbar', () => {
     expect(screen.getAllByLabelText('Play recording')).toHaveLength(1);
     expect(disabled('Undo')).toBe(false);
     await press('Undo');
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(2);
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, false]);
   });
 
@@ -934,9 +934,43 @@ describe('several recordings on the page', () => {
     expect(disabled('Record voice note')).toBe(false);
     await recordNext(CACHE2, 2000);
     await recordNext(CACHE3, 3000);
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    expect(screen.getAllByLabelText(/^Play voice note \d of 3$/)).toHaveLength(3);
     expect(sessionApi?.session?.recordings.map((r) => r.uri)).toEqual([CACHE, CACHE2, CACHE3]);
     expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('cards are labelled by place, and the mic stays enabled after a recording', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(disabled('Record voice note')).toBe(false);
+    await recordNext(CACHE2, 2000);
+    expect(screen.getByLabelText('Play voice note 1 of 2')).toBeTruthy();
+    expect(screen.getByLabelText('Play voice note 2 of 2')).toBeTruthy();
+    expect(screen.getByLabelText('Remove voice note 2 of 2')).toBeTruthy();
+    expect(disabled('Record voice note')).toBe(false);
+  });
+
+  it('cards cannot play while recording, and can again after stop', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    await startRecording();
+    expect(disabled('Play recording')).toBe(true);
+    mockPlayer.play.mockClear();
+    await fireEvent.press(screen.getByLabelText('Play recording'));
+    await act(async () => {});
+    expect(mockPlayer.play).not.toHaveBeenCalled();
+    await stopRecording();
+    expect(disabled('Play voice note 1 of 2')).toBe(false);
+  });
+
+  it('starting a recording pauses a playing card', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    await press('Play recording');
+    mockPlayer.pause.mockClear();
+    await startRecording();
+    expect(mockPlayer.pause).toHaveBeenCalled();
   });
 
   it('closing one specific card and undoing it brings back that card only', async () => {
@@ -944,24 +978,24 @@ describe('several recordings on the page', () => {
     await recordNext(CACHE, 1000);
     await recordNext(CACHE2, 2000);
     await recordNext(CACHE3, 3000);
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    await fireEvent.press(screen.getByLabelText('Remove voice note 2 of 3'));
     await act(async () => {});
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Play voice note \d of 2$/)).toHaveLength(2);
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true, false]);
     expect(discardRecording).not.toHaveBeenCalled();
     await press('Undo');
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, false, false]);
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
+    expect(screen.getAllByLabelText(/^Play voice note \d of 3$/)).toHaveLength(3);
     await press('Redo');
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true, false]);
   });
 
   it('an entry with 3 stored recordings shows 3 cards; closing one saves with only that name', async () => {
     await renderPage({ open: { dream: three, as: 'edit' } });
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(3);
+    await fireEvent.press(screen.getByLabelText('Remove voice note 2 of 3'));
     await act(async () => {});
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Play voice note \d of 2$/)).toHaveLength(2);
     expect(entryHasEdits(sessionApi!.session!)).toBe(true);
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Save dream'));
@@ -975,7 +1009,7 @@ describe('several recordings on the page', () => {
   it('saves a mix of a closed stored recording and a new one in one call', async () => {
     await renderPage({ open: { dream: three, as: 'edit' } });
     await recordNext(CACHE, 4000);
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await fireEvent.press(screen.getAllByLabelText(/^Remove voice note \d+ of \d+$/)[0]);
     await act(async () => {});
     await act(async () => {
       fireEvent.press(screen.getByLabelText('Save dream'));

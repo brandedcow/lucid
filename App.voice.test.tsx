@@ -497,7 +497,7 @@ describe('App with several recordings', () => {
     await openNewGratitude();
     await fireEvent.changeText(byLabel('Entry text'), 'two notes');
     await recordTwo();
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(2);
     await press(byLabel('Save entry'));
     const saved = index().find((d) => d.transcript === 'two notes');
     expect(saved?.recordings?.map((r) => r.durationMs)).toEqual([4000, 5000]);
@@ -512,7 +512,7 @@ describe('App with several recordings', () => {
   it('Discard on the leave prompt deletes every unsaved cache file, closed ones too', async () => {
     await openNewGratitude();
     await recordTwo();
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await fireEvent.press(screen.getAllByLabelText(/^Remove voice note \d+ of \d+$/)[0]);
     await settle();
     expect(__fs.has(CACHE)).toBe(true);
     expect(__fs.has(CACHE_B)).toBe(true);
@@ -531,8 +531,8 @@ describe('App with several recordings', () => {
     await press(byLabel(/Three notes/));
     await press(byLabel('More options'));
     await press(byLabel('Edit entry'));
-    expect(screen.getAllByLabelText('Play recording')).toHaveLength(3);
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[1]);
+    expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(3);
+    await fireEvent.press(screen.getByLabelText('Remove voice note 2 of 3'));
     await settle();
     // Nothing is deleted before the save.
     files.forEach((f) => expect(__fs.has(f)).toBe(true));
@@ -555,7 +555,7 @@ describe('App with several recordings', () => {
     await press(byLabel(/Three notes/));
     await press(byLabel('More options'));
     await press(byLabel('Edit entry'));
-    await fireEvent.press(screen.getAllByLabelText('Remove recording')[0]);
+    await fireEvent.press(screen.getAllByLabelText(/^Remove voice note \d+ of \d+$/)[0]);
     await settle();
     await press(byLabel('Back'));
     await choose('Discard');

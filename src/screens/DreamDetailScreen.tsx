@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DreamChips } from '../components/DreamChips';
 import { OverflowMenu } from '../components/OverflowMenu';
 import { RecordingPlayer } from '../components/RecordingPlayer';
-import { dreamAudioUri } from '../services/dreamStorage';
+import { recordingUri } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
 import { Dream, hasAudio, recordingsOf } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
@@ -86,12 +86,12 @@ export function DreamDetailScreen({
     : `${copy.datePrefix}${formatToday(created)}`;
   // Show every chip: no limit on the count and no "+N".
   const { visible } = limitChips(row.chips, Infinity, Infinity);
-  const audioUri = hasAudio(dream) ? dreamAudioUri(dream) : null;
+  const stored = recordingsOf(dream);
   const confirmDelete = () => {
     if (busy || alertOpen.current || blockedRef.current) return;
     alertOpen.current = true;
     confirmDeleteDream({
-      hasAudio: audioUri !== null,
+      hasAudio: hasAudio(dream),
       kind: journal.kind,
       onClose: () => {
         alertOpen.current = false;
@@ -131,14 +131,19 @@ export function DreamDetailScreen({
               <DreamChips chips={visible} />
             </View>
           )}
-          {audioUri !== null && !busy && (
-            <View style={styles.player}>
-              <RecordingPlayer
-                key={dream.id}
-                compact
-                uri={audioUri}
-                durationMs={recordingsOf(dream)[0]?.durationMs ?? 0}
-              />
+          {stored.length > 0 && !busy && (
+            <View style={styles.players}>
+              {stored.map((recording, i) => (
+                <View key={`${dream.id}:${recording.fileName}`} style={styles.player}>
+                  <RecordingPlayer
+                    compact
+                    uri={recordingUri(recording)}
+                    durationMs={recording.durationMs}
+                    index={i + 1}
+                    count={stored.length}
+                  />
+                </View>
+              ))}
             </View>
           )}
           <View style={styles.transcript}>
@@ -188,8 +193,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   section: { paddingTop: spacing.md },
+  players: { marginTop: spacing.md, gap: spacing.sm },
   player: {
-    marginTop: spacing.md,
     padding: spacing.md,
     borderRadius: 16,
     backgroundColor: colors.surface,

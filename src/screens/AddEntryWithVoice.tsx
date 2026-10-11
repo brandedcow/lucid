@@ -5,6 +5,7 @@ import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
 import { SessionRecording } from '../hooks/useEntrySession';
+import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { useEntryHistory } from '../hooks/useEntryHistory';
 import {
   activeToken,
@@ -20,9 +21,10 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
 /**
  * Prop contract (everything else is AddEntryScreen's):
- * - recordings: the entry's recordings from the session, in order (closed ones are not shown). M3
- *   adapter: one VoiceAttachmentCard per visible recording, in a plain list; the stacked-card
- *   design and one-at-a-time playback are M4's.
+ * - recordings: the entry's recordings from the session, in order (closed ones are not shown). One
+ *   VoiceAttachmentCard per visible recording, stacked above the title inside the page's scroll
+ *   view, labelled "voice note N of M" when there are several. Only one card plays at a time
+ *   (useRecordingPlayback); starting the mic stops playback.
  * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
  *   available).
  * - onRemoveRecording: a card's close button (by recording id), for a new recording and a stored
@@ -197,13 +199,16 @@ export function AddEntryWithVoice({
 
   const attachment =
     shown.length > 0 || recording ? (
-      <View style={{ gap: spacing.md }}>
-        {shown.map((r) => (
+      <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+        {shown.map((r, i) => (
           <VoiceAttachmentCard
             key={`${r.id}:${r.uri}`}
             uri={r.uri}
             durationMs={r.durationMs}
             waveform={r.waveform}
+            index={i + 1}
+            count={shown.length}
+            playDisabled={recording}
             onRemove={!saving ? () => history.onRemoveRecording(r.id) : undefined}
           />
         ))}
@@ -234,7 +239,11 @@ export function AddEntryWithVoice({
       onUndo={history.undo}
       onRedo={history.redo}
       micDisabled={micDisabled}
-      onMic={() => setRecording(true)}
+      onMic={() => {
+        // Recording must not overlap playback.
+        stopAllPlayback();
+        setRecording(true);
+      }}
       disabled={saving}
       onTags={insertTagStart}
     />

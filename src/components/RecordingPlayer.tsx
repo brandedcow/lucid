@@ -15,12 +15,16 @@ type Props = {
    * it resets between dreams.
    */
   compact?: boolean;
+  /** Place among several voice notes (1-based); labels say "voice note 2 of 3" when count > 1. */
+  index?: number;
+  count?: number;
 };
 
 /** Play/pause with elapsed time and a progress bar for a single recording. */
-export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
+export function RecordingPlayer({ uri, durationMs, label, compact, index = 1, count = 1 }: Props) {
   const { playing, position, total, progress, toggle } = useRecordingPlayback(uri, durationMs);
 
+  const noun = count > 1 ? `voice note ${index} of ${count}` : 'recording';
   if (compact) {
     const elapsed = formatDuration(Math.floor(position));
     const length = formatDuration(Math.round(total));
@@ -28,7 +32,7 @@ export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
       <View style={styles.compactRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={playing ? 'Pause recording' : 'Play recording'}
+          accessibilityLabel={playing ? `Pause ${noun}` : `Play ${noun}`}
           onPress={toggle}
           style={styles.compactButton}
         >
@@ -46,7 +50,7 @@ export function RecordingPlayer({ uri, durationMs, label, compact }: Props) {
     <View style={styles.card}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={playing ? 'Pause recording' : 'Play recording'}
+        accessibilityLabel={playing ? `Pause ${noun}` : `Play ${noun}`}
         onPress={toggle}
         style={styles.button}
       >

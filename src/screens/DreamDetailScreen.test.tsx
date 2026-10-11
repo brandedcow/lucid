@@ -16,11 +16,9 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(),
 }));
 
-const mockUri = jest.fn((d: { audioFileName?: string }): string | null =>
-  d.audioFileName ? `file:///dreams/${d.audioFileName}` : null,
-);
+const mockUri = jest.fn((r: { fileName: string }): string => `file:///dreams/${r.fileName}`);
 jest.mock('../services/dreamStorage', () => ({
-  dreamAudioUri: (d: { audioFileName?: string }) => mockUri(d),
+  recordingUri: (r: { fileName: string }) => mockUri(r),
 }));
 
 // A local-time ISO string so the date line is stable in any timezone.
@@ -103,10 +101,33 @@ describe('DreamDetailScreen', () => {
     expect(screen.queryByLabelText('Play recording')).toBeNull();
   });
 
-  it('shows no player when the audio uri resolves to null', async () => {
-    mockUri.mockReturnValueOnce(null);
-    await setup();
+  it('shows one labelled player per stored recording, with each length', async () => {
+    await setup({
+      ...base,
+      audioFileName: undefined,
+      recordings: [
+        { fileName: 'r1.m4a', durationMs: 10000 },
+        { fileName: 'r2.m4a', durationMs: 20000 },
+        { fileName: 'r3.m4a', durationMs: 30000 },
+      ],
+    });
+    expect(screen.getByLabelText('Play voice note 1 of 3')).toBeTruthy();
+    expect(screen.getByLabelText('Play voice note 2 of 3')).toBeTruthy();
+    expect(screen.getByLabelText('Play voice note 3 of 3')).toBeTruthy();
     expect(screen.queryByLabelText('Play recording')).toBeNull();
+    for (const t of ['0:10', '0:20', '0:30']) expect(screen.getByText(t)).toBeTruthy();
+    expect(mockPlayerCreated).toHaveBeenCalledWith('file:///dreams/r1.m4a');
+    expect(mockPlayerCreated).toHaveBeenCalledWith('file:///dreams/r3.m4a');
+  });
+
+  it('shows the single player with the plain label for one stored recording', async () => {
+    await setup({
+      ...base,
+      audioFileName: undefined,
+      recordings: [{ fileName: 'r1.m4a', durationMs: 5000 }],
+    });
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(1);
+    expect(mockPlayerCreated).toHaveBeenCalledWith('file:///dreams/r1.m4a');
   });
 
   it('renders each paragraph as its own text', async () => {
@@ -471,5 +492,18 @@ describe('DreamDetailScreen for the Life journal', () => {
       />,
     );
     expect(screen.getByRole('header', { name: 'Oct 4' })).toBeTruthy();
+  });
+});
+
+describe('DreamDetailScreen recordings', () => {
+  it('shows a legacy single-recording entry with one player', async () => {
+    await setup({ ...base, recordings: undefined });
+    expect(screen.getAllByLabelText('Play recording')).toHaveLength(1);
+    expect(mockPlayerCreated).toHaveBeenCalledWith('file:///dreams/a.m4a');
+  });
+
+  it('shows no player for an entry with an empty recordings list and no legacy audio', async () => {
+    await setup({ ...base, audioFileName: undefined, durationMs: 0, recordings: [] });
+    expect(screen.queryByLabelText(/^Play /)).toBeNull();
   });
 });
