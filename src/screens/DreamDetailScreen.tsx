@@ -6,7 +6,7 @@ import { OverflowMenu } from '../components/OverflowMenu';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 import { dreamAudioUri } from '../services/dreamStorage';
 import { colors, fonts, spacing } from '../theme';
-import { Dream, hasAudio } from '../types/dream';
+import { Dream, hasAudio, recordingsOf } from '../types/dream';
 import { confirmDeleteDream } from '../utils/confirmDelete';
 import { dreamRow, limitChips } from '../utils/dreamLog';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
@@ -137,7 +137,7 @@ export function DreamDetailScreen({
                 key={dream.id}
                 compact
                 uri={audioUri}
-                durationMs={Number.isFinite(dream.durationMs) ? dream.durationMs : 0}
+                durationMs={recordingsOf(dream)[0]?.durationMs ?? 0}
               />
             </View>
           )}

@@ -6,7 +6,7 @@ import {
   isIndexUnreadableError,
   saveDream,
 } from '../services/dreamStorage';
-import { Dream } from '../types/dream';
+import { Dream, recordingsOf } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
 import {
   BUILT_IN_JOURNALS,
@@ -184,7 +184,8 @@ export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): E
   // Stored entries can predate the tags field.
   const tags = Array.isArray(dream.tags) ? dream.tags : [];
   const audioUri = dreamAudioUri(dream);
-  const waveform = sanitizeWaveform(dream.waveform);
+  const first = recordingsOf(dream)[0];
+  const waveform = first?.waveform;
   const session: EntrySession = {
     origin,
     journalId: journalOf(dream),
@@ -194,7 +195,7 @@ export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): E
       ? {
           audio: {
             uri: audioUri,
-            durationMs: dream.durationMs,
+            durationMs: first?.durationMs ?? 0,
             ...(waveform ? { waveform } : {}),
             persisted: true,
             removed: false,

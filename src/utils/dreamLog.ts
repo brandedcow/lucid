@@ -1,4 +1,4 @@
-import { Dream, hasAudio, isDraft } from '../types/dream';
+import { Dream, hasAudio, isDraft, recordingsOf } from '../types/dream';
 import { capitalizeFirst } from './capitalizeFirst';
 import { splitEmotions } from './emotions';
 import { formatDuration, formatShortDate, LOCALE, plainSpaces } from './format';
@@ -231,7 +231,7 @@ export function dreamRow(
   const date = dateOf(dream);
   const dateLabel = date ? formatShortDate(date, now) : '';
   const own = textOf(dream.title).trim();
-  const seconds = Number.isFinite(dream.durationMs) ? Math.round(dream.durationMs / 1000) : 0;
+  const seconds = Math.round(recordingsOf(dream).reduce((sum, r) => sum + r.durationMs, 0) / 1000);
   const untitled = draft ? untitledLabel : dateLabel || untitledLabel;
   return {
     id: dream.id,

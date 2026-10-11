@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import { Dream, DreamDetails } from '../types/dream';
+import { Dream, DreamDetails, StoredRecording, recordingsOf } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
 import { splitEmotions } from '../utils/emotions';
 import { isValidWaveform, sanitizeWaveform } from '../utils/waveform';
@@ -159,9 +159,15 @@ function serialized<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Playable URI for a dream's recording, or null when it has no audio. */
+/** Playable URI for one recording. */
+export function recordingUri(recording: StoredRecording): string {
+  return new File(audioDir(), recording.fileName).uri;
+}
+
+/** Playable URI for a dream's (first) recording, or null when it has no audio. */
 export function dreamAudioUri(dream: Dream): string | null {
-  return dream.audioFileName ? new File(audioDir(), dream.audioFileName).uri : null;
+  const [first] = recordingsOf(dream);
+  return first ? recordingUri(first) : null;
 }
 
 /** All stored dreams, drafts included, newest first. */
@@ -400,6 +406,32 @@ function deletableAudio(dream: Dream, dreams: Dream[]): File | null {
   const file = new File(dir, name);
   const prefix = dir.uri.endsWith('/') ? dir.uri : `${dir.uri}/`;
   return file.uri.startsWith(prefix) ? file : null;
+}
+
+/**
+ * The files to delete with this record: one per recording whose stored name is plain, resolves
+ * inside the dreams directory and is used by no recording of any OTHER record. Failing names are
+ * skipped. Not yet called by any delete path.
+ */
+export function deletableAudioFiles(dream: Dream, dreams: Dream[]): File[] {
+  const others = new Set<string>();
+  for (const d of dreams) {
+    if (d === dream) continue;
+    for (const r of recordingsOf(d)) others.add(r.fileName);
+  }
+  const dir = audioDir();
+  const prefix = dir.uri.endsWith('/') ? dir.uri : `${dir.uri}/`;
+  const files: File[] = [];
+  const seen = new Set<string>();
+  for (const { fileName: name } of recordingsOf(dream)) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (!/^[^/\\:%]+$/.test(name) || name.includes('..') || name === '.') continue;
+    if (others.has(name)) continue;
+    const file = new File(dir, name);
+    if (file.uri.startsWith(prefix)) files.push(file);
+  }
+  return files;
 }
 
 /** Titles and transcripts shorter than this are too common to identify a dream by. */
