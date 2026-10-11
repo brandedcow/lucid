@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Alert, AlertButton } from 'react-native';
+import { Alert, AlertButton, TextInput } from 'react-native';
 import { useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
 import { Dream } from '../types/dream';
@@ -92,6 +92,7 @@ function Harness({ open }: { open?: { dream: Dream; as: 'draft' | 'edit' } }) {
       audio={session.audio}
       onRecorded={entry.attachRecording}
       onRemoveAudio={entry.removeAudio}
+      onRestoreAudio={entry.restoreAudio}
       onRecordingChange={events.onRecordingChange}
       leaveRef={leaveRef}
       onRecordingDiscarded={events.onRecordingDiscarded}
@@ -403,5 +404,208 @@ describe('a stored recording', () => {
     expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
       false,
     );
+  });
+});
+
+describe('toolbar', () => {
+  const body = () => screen.getByLabelText('Entry text');
+  const disabled = (label: string) =>
+    screen.getByLabelText(label).props.accessibilityState.disabled;
+  const typeBody = async (text: string) => {
+    await fireEvent.changeText(body(), text);
+    await advance(600);
+  };
+  const press = async (label: string) => {
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+  };
+  const recordOne = async () => {
+    await startRecording();
+    await stopRecording();
+  };
+
+  it('shows the four buttons', async () => {
+    await renderPage();
+    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags'])
+      expect(screen.getByLabelText(label)).toBeTruthy();
+  });
+
+  it('puts the bar after the scrolling fields, so it sits at the bottom, above the keyboard', async () => {
+    await renderPage();
+    // Structure only: KeyboardAvoidingView (iOS) lifts everything inside it, the bar is its last
+    // child. Real keyboard placement is device-only.
+    const tree = JSON.stringify(screen.toJSON());
+    expect(tree.indexOf('"Entry text"')).toBeGreaterThan(-1);
+    expect(tree.indexOf('"Undo"')).toBeGreaterThan(tree.indexOf('"Entry text"'));
+    expect(tree.indexOf('"Add a tag..."')).toBe(-1);
+  });
+
+  it('starts with undo and redo disabled', async () => {
+    await renderPage();
+    expect(disabled('Undo')).toBe(true);
+    expect(disabled('Redo')).toBe(true);
+  });
+
+  it('undoes and redoes body typing', async () => {
+    await renderPage();
+    await typeBody('first');
+    await typeBody('first second');
+    expect(disabled('Undo')).toBe(false);
+    await press('Undo');
+    expect(body().props.value).toBe('first');
+    expect(disabled('Redo')).toBe(false);
+    await press('Undo');
+    expect(body().props.value).toBe('');
+    expect(disabled('Undo')).toBe(true);
+    await press('Redo');
+    expect(body().props.value).toBe('first');
+    await press('Redo');
+    expect(body().props.value).toBe('first second');
+    expect(disabled('Redo')).toBe(true);
+  });
+
+  it('typing after an undo clears redo', async () => {
+    await renderPage();
+    await typeBody('one');
+    await press('Undo');
+    await fireEvent.changeText(body(), 'other');
+    expect(disabled('Redo')).toBe(true);
+  });
+
+  it('does not touch the title or tags', async () => {
+    await renderPage();
+    await fireEvent.changeText(screen.getByLabelText('Title'), 'A title');
+    await advance(600);
+    expect(disabled('Undo')).toBe(true);
+  });
+
+  it('undo of closing the card restores it; redo closes it again; nothing is deleted', async () => {
+    await renderPage();
+    await recordOne();
+    await press('Remove recording');
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    expect(disabled('Undo')).toBe(false);
+    await press('Undo');
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(sessionApi?.session?.audio?.removed).toBe(false);
+    await press('Redo');
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    expect(sessionApi?.session?.audio?.removed).toBe(true);
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('a newly recorded note is not on the undo stack', async () => {
+    await renderPage();
+    await recordOne();
+    expect(disabled('Undo')).toBe(true);
+  });
+
+  it('undoes in order: type, close the card, undo, undo', async () => {
+    await renderPage();
+    await recordOne();
+    await typeBody('words');
+    await press('Remove recording');
+    await press('Undo');
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(body().props.value).toBe('words');
+    await press('Undo');
+    expect(body().props.value).toBe('');
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(disabled('Undo')).toBe(true);
+  });
+
+  it('recording a new note after closing the card drops the close step', async () => {
+    await renderPage();
+    await recordOne();
+    await press('Remove recording');
+    await recordOne();
+    expect(disabled('Undo')).toBe(true);
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+  });
+
+  it('undo and redo are off while recording', async () => {
+    await renderPage();
+    await typeBody('words');
+    await startRecording();
+    expect(disabled('Undo')).toBe(true);
+    expect(disabled('Redo')).toBe(true);
+    expect(disabled('Record voice note')).toBe(true);
+  });
+
+  it('a stored recording closed then restored by undo is kept on Done', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await press('Remove recording');
+    await press('Undo');
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    expect(jest.mocked(saveDream).mock.calls[0][0]).not.toHaveProperty('removeAudio');
+  });
+
+  it('a stored recording closed (or closed, undone and redone) is removed on Done', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await press('Remove recording');
+    await press('Undo');
+    await press('Redo');
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    expect(jest.mocked(saveDream).mock.calls[0][0]).toMatchObject({ removeAudio: true });
+  });
+
+  it('locks the toolbar while saving', async () => {
+    let finish: (d: Dream) => void = () => {};
+    jest.mocked(saveDream).mockReturnValue(new Promise<Dream>((r) => (finish = r)));
+    await renderPage();
+    await fireEvent.changeText(screen.getByLabelText('Title'), 'T');
+    await typeBody('text');
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags'])
+      expect(disabled(label)).toBe(true);
+    await act(async () => finish({ id: '1', createdAt: 'c' } as Dream));
+  });
+
+  describe('# button', () => {
+    it('hides the tag row until # is tapped, then shows and focuses it', async () => {
+      const focus = jest.spyOn(TextInput.prototype, 'focus');
+      await renderPage();
+      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+      await press('Add tags');
+      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+      expect(focus).toHaveBeenCalledTimes(1);
+    });
+
+    it('focuses the input again when # is tapped with tag text in it', async () => {
+      const focus = jest.spyOn(TextInput.prototype, 'focus');
+      await renderPage();
+      await press('Add tags');
+      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'wat');
+      await press('Add tags');
+      expect(focus).toHaveBeenCalledTimes(2);
+    });
+
+    it('tapping # again hides an empty row', async () => {
+      await renderPage();
+      await press('Add tags');
+      await press('Add tags');
+      expect(screen.queryByPlaceholderText('Add a tag...')).toBeNull();
+    });
+
+    it('shows the row regardless when the entry has tags, and # does not hide it', async () => {
+      await renderPage({ open: { dream: { ...stored, tags: ['water'] }, as: 'edit' } });
+      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+      await press('Add tags');
+      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+    });
+
+    it('keeps the row when tag text is typed', async () => {
+      await renderPage();
+      await press('Add tags');
+      await fireEvent.changeText(screen.getByPlaceholderText('Add a tag...'), 'wat');
+      await press('Add tags');
+      expect(screen.getByPlaceholderText('Add a tag...')).toBeTruthy();
+    });
   });
 });

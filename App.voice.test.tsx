@@ -334,6 +334,29 @@ describe('App voice entry', () => {
       expect(__fs.has(STORED_AUDIO)).toBe(false);
     });
 
+    it('closing then undoing the close, then Done, keeps the stored audio', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Undo'));
+      expect(byLabel('Play recording')).toBeTruthy();
+      await press(byLabel('Save entry'));
+      const saved = index().find((d) => d.id === 'g1');
+      expect(saved).toMatchObject({ audioFileName: 'g1.m4a', waveform: [0.2, 0.7, 0.4] });
+      expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+    });
+
+    it('closing, undo, redo, then Done removes the stored audio', async () => {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Remove recording'));
+      await press(byLabel('Undo'));
+      await press(byLabel('Redo'));
+      expect(screen.queryByLabelText('Play recording')).toBeNull();
+      expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+      await press(byLabel('Save entry'));
+      expect(index().find((d) => d.id === 'g1')).not.toHaveProperty('audioFileName');
+      expect(__fs.has(STORED_AUDIO)).toBe(false);
+    });
+
     it('closing then recording again replaces the stored recording on Done', async () => {
       await openEdit(/Thankful for tea/);
       await press(byLabel('Remove recording'));

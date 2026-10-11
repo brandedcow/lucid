@@ -865,6 +865,7 @@ export default function App() {
             audio={entry.session.audio}
             onRecorded={entry.attachRecording}
             onRemoveAudio={entry.removeAudio}
+            onRestoreAudio={entry.restoreAudio}
             onRecordingChange={(recording) => {
               entryRecordingRef.current = recording;
             }}

@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -36,7 +36,12 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils
  * - autoFocus: focus the title on open (a new entry).
  * - saveDisabled: the check is off for a reason the page does not know (a recording is running).
  * - attachment: slot above the title for the voice attachment card (see AddEntryWithVoice).
- * - toolbar: slot at the bottom, above the keyboard, for undo / redo / mic / # (later).
+ * - toolbar: slot at the bottom for undo / redo / mic / # (see AddEntryWithVoice). It sits inside the
+ *   KeyboardAvoidingView, so it rides above the keyboard on iOS, and above the bottom safe-area
+ *   inset when the keyboard is closed.
+ * - onBodyBlur: the body lost focus (ends a typing step in the undo history).
+ * - tagsVisible: false hides the tag row (the toolbar's # shows it); defaults to shown.
+ * - tagFocusSignal: focuses the tag input each time this number changes (the # button).
  */
 export type AddEntryScreenProps = {
   journal?: Journal;
@@ -59,6 +64,9 @@ export type AddEntryScreenProps = {
   autoFocus?: boolean;
   attachment?: ReactNode;
   toolbar?: ReactNode;
+  onBodyBlur?: () => void;
+  tagsVisible?: boolean;
+  tagFocusSignal?: number;
 };
 
 export function AddEntryScreen({
@@ -82,11 +90,19 @@ export function AddEntryScreen({
   autoFocus = false,
   attachment,
   toolbar,
+  onBodyBlur,
+  tagsVisible = true,
+  tagFocusSignal = 0,
 }: AddEntryScreenProps) {
   const copy = journalCopy(journal);
   const canSave =
     (!titleRequired(journal.kind) || title.trim().length > 0) && !saving && !saveDisabled;
   const [knownTags, setKnownTags] = useState<string[]>([]);
+  const tagInputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    // 0 is the initial value, not a request.
+    if (tagFocusSignal > 0) tagInputRef.current?.focus();
+  }, [tagFocusSignal]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [topBarBottom, setTopBarBottom] = useState(56);
   const pickable = !!onJournalChange && !journalLocked && journals.length > 0;
@@ -165,6 +181,7 @@ export function AddEntryScreen({
           <TextInput
             value={body}
             onChangeText={onBodyChange}
+            onBlur={onBodyBlur}
             editable={!saving}
             placeholder="Start writing..."
             placeholderTextColor={colors.faint}
@@ -173,16 +190,19 @@ export function AddEntryScreen({
             textAlignVertical="top"
             style={styles.bodyInput}
           />
-          <View pointerEvents={saving ? 'none' : 'auto'}>
-            <TagInput
-              tags={tags}
-              onTagsChange={onTagsChange}
-              draft={tagDraft}
-              onDraftChange={onTagDraftChange}
-              suggestions={knownTags}
-              disabled={saving}
-            />
-          </View>
+          {tagsVisible && (
+            <View pointerEvents={saving ? 'none' : 'auto'}>
+              <TagInput
+                inputRef={tagInputRef}
+                tags={tags}
+                onTagsChange={onTagsChange}
+                draft={tagDraft}
+                onDraftChange={onTagDraftChange}
+                suggestions={knownTags}
+                disabled={saving}
+              />
+            </View>
+          )}
         </ScrollView>
         {toolbar}
         {showMenu && (

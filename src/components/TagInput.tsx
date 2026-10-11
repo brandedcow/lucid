@@ -1,3 +1,4 @@
+import { Ref } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, spacing } from '../theme';
 import { addTag, normalizeTag } from '../utils/tags';
@@ -14,6 +15,8 @@ type Props = {
   suggestions: string[];
   /** Locks the input while a save is in flight. */
   disabled?: boolean;
+  /** Lets the parent focus the input (the toolbar's # button). */
+  inputRef?: Ref<TextInput>;
 };
 
 export function TagInput({
@@ -23,6 +26,7 @@ export function TagInput({
   onDraftChange,
   suggestions,
   disabled = false,
+  inputRef,
 }: Props) {
   const commit = () => {
     onTagsChange(addTag(tags, draft));
@@ -37,6 +41,7 @@ export function TagInput({
   return (
     <View style={styles.wrap}>
       <TextInput
+        ref={inputRef}
         value={draft}
         onChangeText={(text) => {
           // A comma finishes the tag, so multi-word tags like "flying home" still work.

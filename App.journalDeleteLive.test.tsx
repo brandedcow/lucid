@@ -251,7 +251,14 @@ describe('App journal delete live guards', () => {
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await press('journals-back');
-    mockEntrySession = { journalId: 'dreams', origin: 'draft', title: 'x', body: '', tags: [] };
+    mockEntrySession = {
+      journalId: 'dreams',
+      origin: 'draft',
+      title: 'x',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);
@@ -277,7 +284,14 @@ describe('App journal delete live guards', () => {
     expect(Alert.alert).toHaveBeenCalledTimes(1);
     const buttons = lastButtons();
     await press('journals-back');
-    mockEntrySession = { journalId: 'dreams', origin: 'draft', title: 'x', body: '', tags: [] };
+    mockEntrySession = {
+      journalId: 'dreams',
+      origin: 'draft',
+      title: 'x',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);

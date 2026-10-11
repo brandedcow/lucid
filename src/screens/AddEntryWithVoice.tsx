@@ -1,10 +1,9 @@
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { MicIcon } from '../components/MicIcon';
+import { EntryToolbar } from '../components/EntryToolbar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
 import { EntryAudio } from '../hooks/useEntrySession';
-import { colors, spacing } from '../theme';
+import { useEntryHistory } from '../hooks/useEntryHistory';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
@@ -20,16 +19,21 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * - onRecordingDiscarded: the user discarded the recording to leave; the parent carries on
  *   leaving (its normal back rules run next).
  *
- * The mic is the minimal toolbar for now; the full undo / redo / mic / # toolbar comes later and
- * takes the mic with it. The check is off while recording (stop first); back asks to discard.
+ * - onRestoreAudio: undo of the card's close: brings the recording back (reversible mark only).
+ * - onBodyChange here is the session setter; the page wraps it for the undo history.
+ *
+ * Toolbar: undo / redo (body text and closing the voice note card, one shared stack; not title,
+ * tags or journal), mic, # (shows the tag row and focuses it). The check is off while recording
+ * (stop first); back asks to discard. While recording, the mic, undo and redo are disabled.
  */
 export type AddEntryWithVoiceProps = Omit<
   AddEntryScreenProps,
-  'attachment' | 'toolbar' | 'saveDisabled'
+  'attachment' | 'toolbar' | 'saveDisabled' | 'onBodyBlur' | 'tagsVisible' | 'tagFocusSignal'
 > & {
   audio?: EntryAudio;
   onRecorded: (recording: PanelRecording) => void;
   onRemoveAudio?: () => void;
+  onRestoreAudio?: () => void;
   onRecordingChange?: (recording: boolean) => void;
   leaveRef?: MutableRefObject<(() => void) | null>;
   onRecordingDiscarded?: () => void;
@@ -39,11 +43,16 @@ export function AddEntryWithVoice({
   audio,
   onRecorded,
   onRemoveAudio,
+  onRestoreAudio,
   onRecordingChange,
   leaveRef,
   onRecordingDiscarded,
   journal = BUILT_IN_JOURNALS[0] as Journal,
   saving = false,
+  body,
+  onBodyChange,
+  tags,
+  tagDraft,
   ...page
 }: AddEntryWithVoiceProps) {
   const [recording, setRecordingState] = useState(false);
@@ -63,6 +72,23 @@ export function AddEntryWithVoice({
     notify.current?.(value);
   };
 
+  const history = useEntryHistory({
+    body,
+    setBody: onBodyChange,
+    removeAudio: onRemoveAudio,
+    restoreAudio: onRestoreAudio,
+  });
+  // A save ends the history: the removal it commits can no longer be undone.
+  const { reset: resetHistory } = history;
+  useEffect(() => {
+    if (saving) resetHistory();
+  }, [saving, resetHistory]);
+
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [tagFocusSignal, setTagFocusSignal] = useState(0);
+  const tagsHaveContent = tags.length > 0 || tagDraft.trim().length > 0;
+  const tagsVisible = tagsHaveContent || tagsOpen;
+
   const shown = audio && !audio.removed ? audio : undefined;
   const micDisabled = saving || recording || shown !== undefined;
 
@@ -72,6 +98,8 @@ export function AddEntryWithVoice({
       leaveRef={leaveRef}
       onRecorded={(rec) => {
         setRecording(false);
+        // A new note is not undoable; earlier close steps no longer apply.
+        history.onRecordingAttached();
         onRecorded(rec);
       }}
       onClosed={() => setRecording(false)}
@@ -86,29 +114,43 @@ export function AddEntryWithVoice({
       uri={shown.uri}
       durationMs={shown.durationMs}
       waveform={shown.waveform}
-      onRemove={!saving ? onRemoveAudio : undefined}
+      onRemove={!saving ? history.onRemoveAudio : undefined}
     />
   ) : undefined;
 
   const toolbar = (
-    <View style={styles.toolbar}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Record voice note"
-        accessibilityState={{ disabled: micDisabled }}
-        disabled={micDisabled}
-        onPress={() => setRecording(true)}
-        hitSlop={8}
-        style={[styles.mic, micDisabled && styles.micDisabled]}
-      >
-        <MicIcon color={colors.text} size={22} />
-      </Pressable>
-    </View>
+    <EntryToolbar
+      canUndo={history.canUndo && !recording}
+      canRedo={history.canRedo && !recording}
+      onUndo={history.undo}
+      onRedo={history.redo}
+      micDisabled={micDisabled}
+      onMic={() => setRecording(true)}
+      disabled={saving}
+      onTags={() => {
+        if (!tagsVisible) {
+          setTagsOpen(true);
+          setTagFocusSignal((n) => n + 1);
+        } else if (!tagsHaveContent) {
+          // Opened by #, nothing in it: # closes it again.
+          setTagsOpen(false);
+        } else {
+          setTagFocusSignal((n) => n + 1);
+        }
+      }}
+    />
   );
 
   return (
     <AddEntryScreen
       {...page}
+      body={body}
+      onBodyChange={history.onBodyChange}
+      onBodyBlur={history.onBodyBlur}
+      tags={tags}
+      tagDraft={tagDraft}
+      tagsVisible={tagsVisible}
+      tagFocusSignal={tagFocusSignal}
       journal={journal}
       saving={saving}
       saveDisabled={recording}
@@ -117,15 +159,3 @@ export function AddEntryWithVoice({
     />
   );
 }
-
-const styles = StyleSheet.create({
-  toolbar: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  mic: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  micDisabled: { opacity: 0.4 },
-});
