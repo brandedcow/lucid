@@ -4,6 +4,7 @@ import { Alert, AlertButton, BackHandler, Keyboard, StyleSheet, TextInput } from
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
 import { shareRecording } from '../services/shareRecording';
+import { createFakeTranscription, FakeTranscription } from '../test/fakeTranscription';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
 import { colors } from '../theme';
@@ -62,6 +63,7 @@ const events = {
 };
 const leaveRef: { current: (() => void) | null } = { current: null };
 let sessionApi: ReturnType<typeof useEntrySession> | null = null;
+let fakeT: FakeTranscription | undefined;
 
 const stored: Dream = {
   id: '7',
@@ -116,6 +118,7 @@ function Harness({
       onRecordingChange={events.onRecordingChange}
       leaveRef={leaveRef}
       onRecordingDiscarded={events.onRecordingDiscarded}
+      transcription={fakeT}
     />
   );
 }
@@ -151,6 +154,7 @@ beforeEach(() => {
   mockRec.stop.mockResolvedValue({ uri: CACHE, durationMs: 3000 });
   leaveRef.current = null;
   sessionApi = null;
+  fakeT = undefined;
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as Dream);
   jest.mocked(shareRecording).mockResolvedValue(undefined);
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -1557,5 +1561,134 @@ describe('the expanded voice note view', () => {
     await act(async () => sessionApi?.restoreRecording(id));
     expect(sheet()).toBeNull();
     expect(screen.getByLabelText('Play recording')).toBeTruthy();
+  });
+});
+
+describe('transcripts in the expanded view', () => {
+  const body = () => screen.getByLabelText('Entry text');
+  const press = async (label: string) => {
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+  };
+  const sheet = () => screen.queryByTestId('voice-note-sheet');
+  const withTranscript: Dream = {
+    ...stored,
+    audioFileName: undefined,
+    waveform: undefined,
+    transcript: 'Last night',
+    recordings: [{ fileName: '7.m4a', durationMs: 1000, voiceTranscript: 'I was flying #water' }],
+  };
+  const addFromMenu = async () => {
+    await press('More options');
+    await press('Add transcript to entry');
+  };
+
+  it('hides every Transcribe affordance by default (no transcription prop)', async () => {
+    await renderPage();
+    mockRec.stop.mockResolvedValueOnce({ uri: CACHE, durationMs: 1000 });
+    await startRecording();
+    await stopRecording();
+    await press('Open recording');
+    expect(screen.queryByLabelText('Show transcript')).toBeNull();
+    expect(screen.queryByLabelText('More options')).toBeNull();
+  });
+
+  it('passes the transcription to the view: Transcribe starts a run for the note', async () => {
+    fakeT = createFakeTranscription();
+    await renderPage();
+    mockRec.stop.mockResolvedValueOnce({ uri: CACHE, durationMs: 1000 });
+    await startRecording();
+    await stopRecording();
+    await press('Open recording');
+    await press('Show transcript');
+    await press('Transcribe');
+    expect(fakeT.start).toHaveBeenCalledWith(sessionApi?.session?.recordings[0].id, CACHE);
+  });
+
+  it("shows a stored note's transcript in the view and offers the menu", async () => {
+    await renderPage({ open: { dream: withTranscript, as: 'edit' } });
+    await press('Open recording');
+    await press('Show transcript');
+    expect(screen.getByText('I was flying #water')).toBeTruthy();
+    expect(screen.getByLabelText('More options')).toBeTruthy();
+  });
+
+  it('Add transcript appends after a blank line, moves the cursor to the end, closes the view and keeps the keyboard closed', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    await renderPage({ open: { dream: withTranscript, as: 'edit' } });
+    await press('Open recording');
+    focus.mockClear();
+    await addFromMenu();
+    expect(sheet()).toBeNull();
+    expect(sessionApi?.session?.body).toContain('Last night\n\nI was flying #water');
+    expect(body().props.selection).toEqual({
+      start: sessionApi!.session!.body.length,
+      end: sessionApi!.session!.body.length,
+    });
+    expect(focus).not.toHaveBeenCalled();
+    expect(dismiss).toHaveBeenCalled();
+  });
+
+  it('is exactly one undo step: undo restores the body, redo adds it back', async () => {
+    await renderPage({ open: { dream: { ...withTranscript, tags: [] }, as: 'edit' } });
+    const before = sessionApi!.session!.body;
+    await press('Open recording');
+    await addFromMenu();
+    const after = sessionApi!.session!.body;
+    expect(after).toBe(`${before.trimEnd()}\n\nI was flying #water`);
+    await press('Undo');
+    expect(sessionApi?.session?.body).toBe(before);
+    expect(bodyText(body())).toBe(before);
+    await press('Redo');
+    expect(sessionApi?.session?.body).toBe(after);
+  });
+
+  it('flushes pending typing first, so it is its own step', async () => {
+    await renderPage({ open: { dream: withTranscript, as: 'edit' } });
+    await fireEvent.changeText(body(), 'typed words');
+    await press('Open recording');
+    await addFromMenu();
+    expect(sessionApi?.session?.body).toBe('typed words\n\nI was flying #water');
+    await press('Undo');
+    expect(sessionApi?.session?.body).toBe('typed words');
+    await press('Undo');
+    expect(sessionApi?.session?.body).not.toBe('typed words');
+  });
+
+  it('adds the text to an empty body on its own', async () => {
+    await renderPage({
+      open: { dream: { ...withTranscript, transcript: '' }, as: 'edit' },
+    });
+    await fireEvent.changeText(body(), '');
+    await press('Open recording');
+    await addFromMenu();
+    expect(sessionApi?.session?.body).toBe('I was flying #water');
+  });
+
+  it('a #tag in the added text becomes a tag on save', async () => {
+    await renderPage({ open: { dream: { ...withTranscript, tags: [] }, as: 'edit' } });
+    await press('Open recording');
+    await addFromMenu();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Save dream'));
+    });
+    expect(jest.mocked(saveDream).mock.calls[0][0].details.tags).toEqual(['water']);
+  });
+
+  it('keeps a result that arrived for a removed note, shown after Undo', async () => {
+    fakeT = createFakeTranscription((id, text) => sessionApi?.setRecordingTranscript(id, text));
+    await renderPage();
+    mockRec.stop.mockResolvedValueOnce({ uri: CACHE, durationMs: 1000 });
+    await startRecording();
+    await stopRecording();
+    const id = sessionApi!.session!.recordings[0].id;
+    await press('Remove recording');
+    await act(async () => fakeT?.emit(id, 'late words'));
+    expect(sessionApi?.session?.recordings[0].voiceTranscript).toBe('late words');
+    await press('Undo');
+    await press('Open recording');
+    await press('Show transcript');
+    expect(screen.getByText('late words')).toBeTruthy();
   });
 });

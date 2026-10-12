@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { ShareIcon, TrashIcon } from './VoiceNoteIcons';
+import { colors } from '../theme';
+import { ShareIcon, TrashIcon, TranscriptIcon } from './VoiceNoteIcons';
 
 // The icons hide their descendants from accessibility, so queries must include hidden elements.
 const node = (id: string) => screen.getByTestId(id, { hidden: true });
@@ -61,5 +62,40 @@ describe('TrashIcon', () => {
     await render(<TrashIcon color="#000" size={56} />);
     expect(style('trash-icon').height).toBe(56);
     expect(style('trash-lid').width).toBe(40);
+  });
+});
+
+describe('TranscriptIcon', () => {
+  it('draws a bubble outline, a tail and two quotation marks, hidden from accessibility', async () => {
+    await render(<TranscriptIcon color="#123456" />);
+    const root = node('transcript-icon');
+    expect(root.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(root.props.accessible).toBe(false);
+    expect(style('transcript-bubble').borderColor).toBe('#123456');
+    expect(style('transcript-bubble').backgroundColor).toBe('transparent');
+    expect(style('transcript-bubble').borderRadius).toBe(6);
+    expect(style('transcript-tail').borderColor).toBe('#123456');
+    expect(screen.getAllByTestId('transcript-mark', { hidden: true })).toHaveLength(2);
+    expect(screen.getAllByTestId('transcript-mark-tail', { hidden: true })).toHaveLength(2);
+    for (const m of screen.getAllByTestId('transcript-mark', { hidden: true })) {
+      expect(StyleSheet.flatten(m.props.style).backgroundColor).toBe('#123456');
+    }
+  });
+
+  it('fills the bubble and draws the marks in the sheet background when filled', async () => {
+    await render(<TranscriptIcon color="#123456" filled />);
+    expect(style('transcript-bubble').backgroundColor).toBe('#123456');
+    for (const m of screen.getAllByTestId('transcript-mark', { hidden: true })) {
+      expect(StyleSheet.flatten(m.props.style).backgroundColor).toBe(colors.background);
+    }
+  });
+
+  it('defaults to 28 and scales with size', async () => {
+    const view = await render(<TranscriptIcon color="#000" />);
+    expect(style('transcript-icon').width).toBe(28);
+    await view.unmount();
+    await render(<TranscriptIcon color="#000" size={56} />);
+    expect(style('transcript-icon').width).toBe(56);
+    expect(style('transcript-bubble').width).toBe(44);
   });
 });

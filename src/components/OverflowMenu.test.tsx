@@ -175,4 +175,65 @@ describe('OverflowMenu labels', () => {
     await open();
     expect(screen.getByTestId('overflow-menu-card')).toHaveStyle({ top: 58, right: 68 });
   });
+
+  describe('items', () => {
+    it('renders extra items before Delete, with the label for access and the text visible', async () => {
+      await render(
+        <OverflowMenu
+          onDelete={jest.fn()}
+          items={[
+            { key: 'a', label: 'Copy transcript', onPress: jest.fn() },
+            { key: 'b', label: 'Add it', text: 'Add to entry', onPress: jest.fn() },
+          ]}
+        />,
+      );
+      await open();
+      const items = screen.getAllByRole('menuitem');
+      expect(items.map((i) => i.props.accessibilityLabel)).toEqual([
+        'Copy transcript',
+        'Add it',
+        'Delete dream',
+      ]);
+      expect(screen.getByText('Copy transcript')).toBeTruthy();
+      expect(screen.getByText('Add to entry')).toBeTruthy();
+      for (const item of items) expect(item).toHaveStyle({ minHeight: 44 });
+      expect(screen.getByText('Copy transcript')).not.toHaveStyle({ color: '#F26D6D' });
+    });
+
+    it('works without onDelete and closes the menu when the item runs', async () => {
+      const onPress = jest.fn();
+      await render(<OverflowMenu items={[{ key: 'a', label: 'Copy transcript', onPress }]} />);
+      await open();
+      await fireEvent.press(screen.getByLabelText('Copy transcript'));
+      expect(onPress).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('does not run a disabled item and marks it disabled', async () => {
+      const onPress = jest.fn();
+      await render(
+        <OverflowMenu items={[{ key: 'a', label: 'Add it', disabled: true, onPress }]} />,
+      );
+      await open();
+      const item = screen.getByLabelText('Add it');
+      expect(item.props.accessibilityState).toMatchObject({ disabled: true });
+      await fireEvent.press(item);
+      expect(onPress).not.toHaveBeenCalled();
+    });
+
+    it('keeps the menu card below the circle at the given offsets', async () => {
+      await render(
+        <OverflowMenu
+          items={[{ key: 'a', label: 'Copy', onPress: jest.fn() }]}
+          top={10}
+          right={30}
+        />,
+      );
+      await open();
+      expect(screen.getByTestId('overflow-menu-card')).toHaveStyle({
+        top: 10 + iconCircle + 4,
+        right: 30,
+      });
+    });
+  });
 });

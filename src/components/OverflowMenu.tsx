@@ -10,6 +10,8 @@ import { colors, iconCircle, spacing } from '../theme';
  * catches taps anywhere) and puts the button at the top-right of the bar. The menu is an
  * in-screen overlay, not a Modal, so an Alert opened right after picking an item still shows on iOS.
  *
+ * - items: extra menu items shown before Delete (`label` is the accessibility label, `text` the
+ *   visible text, default the label). The menu closes before an item's onPress runs.
  * - onDelete is optional; the menu shows only the items it is given (the add-entry page gives only
  *   onDelete).
  * - top / right: where the button sits (a circle of `iconCircle`, the same size as the add-entry
@@ -18,7 +20,16 @@ import { colors, iconCircle, spacing } from '../theme';
  * - deleteDisabled: only the Delete item is disabled and dimmed (default false); the button stays
  *   usable.
  */
+export type OverflowMenuItem = {
+  key: string;
+  label: string;
+  text?: string;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
 type Props = {
+  items?: readonly OverflowMenuItem[];
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
@@ -32,6 +43,7 @@ type Props = {
 };
 
 export function OverflowMenu({
+  items,
   onDelete,
   disabled = false,
   deleteDisabled = false,
@@ -89,6 +101,21 @@ export function OverflowMenu({
             testID="overflow-menu-card"
             style={[styles.card, { top: top + iconCircle + spacing.xs, right }]}
           >
+            {items?.map((item) => (
+              <Pressable
+                key={item.key}
+                accessibilityRole="menuitem"
+                accessibilityLabel={item.label}
+                accessibilityState={{ disabled: disabled || !!item.disabled }}
+                disabled={disabled || item.disabled}
+                onPress={() => pick(item.onPress)}
+                style={styles.item}
+              >
+                <Text style={[styles.itemText, item.disabled && styles.dimmed]}>
+                  {item.text ?? item.label}
+                </Text>
+              </Pressable>
+            ))}
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"

@@ -15,8 +15,10 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import { appendTranscript } from '../utils/transcriptAppend';
 import { suggestTags } from '../utils/tagSuggestions';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
+import { RecordingTranscription, UNSUPPORTED_TRANSCRIPTION } from '../services/transcription';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
 /**
@@ -68,6 +70,13 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * and suggestion bar are hidden (the keyboard is dismissed when the mic is tapped); they return when
  * it closes or a recording is stopped.
  *
+ * - transcription: the recognizer behind the expanded view's transcript area (default: cannot
+ *   transcribe, so Transcribe is hidden). The hook that implements it lives above this page (App),
+ *   writes results through the session (`setRecordingTranscript`), and is passed down untouched.
+ *   The view reads each note's text from the session recording's `voiceTranscript`. "Add transcript
+ *   to entry" appends it to the body as ONE undo step (typing flushed first, cursor at the end, the
+ *   keyboard stays closed) and closes the view.
+ *
  * Toolbar: undo / redo (body text and closing a voice note card, one shared stack, each step naming its
  * recording; not title or
  * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
@@ -98,6 +107,7 @@ export type AddEntryWithVoiceProps = Omit<
   bodyBaseFrom?: string;
   knownTags?: readonly string[];
   entryCreatedAt?: string;
+  transcription?: RecordingTranscription;
 };
 
 const NO_TAGS: readonly string[] = [];
@@ -114,6 +124,7 @@ export function AddEntryWithVoice({
   bodyBaseFrom,
   knownTags = NO_TAGS,
   entryCreatedAt,
+  transcription = UNSUPPORTED_TRANSCRIPTION,
   journal = BUILT_IN_JOURNALS[0] as Journal,
   saving = false,
   body,
@@ -172,7 +183,7 @@ export function AddEntryWithVoice({
   }, []);
 
   /** A tag action: its own undo step, apart from the typing around it; the cursor follows the text. */
-  const applyTagEdit = (next: { text: string; cursor: number }) => {
+  const applyBodyEdit = (next: { text: string; cursor: number }, focus: boolean) => {
     history.onBodyBlur();
     history.onBodyChange(next.text);
     history.onBodyBlur();
@@ -180,8 +191,9 @@ export function AddEntryWithVoice({
     selectionRef.current = sel;
     setCursor(sel);
     setForcedSelection(sel);
-    setBodyFocusSignal((n) => n + 1);
+    if (focus) setBodyFocusSignal((n) => n + 1);
   };
+  const applyTagEdit = (next: { text: string; cursor: number }) => applyBodyEdit(next, true);
 
   const insertTagStart = () => {
     const sel = selectionRef.current;
@@ -251,6 +263,15 @@ export function AddEntryWithVoice({
   const sheetNotes = sheetOpen
     ? shown.map((r) => ({ ...r, recordedAt: recordedAts[r.id] ?? null }))
     : [];
+
+  // The transcript goes to the end of the body as its own undo step; the body is not focused, so the
+  // keyboard stays closed. The view closes after (it shows the result and a second tap cannot add
+  // the text twice).
+  const addTranscript = (_id: string, text: string) => {
+    const next = appendTranscript(body, text);
+    if (next !== body) applyBodyEdit({ text: next, cursor: next.length }, false);
+    setSheetOpen(false);
+  };
 
   const attachment =
     shown.length > 0 ? (
@@ -345,6 +366,8 @@ export function AddEntryWithVoice({
           initialIndex={openIndex}
           onIndexChange={(_index, id) => setFocusedNote(id)}
           busy={saving || recording}
+          transcription={transcription}
+          onAddTranscript={addTranscript}
           playDisabled={recording}
           onClose={() => setSheetOpen(false)}
           onRemove={(id) => {

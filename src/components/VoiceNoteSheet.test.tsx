@@ -1,13 +1,18 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, BackHandler, ScrollView } from 'react-native';
+import { Alert, BackHandler, ScrollView, StyleSheet } from 'react-native';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
+import { copyText } from '../services/clipboard';
+import { createFakeTranscription } from '../test/fakeTranscription';
 import { shareRecording, ShareUnavailableError } from '../services/shareRecording';
+import { iconCircle } from '../theme';
 import { SheetNote, VoiceNoteSheet } from './VoiceNoteSheet';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
+
+jest.mock('../services/clipboard', () => ({ copyText: jest.fn() }));
 
 jest.mock('../services/shareRecording', () => ({
   ...jest.requireActual('../services/shareRecording'),
@@ -71,6 +76,7 @@ beforeEach(() => {
   });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.mocked(shareRecording).mockResolvedValue(undefined);
+  jest.mocked(copyText).mockResolvedValue(undefined);
 });
 afterEach(() => {
   addSpy.mockRestore();
@@ -736,5 +742,393 @@ describe('the pager: rest and settle', () => {
     expect(screen.getByText('2 of 4')).toBeTruthy();
     expect(screen.getAllByTestId('voice-note-sheet-page')).toHaveLength(4);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('transcript', () => {
+  const withText: SheetNote = { ...note, voiceTranscript: 'I was flying over water' };
+  type P = Partial<Parameters<typeof VoiceNoteSheet>[0]>;
+  let fake = createFakeTranscription();
+  let current: P = {};
+  const view = (props: P) => {
+    current = props;
+    return (
+      <VoiceNoteSheet
+        notes={[note]}
+        initialIndex={0}
+        onClose={onClose}
+        onRemove={onRemove}
+        transcription={fake}
+        {...props}
+      />
+    );
+  };
+  const show = async (props: P = {}) => render(view(props));
+  const refresh = (v: Awaited<ReturnType<typeof show>>) => v.rerender(view(current));
+  const toggle = () => screen.queryByLabelText(/^Show (transcript|waveform)$/);
+  const open = async () => {
+    await fireEvent.press(screen.getByLabelText('Show transcript'));
+    await act(async () => {});
+  };
+
+  beforeEach(() => {
+    fake = createFakeTranscription();
+    onAddTranscript.mockClear();
+  });
+  const onAddTranscript = jest.fn();
+
+  describe('with the default (unsupported) transcription', () => {
+    it('hides the toggle and the menu, and never starts anything', async () => {
+      await renderSheet();
+      expect(toggle()).toBeNull();
+      expect(screen.queryByLabelText('More options')).toBeNull();
+      expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
+    });
+
+    it('still shows the toggle and text for a note that has a transcript', async () => {
+      await renderSheet({ notes: [withText] });
+      await open();
+      expect(screen.getByText('I was flying over water')).toBeTruthy();
+      expect(screen.queryByText('Transcribe')).toBeNull();
+    });
+  });
+
+  describe('toggle', () => {
+    it('is shown when supported, even with no text', async () => {
+      await show();
+      expect(toggle()).toBeTruthy();
+    });
+
+    it('is shown for a note with text (even empty) when unsupported, hidden otherwise', async () => {
+      fake.setSupported(false);
+      const v = await show({ notes: [{ ...note, voiceTranscript: '' }] });
+      expect(toggle()).toBeTruthy();
+      await v.unmount();
+      await show({ notes: [note] });
+      expect(toggle()).toBeNull();
+    });
+
+    it('swaps the waveform and clock for the transcript, with labels, selected state and a filled icon', async () => {
+      await show({ notes: [withText] });
+      const off = screen.getByLabelText('Show transcript');
+      expect(off.props.accessibilityState).toMatchObject({ selected: false });
+      expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
+      expect(screen.getByTestId('voice-note-clock')).toBeTruthy();
+      expect(
+        StyleSheet.flatten(screen.getByTestId('transcript-bubble', { hidden: true }).props.style)
+          .backgroundColor,
+      ).toBe('transparent');
+      await open();
+      expect(screen.queryByTestId('voice-note-wave-block')).toBeNull();
+      expect(screen.queryByTestId('voice-note-clock')).toBeNull();
+      const on = screen.getByLabelText('Show waveform');
+      expect(on.props.accessibilityState).toMatchObject({ selected: true });
+      expect(
+        StyleSheet.flatten(screen.getByTestId('transcript-bubble', { hidden: true }).props.style)
+          .backgroundColor,
+      ).not.toBe('transparent');
+      // The title, subtitle and player controls stay.
+      expect(screen.getByText('Audio Recording')).toBeTruthy();
+      expect(screen.getByLabelText('Play audio recording')).toBeTruthy();
+      await fireEvent.press(on);
+      expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
+    });
+
+    it('is the first control, 44pt, before back 15 s', async () => {
+      await show({ notes: [withText] });
+      expect(screen.getByLabelText('Show transcript')).toHaveStyle({ width: 44, height: 44 });
+      const labels = screen
+        .getAllByRole('button')
+        .map((b) => b.props.accessibilityLabel)
+        .filter((l: string) => /transcript|Back 15|Play audio|Forward 15/.test(l));
+      expect(labels).toEqual([
+        'Show transcript',
+        'Back 15 seconds',
+        'Play audio recording',
+        'Forward 15 seconds',
+      ]);
+    });
+
+    it('stays open when paging to another note', async () => {
+      const two = [withText, { ...three[1], voiceTranscript: 'second note text' }];
+      await show({ notes: two });
+      await open();
+      await fireEvent.press(screen.getByLabelText('Next voice note'));
+      await act(async () => {});
+      expect(screen.getByText('second note text')).toBeTruthy();
+      expect(screen.getByLabelText('Show waveform')).toBeTruthy();
+      expect(screen.queryByTestId('voice-note-wave-block')).toBeNull();
+    });
+
+    it('falls back to the waveform when it can no longer show, and returns when it can again', async () => {
+      const v = await show({ notes: [note] });
+      await open();
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
+      fake.setSupported(false);
+      await refresh(v);
+      expect(toggle()).toBeNull();
+      expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
+      fake.setSupported(true);
+      await refresh(v);
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
+    });
+
+    it('does not show transcripts on neighbouring placeholder pages', async () => {
+      const two = [note, { ...three[1], voiceTranscript: 'second note text' }];
+      await show({ notes: two });
+      await open();
+      expect(screen.queryByText('second note text')).toBeNull();
+    });
+  });
+
+  describe('states', () => {
+    it('offers Transcribe, which starts the run with the note id and uri', async () => {
+      await show();
+      await open();
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
+      await fireEvent.press(screen.getByLabelText('Transcribe'));
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+      expect(fake.cancel).not.toHaveBeenCalled();
+    });
+
+    it('does not start anything on its own (opening the toggle only shows the offer)', async () => {
+      await show();
+      await open();
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('disables Transcribe while saving or recording, and when another note is running', async () => {
+      const v = await show({ busy: true });
+      await open();
+      const t = () => screen.getByLabelText('Transcribe');
+      expect(t().props.accessibilityState).toMatchObject({ disabled: true });
+      await fireEvent.press(t());
+      expect(fake.start).not.toHaveBeenCalled();
+      await v.unmount();
+      fake.setState('other', { status: 'running' });
+      await show();
+      await open();
+      expect(screen.getByText('Another voice note is being transcribed.')).toBeTruthy();
+      expect(t().props.accessibilityState).toMatchObject({ disabled: true });
+      await fireEvent.press(t());
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('shows running with Cancel, a live region and a spinner', async () => {
+      const v = await show();
+      await open();
+      fake.setState('n1', { status: 'running' });
+      await refresh(v);
+      expect(screen.getByText('Transcribing...')).toBeTruthy();
+      expect(screen.queryByLabelText('Transcribe')).toBeNull();
+      await fireEvent.press(screen.getByLabelText('Cancel'));
+      expect(fake.cancel).toHaveBeenCalledWith('n1');
+      expect(screen.getByTestId('voice-note-transcribing').props.accessibilityLiveRegion).toBe(
+        'polite',
+      );
+    });
+
+    it.each([
+      ['unsupported', 'This device cannot transcribe voice notes on-device.'],
+      ['no-model', 'The offline speech model for transcription is not installed.'],
+      ['permission', 'Speech recognition permission was not granted.'],
+      ['failed', 'Could not transcribe this voice note.'],
+      ['busy', 'Could not transcribe this voice note.'],
+    ] as const)('shows a message for %s with Try again', async (code, message) => {
+      const v = await show();
+      await open();
+      fake.setState('n1', { status: 'failed', error: { code, message: 'raw' } });
+      await refresh(v);
+      expect(screen.getByText(message)).toBeTruthy();
+      expect(screen.queryByText('raw')).toBeNull();
+      await fireEvent.press(screen.getByLabelText('Try again'));
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+    });
+
+    it('disables Try again while saving or recording', async () => {
+      const v = await show({ busy: true });
+      await open();
+      fake.setState('n1', { status: 'failed', error: { code: 'failed', message: 'x' } });
+      await refresh(v);
+      expect(screen.getByLabelText('Try again').props.accessibilityState).toMatchObject({
+        disabled: true,
+      });
+    });
+
+    it('returns to the offer after a cancel, with no message', async () => {
+      const v = await show();
+      await open();
+      fake.setState('n1', { status: 'running' });
+      await refresh(v);
+      fake.setState('n1', { status: 'failed', error: { code: 'cancelled', message: 'x' } });
+      await refresh(v);
+      expect(screen.getByLabelText('Transcribe')).toBeTruthy();
+      expect(screen.queryByText(/Could not/)).toBeNull();
+      expect(screen.queryByLabelText('Try again')).toBeNull();
+    });
+
+    it('shows the text after a result, and the empty message with Try again for ""', async () => {
+      const v = await show();
+      await open();
+      const results: Record<string, string> = {};
+      fake = createFakeTranscription((id, text) => (results[id] = text));
+      fake.emit('n1', 'dreamt of a lake');
+      await v.rerender(view({ notes: [{ ...note, voiceTranscript: results.n1 }] }));
+      expect(screen.getByText('dreamt of a lake')).toBeTruthy();
+      fake.emit('n1', '');
+      await v.rerender(view({ notes: [{ ...note, voiceTranscript: results.n1 }] }));
+      expect(screen.getByText('No speech was found in this note.')).toBeTruthy();
+      await fireEvent.press(screen.getByLabelText('Try again'));
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+    });
+
+    it('shows the empty message without Try again when unsupported', async () => {
+      fake.setSupported(false);
+      await show({ notes: [{ ...note, voiceTranscript: '' }] });
+      await open();
+      expect(screen.getByText('No speech was found in this note.')).toBeTruthy();
+      expect(screen.queryByLabelText('Try again')).toBeNull();
+    });
+
+    it('shows selectable text in a scroll area with no re-transcribe action', async () => {
+      await show({ notes: [withText] });
+      await open();
+      const text = screen.getByText('I was flying over water');
+      expect(text.props.selectable).toBe(true);
+      const area = screen.getByLabelText('Transcript');
+      expect(area.type).toBe('RCTScrollView');
+      expect(screen.queryByLabelText('Transcribe')).toBeNull();
+      expect(screen.queryByLabelText('Try again')).toBeNull();
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('keeps the player controls working in the transcript view', async () => {
+      await show({ notes: [withText] });
+      await open();
+      await fireEvent.press(screen.getByLabelText('Play audio recording'));
+      await act(async () => {});
+      expect(mockPlayer.play).toHaveBeenCalled();
+    });
+  });
+
+  describe('menu', () => {
+    const menuHidden = () => expect(screen.queryByLabelText('More options')).toBeNull();
+    const pick = async (label: string) => {
+      await fireEvent.press(screen.getByLabelText('More options'));
+      await fireEvent.press(screen.getByLabelText(label));
+      await act(async () => {});
+    };
+
+    it('is hidden without a non-empty transcript', async () => {
+      const v = await show();
+      menuHidden();
+      await v.unmount();
+      const v2 = await show({ notes: [{ ...note, voiceTranscript: '' }] });
+      menuHidden();
+      await v2.unmount();
+      await show({ notes: [{ ...note, voiceTranscript: '  \n' }] });
+      menuHidden();
+    });
+
+    it('is a 40pt circle at the top right, with the share/trash pill shifted left of it', async () => {
+      await show({ notes: [withText] });
+      expect(screen.getByLabelText('More options')).toHaveStyle({
+        width: iconCircle,
+        height: iconCircle,
+        borderRadius: iconCircle / 2,
+      });
+      const pill = screen.getByTestId('voice-note-actions');
+      expect(StyleSheet.flatten(pill.props.style).marginRight).toBe(iconCircle + 4);
+    });
+
+    it('leaves the pill unshifted without a menu', async () => {
+      await show();
+      const pill = screen.getByTestId('voice-note-actions');
+      expect(StyleSheet.flatten(pill.props.style).marginRight).toBeUndefined();
+    });
+
+    it('lists Copy transcript and Add transcript to entry as menu items', async () => {
+      await show({ notes: [withText], onAddTranscript });
+      await fireEvent.press(screen.getByLabelText('More options'));
+      expect(screen.getAllByRole('menuitem').map((i) => i.props.accessibilityLabel)).toEqual([
+        'Copy transcript',
+        'Add transcript to entry',
+      ]);
+    });
+
+    it('has no Add item when the owner gives no onAddTranscript', async () => {
+      await show({ notes: [withText] });
+      await fireEvent.press(screen.getByLabelText('More options'));
+      expect(screen.queryByLabelText('Add transcript to entry')).toBeNull();
+    });
+
+    describe('Copy transcript', () => {
+      beforeEach(() => jest.useFakeTimers());
+      afterEach(() => jest.useRealTimers());
+
+      it('copies the text (trailing whitespace trimmed), then shows Copied for 1.5 s', async () => {
+        await show({ notes: [{ ...note, voiceTranscript: ' hello there \n\n' }] });
+        await pick('Copy transcript');
+        expect(copyText).toHaveBeenCalledWith(' hello there');
+        expect(screen.getByText('Copied')).toBeTruthy();
+        expect(screen.getByText('Copied').props.accessibilityLiveRegion).toBe('polite');
+        expect(screen.queryByRole('menuitem')).toBeNull();
+        await act(async () => void jest.advanceTimersByTime(1400));
+        expect(screen.getByText('Copied')).toBeTruthy();
+        await act(async () => void jest.advanceTimersByTime(200));
+        expect(screen.queryByText('Copied')).toBeNull();
+      });
+
+      it('restarts the timer on a second copy', async () => {
+        await show({ notes: [withText] });
+        await pick('Copy transcript');
+        await act(async () => void jest.advanceTimersByTime(1000));
+        await pick('Copy transcript');
+        await act(async () => void jest.advanceTimersByTime(1000));
+        expect(screen.getByText('Copied')).toBeTruthy();
+        await act(async () => void jest.advanceTimersByTime(600));
+        expect(screen.queryByText('Copied')).toBeNull();
+      });
+
+      it('alerts on a rejection and shows no pill', async () => {
+        jest.mocked(copyText).mockRejectedValue(new Error('boom'));
+        await show({ notes: [withText] });
+        await pick('Copy transcript');
+        expect(Alert.alert).toHaveBeenCalledWith('Could not copy', 'Please try again.');
+        expect(screen.queryByText('Copied')).toBeNull();
+      });
+
+      it('raises no update after unmounting', async () => {
+        const v = await show({ notes: [withText] });
+        await pick('Copy transcript');
+        await v.unmount();
+        const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+        await act(async () => void jest.advanceTimersByTime(2000));
+        expect(err).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('Add transcript to entry', () => {
+      it('calls onAddTranscript with the note id and the stored text, and does not close by itself', async () => {
+        await show({ notes: [withText], onAddTranscript });
+        await pick('Add transcript to entry');
+        expect(onAddTranscript).toHaveBeenCalledWith('n1', 'I was flying over water');
+        expect(onClose).not.toHaveBeenCalled();
+        expect(onRemove).not.toHaveBeenCalled();
+      });
+
+      it('is disabled while saving or recording', async () => {
+        await show({ notes: [withText], onAddTranscript, busy: true });
+        await fireEvent.press(screen.getByLabelText('More options'));
+        const item = screen.getByLabelText('Add transcript to entry');
+        expect(item.props.accessibilityState).toMatchObject({ disabled: true });
+        await fireEvent.press(item);
+        expect(onAddTranscript).not.toHaveBeenCalled();
+        // Copy stays available.
+        expect(screen.getByLabelText('Copy transcript').props.accessibilityState).toMatchObject({
+          disabled: false,
+        });
+      });
+    });
   });
 });

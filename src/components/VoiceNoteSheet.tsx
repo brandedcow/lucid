@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   BackHandler,
   LayoutChangeEvent,
@@ -14,12 +15,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { stopAllPlayback, useRecordingPlayback } from '../hooks/useRecordingPlayback';
+import { copyText } from '../services/clipboard';
 import { shareRecording, ShareUnavailableError } from '../services/shareRecording';
-import { colors, spacing } from '../theme';
+import {
+  RecordingTranscription,
+  TranscriptionError,
+  TranscriptView,
+  transcriptView,
+  UNSUPPORTED_TRANSCRIPTION,
+} from '../services/transcription';
+import { colors, iconCircle, spacing } from '../theme';
 import { formatClock, formatRecordedAt, timeTicks } from '../utils/voiceNoteTime';
 import { isValidWaveform } from '../utils/waveform';
+import { OverflowMenu } from './OverflowMenu';
 import { SeekBar } from './SeekBar';
-import { ShareIcon, TrashIcon } from './VoiceNoteIcons';
+import { ShareIcon, TrashIcon, TranscriptIcon } from './VoiceNoteIcons';
 
 /** Seconds moved by the back / forward buttons. */
 export const SKIP_SECONDS = 15;
@@ -38,12 +48,29 @@ export type SheetNote = {
   waveform?: number[];
   /** When the note was recorded; absent or null leaves the time out of the subtitle. */
   recordedAt?: Date | null;
+  /** On-device transcript from the session: undefined = none yet, '' = transcribed, nothing heard. */
+  voiceTranscript?: string;
 };
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 const mmss = (seconds: number) => {
   const s = Math.max(0, Math.round(seconds));
   return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+};
+/** How long the "Copied" pill stays up (ms). */
+const COPIED_MS = 1500;
+
+const failureMessage = (error: TranscriptionError) => {
+  switch (error.code) {
+    case 'unsupported':
+      return 'This device cannot transcribe voice notes on-device.';
+    case 'no-model':
+      return 'The offline speech model for transcription is not installed.';
+    case 'permission':
+      return 'Speech recognition permission was not granted.';
+    default:
+      return 'Could not transcribe this voice note.';
+  }
 };
 const speedLabel = (rate: number) => `${rate}x`;
 const subtitleOf = (seconds: number, recordedAt: Date | null | undefined) =>
@@ -60,14 +87,127 @@ type PageProps = {
   onRateChange: (rate: number) => void;
   /** A touch went down on / came off the waveform (the sheet stops paging while it is down). */
   onWaveTouch: (down: boolean) => void;
+  /** What the transcript area shows for this note; `none` hides the toggle. */
+  view: TranscriptView;
+  /** The transcript area is showing instead of the waveform. */
+  transcriptOpen: boolean;
+  onToggleTranscript: () => void;
+  transcription: RecordingTranscription;
+  /** Transcribe is off (a save is in flight or a recording is running). */
+  busy: boolean;
 };
+
+function TranscriptArea({
+  note,
+  view,
+  transcription,
+  busy,
+}: {
+  note: SheetNote;
+  view: TranscriptView;
+  transcription: RecordingTranscription;
+  busy: boolean;
+}) {
+  const action = (label: string, onPress: () => void, disabled = false) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={8}
+      style={[styles.transcriptButton, disabled && styles.off]}
+    >
+      <Text style={styles.transcriptButtonText}>{label}</Text>
+    </Pressable>
+  );
+  const start = () => void transcription.start(note.id, note.uri);
+  let body: ReactNode = null;
+  switch (view.kind) {
+    case 'text':
+      return (
+        <ScrollView
+          testID="voice-note-transcript"
+          accessibilityLabel="Transcript"
+          nestedScrollEnabled
+          style={styles.transcriptArea}
+          contentContainerStyle={styles.transcriptContent}
+        >
+          <Text selectable style={styles.transcriptText}>
+            {note.voiceTranscript}
+          </Text>
+        </ScrollView>
+      );
+    case 'offer':
+      body = (
+        <>
+          <Text style={styles.transcriptNote}>No transcript yet.</Text>
+          {view.busyElsewhere && (
+            <Text style={styles.transcriptNote}>Another voice note is being transcribed.</Text>
+          )}
+          {action('Transcribe', start, busy || view.busyElsewhere)}
+        </>
+      );
+      break;
+    case 'running':
+      body = (
+        <View
+          testID="voice-note-transcribing"
+          accessibilityLiveRegion="polite"
+          style={styles.transcriptStack}
+        >
+          <ActivityIndicator color={colors.muted} />
+          <Text style={styles.transcriptNote}>Transcribing...</Text>
+          {action('Cancel', () => transcription.cancel(note.id))}
+        </View>
+      );
+      break;
+    case 'failed':
+      body = (
+        <>
+          <Text style={styles.transcriptNote}>{failureMessage(view.error)}</Text>
+          {action('Try again', start, busy)}
+        </>
+      );
+      break;
+    case 'empty':
+      body = (
+        <>
+          <Text style={styles.transcriptNote}>No speech was found in this note.</Text>
+          {view.canRetry && action('Try again', start, busy)}
+        </>
+      );
+      break;
+    default:
+      return null;
+  }
+  return (
+    <View
+      testID="voice-note-transcript-state"
+      style={[styles.transcriptArea, styles.transcriptCentered]}
+    >
+      {body}
+    </View>
+  );
+}
 
 /**
  * The live content of one voice note: title, subtitle, waveform with playhead, ticks, clock and
  * the player controls. It owns the note's player, so only the active page of the pager is mounted
  * as this; unmounting it (a swipe, closing the view) pauses the note.
  */
-function VoiceNotePage({ note, playDisabled, rate, onRateChange, onWaveTouch }: PageProps) {
+function VoiceNotePage({
+  note,
+  playDisabled,
+  rate,
+  onRateChange,
+  onWaveTouch,
+  view,
+  transcriptOpen,
+  onToggleTranscript,
+  transcription,
+  busy,
+}: PageProps) {
   const {
     playing,
     total,
@@ -101,6 +241,11 @@ function VoiceNotePage({ note, playDisabled, rate, onRateChange, onWaveTouch }: 
   // Never leave paging locked behind a page that went away mid-touch.
   useEffect(() => () => onWaveTouch(false), [onWaveTouch]);
   const playOff = playDisabled && !playing;
+  const showTranscript = transcriptOpen && view.kind !== 'none';
+  // The waveform goes away under a touch: never leave paging locked behind it.
+  useEffect(() => {
+    if (showTranscript) onWaveTouch(false);
+  }, [showTranscript, onWaveTouch]);
 
   return (
     <>
@@ -113,47 +258,68 @@ function VoiceNotePage({ note, playDisabled, rate, onRateChange, onWaveTouch }: 
         </Text>
       </View>
 
-      <View
-        testID="voice-note-wave-block"
-        style={styles.waveBlock}
-        onTouchStart={() => onWaveTouch(true)}
-        onTouchEnd={() => onWaveTouch(false)}
-        onTouchCancel={() => onWaveTouch(false)}
-      >
-        <SeekBar
-          progress={displayProgress}
-          peaks={bars}
-          waveHeight={WAVE_HEIGHT}
-          onSeek={seekTo}
-          scrub={scrub}
-          onStep={seekBy}
-          disabled={playDisabled}
-          label="Voice note position"
-          valueText={`${mmss(displayPosition)} of ${mmss(total)}`}
-        >
+      {showTranscript ? (
+        <TranscriptArea note={note} view={view} transcription={transcription} busy={busy} />
+      ) : (
+        <>
           <View
-            testID="sheet-playhead"
-            style={[styles.playhead, { left: `${displayProgress * 100}%` }]}
+            testID="voice-note-wave-block"
+            style={styles.waveBlock}
+            onTouchStart={() => onWaveTouch(true)}
+            onTouchEnd={() => onWaveTouch(false)}
+            onTouchCancel={() => onWaveTouch(false)}
           >
-            <View style={[styles.playheadDot, styles.dotTop]} />
-            <View style={styles.playheadLine} />
-            <View style={[styles.playheadDot, styles.dotBottom]} />
-          </View>
-        </SeekBar>
-        <View testID="voice-note-ticks" style={styles.ticks} pointerEvents="none">
-          {ticks.map((t) => (
-            <View key={t.seconds} style={[styles.tick, { left: `${(t.seconds / total) * 100}%` }]}>
-              <Text style={styles.tickText}>{t.label}</Text>
+            <SeekBar
+              progress={displayProgress}
+              peaks={bars}
+              waveHeight={WAVE_HEIGHT}
+              onSeek={seekTo}
+              scrub={scrub}
+              onStep={seekBy}
+              disabled={playDisabled}
+              label="Voice note position"
+              valueText={`${mmss(displayPosition)} of ${mmss(total)}`}
+            >
+              <View
+                testID="sheet-playhead"
+                style={[styles.playhead, { left: `${displayProgress * 100}%` }]}
+              >
+                <View style={[styles.playheadDot, styles.dotTop]} />
+                <View style={styles.playheadLine} />
+                <View style={[styles.playheadDot, styles.dotBottom]} />
+              </View>
+            </SeekBar>
+            <View testID="voice-note-ticks" style={styles.ticks} pointerEvents="none">
+              {ticks.map((t) => (
+                <View
+                  key={t.seconds}
+                  style={[styles.tick, { left: `${(t.seconds / total) * 100}%` }]}
+                >
+                  <Text style={styles.tickText}>{t.label}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-      </View>
+          </View>
 
-      <Text testID="voice-note-clock" style={styles.clock}>
-        {formatClock(displayPosition)}
-      </Text>
+          <Text testID="voice-note-clock" style={styles.clock}>
+            {formatClock(displayPosition)}
+          </Text>
+        </>
+      )}
 
       <View style={styles.controls}>
+        {view.kind !== 'none' && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
+            accessibilityState={{ selected: showTranscript }}
+            onPress={onToggleTranscript}
+            hitSlop={4}
+            style={styles.toggle}
+          >
+            <TranscriptIcon color={colors.text} size={28} filled={showTranscript} />
+          </Pressable>
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Back ${SKIP_SECONDS} seconds`}
@@ -248,6 +414,13 @@ type Props = {
   onClose: () => void;
   /** The trash: the owner marks the note removed (undoable) and closes the view. */
   onRemove: (id: string) => void;
+  /** The recognizer behind the transcript area; the default cannot transcribe, so Transcribe is hidden. */
+  transcription?: RecordingTranscription;
+  /**
+   * "Add transcript to entry": the owner appends the text to the entry body (one undo step) and
+   * closes the view. The sheet never writes text itself. Without it the menu has no such item.
+   */
+  onAddTranscript?: (id: string, text: string) => void;
 };
 
 /**
@@ -263,6 +436,12 @@ type Props = {
  * A touch on the waveform turns paging off until it ends, so a horizontal drag there scrubs. With
  * several notes a "2 of 3" line with previous / next buttons is the non-gesture way to change page.
  *
+ * Transcript: a toggle at the left of the controls row swaps the active page's waveform and clock for
+ * the transcript area (text, or the offer / running / failed / empty states, see `transcriptView`).
+ * It is shown when the note has a transcript or transcription is supported. Text comes from the
+ * note's `voiceTranscript`; the sheet only calls `transcription.start` / `cancel`. A "..." menu
+ * (only when the transcript has text) offers Copy transcript and Add transcript to entry.
+ *
  * It has its own Android back handler, registered while mounted, so back closes it first. Closing
  * or unmounting stops playback. The trash only reports `onRemove` (the owner's undoable close);
  * nothing is deleted here. Share opens the system share sheet for the note's file and never reads,
@@ -276,6 +455,8 @@ export function VoiceNoteSheet({
   playDisabled = false,
   onClose,
   onRemove,
+  transcription = UNSUPPORTED_TRANSCRIPTION,
+  onAddTranscript,
 }: Props) {
   const count = notes.length;
   const many = count > 1;
@@ -285,6 +466,10 @@ export function VoiceNoteSheet({
   const activeIndex = Math.max(0, found);
   const note = notes[activeIndex];
   const [rate, setRate] = useState<number>(1);
+  // One flag for the whole sheet: it stays open while paging to another note.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // `sharing` only dims the button; the guard is the ref (two taps can land before a re-render).
   const [sharing, setSharing] = useState(false);
   const sharingRef = useRef(false);
@@ -293,6 +478,7 @@ export function VoiceNoteSheet({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
     };
   }, []);
 
@@ -442,7 +628,42 @@ export function VoiceNoteSheet({
     }
   };
 
+  const copyTranscript = async () => {
+    const text = note?.voiceTranscript?.trimEnd() ?? '';
+    if (text.trim() === '') return;
+    try {
+      await copyText(text);
+    } catch {
+      Alert.alert('Could not copy', 'Please try again.');
+      return;
+    }
+    if (!mounted.current) return;
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
+
   if (!note || gone) return null;
+  const view = transcriptView(
+    note.voiceTranscript,
+    transcription.stateOf(note.id),
+    transcription.supported,
+    transcription.busyId !== null && transcription.busyId !== note.id,
+  );
+  const hasText = view.kind === 'text';
+  const menuItems = [
+    { key: 'copy', label: 'Copy transcript', onPress: () => void copyTranscript() },
+    ...(onAddTranscript
+      ? [
+          {
+            key: 'add',
+            label: 'Add transcript to entry',
+            disabled: busy,
+            onPress: () => onAddTranscript(note.id, note.voiceTranscript ?? ''),
+          },
+        ]
+      : []),
+  ];
   const actionsOff = busy;
   const first = activeIndex === 0;
   const last = activeIndex === count - 1;
@@ -454,126 +675,149 @@ export function VoiceNoteSheet({
       style={styles.layer}
       edges={['top', 'bottom', 'left', 'right']}
     >
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close voice note"
-          onPress={onClose}
-          hitSlop={8}
-          style={styles.iconButton}
-        >
-          <Text style={styles.back}>←</Text>
-        </Pressable>
-        <View style={styles.pill}>
+      <View style={styles.inner}>
+        <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Share voice note"
-            accessibilityState={{ disabled: actionsOff || sharing }}
-            disabled={actionsOff || sharing}
-            onPress={share}
-            hitSlop={4}
-            style={[styles.pillButton, (actionsOff || sharing) && styles.off]}
-          >
-            <ShareIcon color={colors.text} size={22} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Remove ${noun}`}
-            accessibilityState={{ disabled: actionsOff }}
-            disabled={actionsOff}
-            onPress={() => onRemove(note.id)}
-            hitSlop={4}
-            style={[styles.pillButton, actionsOff && styles.off]}
-          >
-            <TrashIcon color={colors.text} size={22} />
-          </Pressable>
-        </View>
-      </View>
-
-      <ScrollView
-        ref={pager}
-        testID="voice-note-pager"
-        horizontal
-        pagingEnabled
-        scrollEnabled={many && !locked}
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentOffset={startOffset}
-        scrollEventThrottle={16}
-        onScroll={onScroll}
-        onContentSizeChange={onContentSizeChange}
-        onLayout={onPagerLayout}
-        onMomentumScrollEnd={onSettle}
-        onScrollEndDrag={onDragEnd}
-        style={styles.pager}
-      >
-        {notes.map((n, i) => (
-          <View key={n.id} testID="voice-note-sheet-page" style={{ width }}>
-            {i === activeIndex ? (
-              <VoiceNotePage
-                note={n}
-                playDisabled={playDisabled}
-                rate={rate}
-                onRateChange={setRate}
-                onWaveTouch={onWaveTouch}
-              />
-            ) : (
-              <VoiceNotePlaceholder note={n} />
-            )}
-          </View>
-        ))}
-      </ScrollView>
-
-      {many && (
-        <View testID="voice-note-pager-bar" style={styles.pagerBar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Previous voice note"
-            accessibilityState={{ disabled: first }}
-            disabled={first}
-            onPress={() => goTo(targetRef.current - 1, true)}
+            accessibilityLabel="Close voice note"
+            onPress={onClose}
             hitSlop={8}
-            style={[styles.chevron, first && styles.off]}
+            style={styles.iconButton}
           >
-            <Text style={styles.chevronText}>‹</Text>
+            <Text style={styles.back}>←</Text>
           </Pressable>
-          <View style={styles.pagerMiddle}>
-            <Text
-              testID="voice-note-position"
-              accessibilityLiveRegion="polite"
-              accessibilityLabel={`Voice note ${activeIndex + 1} of ${count}`}
-              style={styles.position}
+          <View testID="voice-note-actions" style={[styles.pill, hasText && styles.pillShifted]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Share voice note"
+              accessibilityState={{ disabled: actionsOff || sharing }}
+              disabled={actionsOff || sharing}
+              onPress={share}
+              hitSlop={4}
+              style={[styles.pillButton, (actionsOff || sharing) && styles.off]}
             >
-              {activeIndex + 1} of {count}
-            </Text>
-            <View
-              testID="voice-note-sheet-dots"
-              style={styles.dots}
-              importantForAccessibility="no"
-              accessibilityElementsHidden
+              <ShareIcon color={colors.text} size={22} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${noun}`}
+              accessibilityState={{ disabled: actionsOff }}
+              disabled={actionsOff}
+              onPress={() => onRemove(note.id)}
+              hitSlop={4}
+              style={[styles.pillButton, actionsOff && styles.off]}
             >
-              {notes.map((n, i) => (
-                <View
-                  key={n.id}
-                  testID="voice-note-sheet-dot"
-                  style={[styles.dot, i === activeIndex && styles.dotOn]}
+              <TrashIcon color={colors.text} size={22} />
+            </Pressable>
+          </View>
+        </View>
+
+        <ScrollView
+          ref={pager}
+          testID="voice-note-pager"
+          horizontal
+          pagingEnabled
+          scrollEnabled={many && !locked}
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentOffset={startOffset}
+          scrollEventThrottle={16}
+          onScroll={onScroll}
+          onContentSizeChange={onContentSizeChange}
+          onLayout={onPagerLayout}
+          onMomentumScrollEnd={onSettle}
+          onScrollEndDrag={onDragEnd}
+          style={styles.pager}
+        >
+          {notes.map((n, i) => (
+            <View key={n.id} testID="voice-note-sheet-page" style={{ width }}>
+              {i === activeIndex ? (
+                <VoiceNotePage
+                  note={n}
+                  playDisabled={playDisabled}
+                  rate={rate}
+                  onRateChange={setRate}
+                  onWaveTouch={onWaveTouch}
+                  view={view}
+                  transcriptOpen={transcriptOpen}
+                  onToggleTranscript={() => setTranscriptOpen((o) => !o)}
+                  transcription={transcription}
+                  busy={busy}
                 />
-              ))}
+              ) : (
+                <VoiceNotePlaceholder note={n} />
+              )}
+            </View>
+          ))}
+        </ScrollView>
+
+        {many && (
+          <View testID="voice-note-pager-bar" style={styles.pagerBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Previous voice note"
+              accessibilityState={{ disabled: first }}
+              disabled={first}
+              onPress={() => goTo(targetRef.current - 1, true)}
+              hitSlop={8}
+              style={[styles.chevron, first && styles.off]}
+            >
+              <Text style={styles.chevronText}>‹</Text>
+            </Pressable>
+            <View style={styles.pagerMiddle}>
+              <Text
+                testID="voice-note-position"
+                accessibilityLiveRegion="polite"
+                accessibilityLabel={`Voice note ${activeIndex + 1} of ${count}`}
+                style={styles.position}
+              >
+                {activeIndex + 1} of {count}
+              </Text>
+              <View
+                testID="voice-note-sheet-dots"
+                style={styles.dots}
+                importantForAccessibility="no"
+                accessibilityElementsHidden
+              >
+                {notes.map((n, i) => (
+                  <View
+                    key={n.id}
+                    testID="voice-note-sheet-dot"
+                    style={[styles.dot, i === activeIndex && styles.dotOn]}
+                  />
+                ))}
+              </View>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Next voice note"
+              accessibilityState={{ disabled: last }}
+              disabled={last}
+              onPress={() => goTo(targetRef.current + 1, true)}
+              hitSlop={8}
+              style={[styles.chevron, last && styles.off]}
+            >
+              <Text style={styles.chevronText}>›</Text>
+            </Pressable>
+          </View>
+        )}
+        {copied && (
+          <View pointerEvents="none" style={styles.copiedLayer}>
+            <View style={styles.copiedPill}>
+              <Text accessibilityLiveRegion="polite" style={styles.copiedText}>
+                Copied
+              </Text>
             </View>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Next voice note"
-            accessibilityState={{ disabled: last }}
-            disabled={last}
-            onPress={() => goTo(targetRef.current + 1, true)}
-            hitSlop={8}
-            style={[styles.chevron, last && styles.off]}
-          >
-            <Text style={styles.chevronText}>›</Text>
-          </Pressable>
-        </View>
-      )}
+        )}
+        {hasText && (
+          <OverflowMenu
+            items={menuItems}
+            top={spacing.sm + (44 - iconCircle) / 2}
+            right={spacing.lg}
+          />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -597,7 +841,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   pillButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  pillShifted: { marginRight: iconCircle + spacing.xs },
+  inner: { flex: 1 },
   off: { opacity: 0.4 },
+  copiedLayer: {
+    ...StyleSheet.absoluteFill,
+    top: spacing.sm + 44 + spacing.xs,
+    alignItems: 'center',
+  },
+  copiedPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  copiedText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   pager: { flex: 1 },
   pagerBar: {
     flexDirection: 'row',
@@ -643,6 +903,23 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     marginTop: spacing.xl,
   },
+  toggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  transcriptArea: { flex: 1, minHeight: 160, marginTop: spacing.lg },
+  transcriptContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  transcriptText: { color: colors.text, fontSize: 17, lineHeight: 26 },
+  transcriptCentered: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
+  transcriptStack: { alignItems: 'center', gap: spacing.md },
+  transcriptNote: { color: colors.muted, fontSize: 15, textAlign: 'center' },
+  transcriptButton: {
+    minHeight: 44,
+    minWidth: 120,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  transcriptButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   skip: { minWidth: 56, height: 48, alignItems: 'center', justifyContent: 'center' },
   skipText: { color: colors.text, fontSize: 18 },
   play: {
