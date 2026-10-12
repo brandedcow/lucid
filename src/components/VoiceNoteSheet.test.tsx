@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, BackHandler } from 'react-native';
+import { Alert, BackHandler, ScrollView } from 'react-native';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { shareRecording, ShareUnavailableError } from '../services/shareRecording';
 import { SheetNote, VoiceNoteSheet } from './VoiceNoteSheet';
@@ -28,23 +28,29 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(),
 }));
 
+const NOW = new Date();
 const note: SheetNote = {
   id: 'n1',
   uri: 'file:///cache/r1.m4a',
   durationMs: 12_000,
   waveform: [0.2, 0.6, 0.9, 0.4],
+  recordedAt: NOW,
 };
-const NOW = new Date();
+const three: SheetNote[] = [1, 2, 3].map((n) => ({
+  id: `n${n}`,
+  uri: `file:///cache/r${n}.m4a`,
+  durationMs: n * 10_000,
+  waveform: [0.5, 0.7],
+  recordedAt: NOW,
+}));
 const onClose = jest.fn();
 const onRemove = jest.fn();
 
 const renderSheet = async (props: Partial<Parameters<typeof VoiceNoteSheet>[0]> = {}) =>
   render(
     <VoiceNoteSheet
-      note={note}
-      index={1}
-      count={1}
-      recordedAt={NOW}
+      notes={[note]}
+      initialIndex={0}
       onClose={onClose}
       onRemove={onRemove}
       {...props}
@@ -81,7 +87,7 @@ describe('header and info', () => {
   });
 
   it('leaves the time out when none is known', async () => {
-    await renderSheet({ recordedAt: null });
+    await renderSheet({ notes: [{ ...note, recordedAt: null }] });
     expect(screen.getByTestId('voice-note-subtitle').props.children).toBe('00:12');
   });
 
@@ -107,7 +113,7 @@ describe('header and info', () => {
     expect(screen.getAllByTestId('wave-bar')).toHaveLength(4);
     expect(screen.getByTestId('sheet-playhead')).toBeTruthy();
     await view.unmount();
-    await renderSheet({ note: { ...note, waveform: undefined } });
+    await renderSheet({ notes: [{ ...note, waveform: undefined }] });
     expect(screen.queryAllByTestId('wave-bar')).toHaveLength(0);
     expect(screen.getByTestId('progress-fill')).toBeTruthy();
     expect(screen.getByTestId('sheet-playhead')).toBeTruthy();
@@ -144,7 +150,7 @@ describe('clock and playback', () => {
 
   it('skips 15 s back and forward, clamped to the recording', async () => {
     mockStatus = { playing: false, currentTime: 20, duration: 40 };
-    const view = await renderSheet({ note: { ...note, durationMs: 40_000 } });
+    const view = await renderSheet({ notes: [{ ...note, durationMs: 40_000 }] });
     await fireEvent.press(screen.getByLabelText('Forward 15 seconds'));
     expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(35);
     await fireEvent.press(screen.getByLabelText('Back 15 seconds'));
@@ -152,10 +158,8 @@ describe('clock and playback', () => {
     mockStatus = { playing: false, currentTime: 5, duration: 40 };
     await view.rerender(
       <VoiceNoteSheet
-        note={{ ...note, durationMs: 40_000 }}
-        index={1}
-        count={1}
-        recordedAt={NOW}
+        notes={[{ ...note, durationMs: 40_000 }]}
+        initialIndex={0}
         onClose={onClose}
         onRemove={onRemove}
       />,
@@ -302,9 +306,9 @@ describe('back, close and stop', () => {
 
 describe('trash', () => {
   it('reports the note id, with the card wording for the label', async () => {
-    await renderSheet({ index: 2, count: 3 });
+    await renderSheet({ notes: three, initialIndex: 1 });
     await fireEvent.press(screen.getByLabelText('Remove voice note 2 of 3'));
-    expect(onRemove).toHaveBeenCalledWith('n1');
+    expect(onRemove).toHaveBeenCalledWith('n2');
   });
 
   it('uses "Remove recording" for a single note', async () => {
@@ -406,5 +410,331 @@ describe('share', () => {
     expect(shareRecording).toHaveBeenCalledTimes(1);
     resolve();
     await first;
+  });
+});
+
+describe('the pager', () => {
+  const pager = () => screen.getByTestId('voice-note-pager');
+  const WIDTH = 300;
+  const layout = () =>
+    fireEvent(pager(), 'layout', { nativeEvent: { layout: { width: WIDTH, height: 600 } } });
+  const swipeTo = async (page: number) => {
+    await fireEvent(pager(), 'momentumScrollEnd', {
+      nativeEvent: { contentOffset: { x: page * WIDTH, y: 0 } },
+    });
+  };
+  const titleIs = () => screen.getByTestId('voice-note-subtitle').props.children as string;
+  const render3 = async (props: Partial<Parameters<typeof VoiceNoteSheet>[0]> = {}) => {
+    const view = await renderSheet({ notes: three, ...props });
+    await layout();
+    return view;
+  };
+
+  it('opens on the tapped note, with a player on that page only', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 20 };
+    await render3({ initialIndex: 1 });
+    expect(titleIs()).toMatch(/^00:20 · /);
+    expect(screen.getByText('2 of 3')).toBeTruthy();
+    expect(screen.getAllByTestId('voice-note-sheet-page')).toHaveLength(3);
+    // The neighbours are static: no seek bar, no controls of their own.
+    expect(screen.getAllByTestId('seek-bar')).toHaveLength(1);
+    expect(
+      screen.getAllByTestId('voice-note-placeholder', { includeHiddenElements: true }),
+    ).toHaveLength(2);
+    expect(screen.getAllByTestId('placeholder-bar', { includeHiddenElements: true })).toHaveLength(
+      4,
+    );
+    // Every player ever created is the active page's.
+    expect(mockUseAudioPlayer.mock.calls.every((c) => c[0] === three[1].uri)).toBe(true);
+  });
+
+  it('ending a swipe makes that page active, reports it, and pauses the previous player', async () => {
+    const onIndexChange = jest.fn();
+    mockStatus = { playing: true, currentTime: 2, duration: 10 };
+    await render3({ onIndexChange });
+    mockPlayer.pause.mockClear();
+    mockStatus = { playing: false, currentTime: 0, duration: 20 };
+    await swipeTo(1);
+    expect(mockPlayer.pause).toHaveBeenCalled();
+    expect(onIndexChange).toHaveBeenCalledWith(1, 'n2');
+    expect(titleIs()).toMatch(/^00:20 · /);
+    expect(screen.getByLabelText('Remove voice note 2 of 3')).toBeTruthy();
+    expect(screen.getByLabelText('Play audio recording')).toBeTruthy();
+    expect(screen.getAllByTestId('seek-bar')).toHaveLength(1);
+    expect(mockUseAudioPlayer.mock.calls.at(-1)?.[0]).toBe(three[1].uri);
+  });
+
+  it('a settle on the same page or past the ends does nothing wrong', async () => {
+    const onIndexChange = jest.fn();
+    await render3({ onIndexChange });
+    await swipeTo(0);
+    expect(onIndexChange).not.toHaveBeenCalled();
+    await swipeTo(9);
+    expect(onIndexChange).toHaveBeenCalledWith(2, 'n3');
+  });
+
+  it('the speed carries over to the next note and is applied to its player', async () => {
+    await render3();
+    await fireEvent.press(screen.getByLabelText('Playback speed 1x'));
+    expect(screen.getByLabelText('Playback speed 1.5x')).toBeTruthy();
+    mockPlayer.setPlaybackRate.mockClear();
+    await swipeTo(1);
+    expect(screen.getByLabelText('Playback speed 1.5x')).toBeTruthy();
+    expect(mockPlayer.setPlaybackRate).toHaveBeenCalledWith(1.5, 'high');
+  });
+
+  it('the next / previous buttons change page and are disabled at the ends', async () => {
+    const onIndexChange = jest.fn();
+    await render3({ onIndexChange });
+    expect(screen.getByLabelText('Previous voice note').props.accessibilityState.disabled).toBe(
+      true,
+    );
+    await fireEvent.press(screen.getByLabelText('Next voice note'));
+    expect(onIndexChange).toHaveBeenLastCalledWith(1, 'n2');
+    expect(screen.getByText('2 of 3')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Next voice note'));
+    expect(screen.getByLabelText('Next voice note').props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Previous voice note'));
+    expect(onIndexChange).toHaveBeenLastCalledWith(1, 'n2');
+  });
+
+  it('announces the position in a polite live region; the dots are decorative', async () => {
+    await render3();
+    const pos = screen.getByTestId('voice-note-position');
+    expect(pos.props.accessibilityLiveRegion).toBe('polite');
+    expect(pos.props.accessibilityLabel).toBe('Voice note 1 of 3');
+    await swipeTo(2);
+    expect(screen.getByTestId('voice-note-position').props.accessibilityLabel).toBe(
+      'Voice note 3 of 3',
+    );
+    const dots = screen.getByTestId('voice-note-sheet-dots', { includeHiddenElements: true });
+    expect(dots.props.importantForAccessibility).toBe('no');
+  });
+
+  it('a touch on the waveform turns paging off and releasing (or cancelling) turns it on', async () => {
+    await render3();
+    expect(pager().props.scrollEnabled).toBe(true);
+    const wave = screen.getByTestId('voice-note-wave-block');
+    await fireEvent(wave, 'touchStart');
+    expect(pager().props.scrollEnabled).toBe(false);
+    await fireEvent(wave, 'touchEnd');
+    expect(pager().props.scrollEnabled).toBe(true);
+    await fireEvent(wave, 'touchStart');
+    expect(pager().props.scrollEnabled).toBe(false);
+    await fireEvent(wave, 'touchCancel');
+    expect(pager().props.scrollEnabled).toBe(true);
+  });
+
+  it('a note list change keeps the active note by id (a note before it is removed)', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 20 };
+    const view = await render3({ initialIndex: 1 });
+    await view.rerender(
+      <VoiceNoteSheet
+        notes={three.slice(1)}
+        initialIndex={1}
+        onClose={onClose}
+        onRemove={onRemove}
+      />,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(titleIs()).toMatch(/^00:20 · /);
+    expect(screen.getByText('1 of 2')).toBeTruthy();
+  });
+
+  it('closes when the active note disappears', async () => {
+    const view = await render3({ initialIndex: 1 });
+    await view.rerender(
+      <VoiceNoteSheet
+        notes={[three[0], three[2]]}
+        initialIndex={1}
+        onClose={onClose}
+        onRemove={onRemove}
+      />,
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('one note: no pager bar, no dots, paging is off', async () => {
+    await renderSheet();
+    expect(screen.queryByTestId('voice-note-pager-bar')).toBeNull();
+    expect(screen.queryByLabelText('Next voice note')).toBeNull();
+    expect(screen.queryByLabelText('Previous voice note')).toBeNull();
+    expect(
+      screen.queryByTestId('voice-note-sheet-dots', { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(screen.getByTestId('voice-note-pager').props.scrollEnabled).toBe(false);
+  });
+});
+
+describe('the pager: rest and settle', () => {
+  const WIDTH = 300;
+  const pager = () => screen.getByTestId('voice-note-pager');
+  const ev = (x: number) => ({ nativeEvent: { contentOffset: { x, y: 0 } } });
+  let scrollTo: jest.SpyInstance;
+  const calls = () => scrollTo.mock.calls.map((c) => c[0]);
+  const layout = (w = WIDTH) =>
+    fireEvent(pager(), 'layout', { nativeEvent: { layout: { width: w, height: 600 } } });
+  const mount = async (props: Partial<Parameters<typeof VoiceNoteSheet>[0]> = {}) => {
+    const view = await renderSheet({ notes: three, ...props });
+    await layout();
+    return view;
+  };
+
+  beforeEach(() => {
+    scrollTo = jest.spyOn(ScrollView.prototype as never, 'scrollTo');
+  });
+
+  it('passes the start offset on the first render', async () => {
+    await renderSheet({ notes: three, initialIndex: 2 });
+    const width = jest.requireActual('react-native').Dimensions.get('window').width as number;
+    expect(pager().props.contentOffset).toEqual({ x: 2 * width, y: 0 });
+  });
+
+  it('re-rests until a scroll event confirms the offset, then stops', async () => {
+    await mount({ initialIndex: 2 });
+    const first = scrollTo.mock.calls.length;
+    expect(first).toBeGreaterThan(0);
+    expect(calls().at(-1)).toMatchObject({ x: 2 * WIDTH, animated: false });
+    // Same width again (the usual case on a device): rests again, nothing confirmed yet.
+    await layout();
+    expect(scrollTo.mock.calls.length).toBe(first + 1);
+    await fireEvent(pager(), 'contentSizeChange', 3 * WIDTH, 600);
+    expect(scrollTo.mock.calls.length).toBe(first + 2);
+    // Content not yet wide enough: no call.
+    await fireEvent(pager(), 'contentSizeChange', WIDTH, 600);
+    expect(scrollTo.mock.calls.length).toBe(first + 2);
+    await fireEvent(pager(), 'scroll', ev(2 * WIDTH - 0.5));
+    await layout();
+    await fireEvent(pager(), 'contentSizeChange', 3 * WIDTH, 600);
+    expect(scrollTo.mock.calls.length).toBe(first + 2);
+  });
+
+  it('retries once after 100 ms when unconfirmed, and not after a confirmation or unmount', async () => {
+    jest.useFakeTimers();
+    try {
+      const view = await mount({ initialIndex: 2 });
+      const n = scrollTo.mock.calls.length;
+      await act(async () => void jest.advanceTimersByTime(100));
+      expect(scrollTo.mock.calls.length).toBe(n + 1);
+      await act(async () => void jest.advanceTimersByTime(1000));
+      expect(scrollTo.mock.calls.length).toBe(n + 1);
+      await view.unmount();
+      scrollTo.mockClear();
+      await act(async () => void jest.advanceTimersByTime(1000));
+      expect(scrollTo).not.toHaveBeenCalled();
+      // Confirmed before the timer: no retry.
+      await renderSheet({ notes: three, initialIndex: 1 });
+      await layout();
+      await fireEvent(pager(), 'scroll', ev(WIDTH));
+      scrollTo.mockClear();
+      await act(async () => void jest.advanceTimersByTime(200));
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rests again when a note before the active one is removed or restored', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 20 };
+    const view = await mount({ initialIndex: 1 });
+    await fireEvent(pager(), 'scroll', ev(WIDTH));
+    scrollTo.mockClear();
+    const re = (list: SheetNote[]) =>
+      view.rerender(
+        <VoiceNoteSheet notes={list} initialIndex={1} onClose={onClose} onRemove={onRemove} />,
+      );
+    await re(three.slice(1));
+    expect(calls().at(-1)).toMatchObject({ x: 0, animated: false });
+    await fireEvent(pager(), 'scroll', ev(0));
+    await re(three);
+    expect(calls().at(-1)).toMatchObject({ x: WIDTH, animated: false });
+  });
+
+  it('two quick Next presses move two pages and report each', async () => {
+    const onIndexChange = jest.fn();
+    await mount({ onIndexChange });
+    const next = screen.getByLabelText('Next voice note');
+    await act(async () => {
+      next.props.onClick({});
+      next.props.onClick({});
+    });
+    expect(onIndexChange.mock.calls).toEqual([
+      [1, 'n2'],
+      [2, 'n3'],
+    ]);
+    expect(screen.getByText('3 of 3')).toBeTruthy();
+    // A third press at the end changes nothing, and Previous goes back one.
+    await fireEvent.press(screen.getByLabelText('Previous voice note'));
+    expect(screen.getByText('2 of 3')).toBeTruthy();
+  });
+
+  it('ignores an intermediate settle while an animated scroll is in flight', async () => {
+    const onIndexChange = jest.fn();
+    await mount({ onIndexChange });
+    await fireEvent.press(screen.getByLabelText('Next voice note'));
+    await fireEvent.press(screen.getByLabelText('Next voice note'));
+    onIndexChange.mockClear();
+    await fireEvent(pager(), 'momentumScrollEnd', ev(WIDTH));
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expect(screen.getByText('3 of 3')).toBeTruthy();
+    // The event at the target page ends the flight; a user swipe then settles normally.
+    await fireEvent(pager(), 'momentumScrollEnd', ev(2 * WIDTH));
+    await fireEvent(pager(), 'momentumScrollEnd', ev(0));
+    expect(onIndexChange).toHaveBeenCalledWith(0, 'n1');
+    expect(screen.getByText('1 of 3')).toBeTruthy();
+  });
+
+  it('a stuck in-flight flag clears after 500 ms', async () => {
+    jest.useFakeTimers();
+    try {
+      const onIndexChange = jest.fn();
+      await mount({ onIndexChange });
+      await fireEvent.press(screen.getByLabelText('Next voice note'));
+      onIndexChange.mockClear();
+      await fireEvent(pager(), 'momentumScrollEnd', ev(0));
+      expect(onIndexChange).not.toHaveBeenCalled();
+      await act(async () => void jest.advanceTimersByTime(500));
+      await fireEvent(pager(), 'momentumScrollEnd', ev(0));
+      expect(onIndexChange).toHaveBeenCalledWith(0, 'n1');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a drag end on a page boundary settles; between pages it does nothing; twice is a no-op', async () => {
+    const onIndexChange = jest.fn();
+    await mount({ onIndexChange });
+    await fireEvent(pager(), 'scrollEndDrag', ev(WIDTH * 0.4));
+    expect(onIndexChange).not.toHaveBeenCalled();
+    await fireEvent(pager(), 'scrollEndDrag', ev(WIDTH + 0.5));
+    expect(onIndexChange).toHaveBeenCalledTimes(1);
+    expect(onIndexChange).toHaveBeenCalledWith(1, 'n2');
+    await fireEvent(pager(), 'momentumScrollEnd', ev(WIDTH));
+    expect(onIndexChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('the speed goes back to 1x when the view is opened again', async () => {
+    const view = await mount();
+    await fireEvent.press(screen.getByLabelText('Playback speed 1x'));
+    expect(screen.getByLabelText('Playback speed 1.5x')).toBeTruthy();
+    await view.unmount();
+    await renderSheet({ notes: three });
+    expect(screen.getByLabelText('Playback speed 1x')).toBeTruthy();
+  });
+
+  it('a note added while open joins the pager and the active note stays', async () => {
+    const view = await mount({ initialIndex: 1 });
+    const extra: SheetNote = { id: 'n4', uri: 'file:///cache/r4.m4a', durationMs: 4000 };
+    await view.rerender(
+      <VoiceNoteSheet
+        notes={[...three, extra]}
+        initialIndex={1}
+        onClose={onClose}
+        onRemove={onRemove}
+      />,
+    );
+    expect(screen.getByText('2 of 4')).toBeTruthy();
+    expect(screen.getAllByTestId('voice-note-sheet-page')).toHaveLength(4);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

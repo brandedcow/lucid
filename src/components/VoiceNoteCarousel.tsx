@@ -30,6 +30,11 @@ type Props = {
   onRemove?: (id: string) => void;
   /** A card was tapped (by note id). */
   onOpen?: (id: string) => void;
+  /**
+   * A note to bring into view (by id). The cards scroll to it whenever this changes (e.g. the
+   * expanded view moved to that note); an id that is not in the list is ignored.
+   */
+  focusId?: string | null;
 };
 
 /** The page the scroll offset rests on (never outside 0..count-1). */
@@ -42,9 +47,15 @@ export function pageAt(offsetX: number, interval: number, count: number): number
  * The entry's voice notes as a horizontal paging row: one card per note, the next card peeking at
  * the right edge, page dots below. One note is full width with no peek and no dots. It lives inside
  * the page's vertical ScrollView. Removing a card keeps the row on the nearest page; a note that
- * comes back (undo) or is added is scrolled to. Dots are decorative.
+ * comes back (undo) or is added is scrolled to, and so is the note the owner focuses (`focusId`). Dots are decorative.
  */
-export function VoiceNoteCarousel({ notes, playDisabled = false, onRemove, onOpen }: Props) {
+export function VoiceNoteCarousel({
+  notes,
+  playDisabled = false,
+  onRemove,
+  onOpen,
+  focusId = null,
+}: Props) {
   const count = notes.length;
   const many = count > 1;
   const [width, setWidth] = useState(0);
@@ -69,6 +80,20 @@ export function VoiceNoteCarousel({ notes, playDisabled = false, onRemove, onOpe
     scroller.current?.scrollTo({ x: target * interval, animated: added >= 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes]);
+
+  // The owner moved focus to a note: show that page, and scroll the cards to it.
+  const [seenFocus, setSeenFocus] = useState(focusId);
+  if (focusId !== seenFocus) {
+    setSeenFocus(focusId);
+    const at = focusId === null ? -1 : notes.findIndex((n) => n.id === focusId);
+    if (at >= 0) setPage(at);
+  }
+  useEffect(() => {
+    const at = focusId === null ? -1 : notes.findIndex((n) => n.id === focusId);
+    if (at >= 0) scroller.current?.scrollTo({ x: at * interval, animated: false });
+    // Runs on a change of focus only; a list change is handled above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;

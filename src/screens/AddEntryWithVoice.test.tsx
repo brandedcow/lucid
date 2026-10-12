@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Alert, AlertButton, BackHandler, Keyboard, TextInput } from 'react-native';
+import { Alert, AlertButton, BackHandler, Keyboard, StyleSheet, TextInput } from 'react-native';
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
 import { shareRecording } from '../services/shareRecording';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
+import { colors } from '../theme';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { AddEntryWithVoice } from './AddEntryWithVoice';
@@ -1138,6 +1139,115 @@ describe('several recordings on the page', () => {
     await press('Undo');
     expect(sessionApi?.session?.recordings[0].removed).toBe(false);
     expect(bodyText(body())).toBe('words');
+  });
+  describe('the expanded view over several notes', () => {
+    const HIDDEN = { includeHiddenElements: true };
+    const swipeSheet = async (page: number) => {
+      const w = 300;
+      await fireEvent(screen.getByTestId('voice-note-pager'), 'layout', {
+        nativeEvent: { layout: { width: w, height: 600 } },
+      });
+      await fireEvent(screen.getByTestId('voice-note-pager'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: page * w, y: 0 } },
+      });
+      await act(async () => {});
+    };
+    const cardDots = () =>
+      screen
+        .getAllByTestId('voice-note-dot', HIDDEN)
+        .map((d) => StyleSheet.flatten(d.props.style).backgroundColor === colors.accent);
+    const setUp = async () => {
+      await renderPage();
+      await recordNext(CACHE, 1000);
+      await recordNext(CACHE2, 2000);
+      await recordNext(CACHE3, 3000);
+    };
+    const sheet = () => screen.queryByTestId('voice-note-sheet');
+    const ids = () => sessionApi?.session?.recordings.map((r) => r.id) ?? [];
+
+    it('opens on the tapped card, a pager over all notes with one live player', async () => {
+      await setUp();
+      await press('Open voice note 2 of 3');
+      expect(screen.getByText('2 of 3')).toBeTruthy();
+      expect(screen.getByLabelText('Remove voice note 2 of 3')).toBeTruthy();
+      expect(screen.getAllByTestId('voice-note-sheet-page')).toHaveLength(3);
+      expect(screen.getAllByTestId('seek-bar')).toHaveLength(1);
+      expect(screen.getByTestId('voice-note-subtitle').props.children).toMatch(/^00:02 · /);
+    });
+
+    it('swiping moves the cards by id, and they stay on the last note after closing', async () => {
+      await setUp();
+      await press('Open voice note 1 of 3');
+      expect(cardDots()).toEqual([true, false, false]);
+      await swipeSheet(2);
+      expect(screen.getByLabelText('Remove voice note 3 of 3')).toBeTruthy();
+      expect(cardDots()).toEqual([false, false, true]);
+      await press('Close voice note');
+      expect(sheet()).toBeNull();
+      expect(cardDots()).toEqual([false, false, true]);
+    });
+
+    it('the next button changes page and moves the cards too', async () => {
+      await setUp();
+      await press('Open voice note 1 of 3');
+      await press('Next voice note');
+      expect(screen.getByText('2 of 3')).toBeTruthy();
+      expect(cardDots()).toEqual([false, true, false]);
+    });
+
+    it('trash on a swiped-to note removes that note (by id), closes, and undo restores it', async () => {
+      await setUp();
+      const [, second] = ids();
+      await press('Open voice note 1 of 3');
+      await press('Next voice note');
+      await press('Remove voice note 2 of 3');
+      expect(sheet()).toBeNull();
+      expect(sessionApi?.session?.recordings.map((r) => [r.id, r.removed])).toEqual([
+        [ids()[0], false],
+        [second, true],
+        [ids()[2], false],
+      ]);
+      expect(discardRecording).not.toHaveBeenCalled();
+      await press('Undo');
+      expect(sessionApi?.session?.recordings.every((r) => !r.removed)).toBe(true);
+      expect(sheet()).toBeNull();
+    });
+
+    it('another note being removed keeps the view on the same note; the active one closes it', async () => {
+      await setUp();
+      const [first, second, third] = ids();
+      await press('Open voice note 2 of 3');
+      await act(async () => sessionApi?.removeRecording(first));
+      expect(sheet()).toBeTruthy();
+      expect(screen.getByText('1 of 2')).toBeTruthy();
+      expect(screen.getByLabelText('Remove voice note 1 of 2')).toBeTruthy();
+      await act(async () => sessionApi?.restoreRecording(first));
+      expect(screen.getByText('2 of 3')).toBeTruthy();
+      await act(async () => sessionApi?.removeRecording(third));
+      expect(screen.getByText('2 of 2')).toBeTruthy();
+      await act(async () => sessionApi?.removeRecording(second));
+      expect(sheet()).toBeNull();
+    });
+
+    it('a note attached while the view is open joins the pager and the active note stays', async () => {
+      await setUp();
+      await press('Open voice note 2 of 3');
+      await act(
+        async () =>
+          void sessionApi?.attachRecording({ uri: 'file:///cache/r4.m4a', durationMs: 4000 }),
+      );
+      expect(sheet()).toBeTruthy();
+      expect(screen.getByText('2 of 4')).toBeTruthy();
+      expect(screen.getByLabelText('Remove voice note 2 of 4')).toBeTruthy();
+    });
+
+    it('a single note shows no pager controls', async () => {
+      await renderPage();
+      await recordNext(CACHE, 1000);
+      await press('Open recording');
+      expect(screen.queryByTestId('voice-note-pager-bar')).toBeNull();
+      expect(screen.queryByLabelText('Next voice note')).toBeNull();
+    });
   });
 });
 

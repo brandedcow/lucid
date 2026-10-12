@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { colors } from '../theme';
 import {
   CAROUSEL_GAP,
@@ -140,5 +140,30 @@ describe('VoiceNoteCarousel', () => {
     mockPlayer.pause.mockClear();
     await view.rerender(<VoiceNoteCarousel notes={notes(2)} />);
     expect(mockPlayer.pause).not.toHaveBeenCalled();
+  });
+
+  it('scrolls to the focused note when the focus changes, and ignores an unknown id', async () => {
+    const view = await render(<VoiceNoteCarousel notes={notes(3)} focusId="r1" />);
+    await layout();
+    expect(dotsOn()).toEqual([true, false, false]);
+    await view.rerender(<VoiceNoteCarousel notes={notes(3)} focusId="r3" />);
+    expect(dotsOn()).toEqual([false, false, true]);
+    await view.rerender(<VoiceNoteCarousel notes={notes(3)} focusId="nope" />);
+    expect(dotsOn()).toEqual([false, false, true]);
+    await view.rerender(<VoiceNoteCarousel notes={notes(3)} focusId="r2" />);
+    expect(dotsOn()).toEqual([false, true, false]);
+  });
+
+  it('scrolls the row to the focused card, without animation', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype as never, 'scrollTo');
+    const view = await render(<VoiceNoteCarousel notes={notes(3)} focusId="r1" />);
+    await layout();
+    scrollTo.mockClear();
+    await view.rerender(<VoiceNoteCarousel notes={notes(3)} focusId="r3" />);
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      x: 2 * (WIDTH - CAROUSEL_PEEK + CAROUSEL_GAP),
+      animated: false,
+    });
+    scrollTo.mockRestore();
   });
 });
