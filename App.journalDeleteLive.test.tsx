@@ -200,6 +200,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('App journal delete live guards', () => {
   it('refuses to ask while a session is open for that journal', async () => {
     mockEntrySession = {
+      emotion: '',
       journalId: 'j_g1',
       origin: 'new',
       title: '',
@@ -220,6 +221,7 @@ describe('App journal delete live guards', () => {
     await ask('j_g1');
     expect(Alert.alert).toHaveBeenCalledTimes(1);
     mockEntrySession = {
+      emotion: '',
       journalId: 'j_g1',
       origin: 'new',
       title: '',
@@ -244,6 +246,7 @@ describe('App journal delete live guards', () => {
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await press('journals-back');
     mockEntrySession = {
+      emotion: '',
       journalId: 'dreams',
       origin: 'draft',
       title: 'x',
@@ -277,6 +280,7 @@ describe('App journal delete live guards', () => {
     const buttons = lastButtons();
     await press('journals-back');
     mockEntrySession = {
+      emotion: '',
       journalId: 'dreams',
       origin: 'draft',
       title: 'x',
@@ -331,6 +335,7 @@ describe('App journal delete live guards', () => {
       // out of sync on purpose: the real session would make the delete refuse to start, and this
       // checks the second line of defence.
       mockEntrySession = {
+        emotion: '',
         id: 'g1',
         journalId: 'dreams',
         origin: 'edit',

@@ -14,7 +14,9 @@ import { TaggedBodyInput } from '../components/TaggedBodyInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCaretFollow } from '../hooks/useCaretFollow';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
+import { DreamChips } from '../components/DreamChips';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
+import { OverflowMenu } from '../components/OverflowMenu';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
@@ -64,6 +66,13 @@ const BODY_MIN_HEIGHT = 160;
  *   text); leave undefined otherwise so the input manages it. The body input is a TaggedBodyInput:
  *   it has no `value` prop, so a programmatic change to `body` (undo, redo, the # button, a tag
  *   completion) remounts it.
+ * - emotions: the stored entry's emotions, already capitalized, shown READ-ONLY as a small chip line
+ *   under the title (nothing when empty or unset). The page has no emotion field and offers no way
+ *   to change them.
+ * - onDelete: set only for a stored entry or draft (never a new one): shows the "..." menu left of
+ *   the check with one red item (the journal's delete label). Picking it calls onDelete; the
+ *   parent confirms and deletes. Without it there is no menu.
+ * - deleteDisabled: the menu's Delete item is off (a save, a recording or a delete is running).
  * - bodyFocusSignal: focuses the body each time this number changes (the # button).
  */
 export type AddEntryScreenProps = {
@@ -90,6 +99,9 @@ export type AddEntryScreenProps = {
   onBodySelectionChange?: (selection: Selection) => void;
   bodySelection?: Selection;
   bodyFocusSignal?: number;
+  emotions?: readonly string[];
+  onDelete?: () => void;
+  deleteDisabled?: boolean;
 };
 
 export function AddEntryScreen({
@@ -116,6 +128,9 @@ export function AddEntryScreen({
   onBodySelectionChange,
   bodySelection,
   bodyFocusSignal = 0,
+  emotions,
+  onDelete,
+  deleteDisabled = false,
 }: AddEntryScreenProps) {
   const copy = journalCopy(journal);
   const canSave =
@@ -230,6 +245,11 @@ export function AddEntryScreen({
               returnKeyType="next"
               style={styles.titleInput}
             />
+            {emotions && emotions.length > 0 && (
+              <View testID="entry-emotions">
+                <DreamChips chips={emotions.map((label) => ({ kind: 'emotion', label }))} />
+              </View>
+            )}
           </View>
           <View
             testID="entry-body-wrap"
@@ -288,6 +308,16 @@ export function AddEntryScreen({
               if (id !== journal.id) onJournalChange?.(id);
             }}
             onClose={() => setMenuOpen(false)}
+          />
+        )}
+        {onDelete && (
+          <OverflowMenu
+            onDelete={onDelete}
+            deleteDisabled={deleteDisabled}
+            deleteLabel={copy.deleteLabel}
+            deleteText={copy.deleteLabel}
+            top={spacing.md - 2}
+            right={spacing.lg + 40 + spacing.xs}
           />
         )}
       </KeyboardAvoidingView>

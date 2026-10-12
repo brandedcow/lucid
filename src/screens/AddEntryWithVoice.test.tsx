@@ -58,6 +58,7 @@ const events = {
   onRecordingDiscarded: jest.fn(),
   onBack: jest.fn(),
   onSaved: jest.fn(),
+  onDelete: jest.fn(),
 };
 const leaveRef: { current: (() => void) | null } = { current: null };
 let sessionApi: ReturnType<typeof useEntrySession> | null = null;
@@ -305,6 +306,47 @@ describe('recording on the page', () => {
     expect(input.addRecordings?.[0].waveform).toHaveLength(56);
     expect(input).not.toHaveProperty('recordingUri');
     expect(events.onSaved).toHaveBeenCalled();
+  });
+});
+
+describe('delete menu', () => {
+  const openMenu = () => fireEvent.press(screen.getByLabelText('More options'));
+  const withDelete = (extra: Record<string, unknown> = {}) => (
+    <AddEntryWithVoice
+      journal={DREAMS}
+      title="t"
+      onTitleChange={() => {}}
+      body="b"
+      onBodyChange={() => {}}
+      date="d"
+      onSave={() => {}}
+      onBack={() => {}}
+      onRecorded={() => {}}
+      onDelete={events.onDelete}
+      {...extra}
+    />
+  );
+
+  it('is off while the recording panel is open and back after it closes', async () => {
+    await render(withDelete());
+    await openMenu();
+    expect(screen.getByLabelText('Delete dream').props.accessibilityState.disabled).toBe(false);
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    await fireEvent.press(screen.getByLabelText('Record voice note'));
+    await openMenu();
+    expect(screen.getByLabelText('Delete dream').props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Delete dream'));
+    expect(events.onDelete).not.toHaveBeenCalled();
+  });
+
+  it('is off while saving and while the parent says a delete runs', async () => {
+    const view = await render(withDelete({ saving: true }));
+    await openMenu();
+    expect(screen.getByLabelText('Delete dream').props.accessibilityState.disabled).toBe(true);
+    await view.rerender(withDelete({ deleteDisabled: true }));
+    expect(screen.getByLabelText('Delete dream').props.accessibilityState.disabled).toBe(true);
+    await view.rerender(withDelete());
+    expect(screen.getByLabelText('Delete dream').props.accessibilityState.disabled).toBe(false);
   });
 });
 

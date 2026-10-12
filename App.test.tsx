@@ -64,6 +64,14 @@ jest.mock('./src/screens/AddEntryScreen', () => {
         <Text>{`add-saving:${p.saving}`}</Text>
         <Text>{`add-autofocus:${p.autoFocus}`}</Text>
         <Text>{`add-locked:${p.journalLocked}`}</Text>
+        <Text>{`add-has-delete:${!!p.onDelete}`}</Text>
+        <Text>{`add-delete-disabled:${p.deleteDisabled}`}</Text>
+        <Text>{`add-emotions:${(p.emotions ?? []).join(',')}`}</Text>
+        {p.onDelete && (
+          <Pressable onPress={p.onDelete}>
+            <Text>stub-add-delete</Text>
+          </Pressable>
+        )}
         {p.attachment}
         <Text>{`add-offered:${(p.journals ?? []).map((j: any) => j.id).join(',')}`}</Text>
         <Pressable onPress={() => p.onJournalChange('life')}>
@@ -2488,5 +2496,297 @@ describe('App new journal', () => {
     await press('stub-open-dreams');
     expect(screen.getByText('log-ids:7')).toBeTruthy();
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+  });
+});
+
+describe('App delete from the add-entry page', () => {
+  const gate = () => {
+    let resolve: () => void = () => {};
+    let reject: (e: unknown) => void = () => {};
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve: () => resolve(), reject: (e: unknown) => reject(e) };
+  };
+  const otherDream = { ...finishedDream, id: '8', title: 'Other title' };
+  const storedDraft = {
+    id: '42',
+    createdAt: '2026-10-05T08:00:00.000Z',
+    durationMs: 9000,
+    title: 'Flooded hall',
+    tags: [],
+    transcript: 'it filled up',
+    status: 'draft',
+  };
+  const deleteAlerts = () =>
+    jest.mocked(Alert.alert).mock.calls.filter(([title]) => /^Delete this/.test(String(title)));
+  /** Opens the stored dream on the page from the Dream log, with a log query set first. */
+  async function openFromLog() {
+    await renderApp();
+    await goToLog();
+    await press('stub-set-query');
+    await press('stub-open-dream');
+  }
+  async function reachSearchEntry() {
+    await renderApp();
+    await press('stub-add-back');
+    await pressLabel('Open Journals');
+    await press('stub-journals-search');
+    await press('stub-search-set-query');
+    await press('stub-search-open');
+  }
+
+  it('shows the menu action for a stored entry and a stored draft, never for a new entry', async () => {
+    mockLibrary.dreams = [finishedDream, storedDraft];
+    await renderApp();
+    expect(screen.getByText('add-has-delete:false')).toBeTruthy();
+    await goToLog();
+    await press('stub-new-dream');
+    expect(screen.getByText('add-has-delete:false')).toBeTruthy();
+    await press('stub-add-back');
+    await press('stub-open-dream');
+    expect(screen.getByText('add-has-delete:true')).toBeTruthy();
+    await press('stub-add-back');
+    await press('stub-open-draft');
+    expect(screen.getByText('add-has-delete:true')).toBeTruthy();
+  });
+
+  it('asks first (Keep is the default) and Keep removes nothing', async () => {
+    mockLibrary.onRemove = jest.fn();
+    await openFromLog();
+    await press('stub-add-delete');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Delete this dream?',
+      "The recording and text will be permanently deleted. This can't be undone.",
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(lastAlertButtons().map((b) => [b.text, b.style])).toEqual([
+      ['Keep', 'cancel'],
+      ['Delete', 'destructive'],
+    ]);
+    await act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === 'Keep')
+        ?.onPress?.(),
+    );
+    expect(mockLibrary.onRemove).not.toHaveBeenCalled();
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    // The dialog is free again.
+    await press('stub-add-delete');
+    expect(deleteAlerts()).toHaveLength(2);
+  });
+
+  it('a text-only draft uses the text wording', async () => {
+    mockLibrary.dreams = [finishedDream, storedDraft];
+    await renderApp();
+    await goToLog();
+    await press('stub-open-draft');
+    await press('stub-add-delete');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Delete this dream?',
+      "The text will be permanently deleted. This can't be undone.",
+      expect.any(Array),
+      expect.any(Object),
+    );
+  });
+
+  it('success returns to the log with its view state kept, with no discard prompt, even with edits', async () => {
+    const remove = jest.fn(async () => {});
+    mockLibrary.onRemove = remove;
+    await openFromLog();
+    await press('stub-add-set-title');
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(remove).toHaveBeenCalledWith('7');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.queryByText('add-screen')).toBeNull();
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    expect(screen.getByText('log-ids:')).toBeTruthy();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+    expect(saveDream).not.toHaveBeenCalled();
+    // The session is gone: the page is not left over.
+    await press('stub-log-back');
+    expect(screen.getByText('journals-screen')).toBeTruthy();
+  });
+
+  it('success from a Life entry returns to the Life log', async () => {
+    mockLibrary.dreams = [finishedDream, lifeEntry];
+    await renderApp();
+    await goToLog();
+    await press('stub-log-back');
+    await press('stub-open-life');
+    await press('stub-open-life-entry');
+    await press('stub-add-delete');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Delete this entry?',
+      "The text will be permanently deleted. This can't be undone.",
+      expect.any(Array),
+      expect.any(Object),
+    );
+    await alertDelete();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+  });
+
+  it('success from Today returns to Today', async () => {
+    mockLibrary.dreams = [todayDream];
+    await renderApp();
+    await press('Flying over the sea');
+    await press('stub-add-delete');
+    await alertDelete();
+    expectToday();
+    expect(screen.queryByText('Flying over the sea')).toBeNull();
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+  });
+
+  it('success from Search returns to the results with the query kept', async () => {
+    await reachSearchEntry();
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(screen.getByText('search-screen')).toBeTruthy();
+    expect(screen.getByText('search-query:hall')).toBeTruthy();
+    expect(screen.getByText('search-count:0')).toBeTruthy();
+  });
+
+  it('failure alerts, keeps the entry and its edits, and can be retried', async () => {
+    mockLibrary.onRemove = jest.fn().mockRejectedValueOnce(new Error('disk'));
+    await openFromLog();
+    await press('stub-add-set-title');
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not delete dream', 'Please try again.');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(screen.getByText('add-title:My title')).toBeTruthy();
+    expect(screen.getByText('add-delete-disabled:false')).toBeTruthy();
+    // Back works again (it asks about the edit, since the entry is still open).
+    await press('stub-add-back');
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      DISCARD_CHANGES_TITLE,
+      DISCARD_CHANGES_MESSAGE,
+      expect.any(Array),
+    );
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(mockLibrary.onRemove).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it.each([
+    [{ kind: 'unreadable' }, 'Your saved dreams could not be read. Nothing was deleted.'],
+    [
+      { kind: 'blocked' },
+      'A saved copy of your dreams is damaged, so this dream was not deleted. Nothing was changed.',
+    ],
+  ])('failure %# shows the specific message and stays on the entry', async (error, body) => {
+    mockLibrary.onRemove = jest.fn().mockRejectedValueOnce(error);
+    await openFromLog();
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not delete dream', body);
+    expect(screen.getByText('add-screen')).toBeTruthy();
+  });
+
+  it('ignores back, hardware back and the check while this entry deletes, then works after a failure', async () => {
+    const g = gate();
+    mockLibrary.onRemove = jest.fn(() => g.promise);
+    await openFromLog();
+    await press('stub-add-set-title');
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(screen.getByText('add-delete-disabled:true')).toBeTruthy();
+    const alerts = jest.mocked(Alert.alert).mock.calls.length;
+
+    await press('stub-add-back');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    await press('stub-add-save');
+    expect(saveDream).not.toHaveBeenCalled();
+    await press('stub-add-delete');
+    expect(mockLibrary.onRemove).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(Alert.alert).mock.calls.length).toBe(alerts);
+
+    await act(async () => g.reject(new Error('x')));
+    expect(screen.getByText('add-title:My title')).toBeTruthy();
+    expect(screen.getByText('add-delete-disabled:false')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      DISCARD_CHANGES_TITLE,
+      DISCARD_CHANGES_MESSAGE,
+      expect.any(Array),
+    );
+  });
+
+  it('keeps the page while the delete is still finishing after the list dropped the entry', async () => {
+    const g = gate();
+    mockLibrary.afterRemoveFilter = () => g.promise;
+    await openFromLog();
+    await press('stub-add-delete');
+    await alertDelete();
+    expect(mockLibrary.dreams?.some((d) => d.id === '7')).toBe(false);
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    await press('stub-add-back');
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    await act(async () => g.resolve());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.queryByText('add-screen')).toBeNull();
+  });
+
+  it('is blocked while a list delete runs, and unblocks after', async () => {
+    const g = gate();
+    const remove = jest.fn(() => g.promise);
+    mockLibrary.dreams = [finishedDream, otherDream];
+    mockLibrary.onRemove = remove;
+    await renderApp();
+    await goToLog();
+    await press('stub-list-delete-other');
+    await press('stub-open-dream');
+    expect(screen.getByText('add-delete-disabled:true')).toBeTruthy();
+    // Even if the action is invoked, nothing is asked and nothing is deleted.
+    await press('stub-add-delete');
+    expect(deleteAlerts()).toHaveLength(0);
+    expect(remove).toHaveBeenCalledTimes(1);
+    await act(async () => g.resolve());
+    expect(screen.getByText('add-screen')).toBeTruthy();
+    expect(screen.getByText('add-delete-disabled:false')).toBeTruthy();
+    await press('stub-add-delete');
+    expect(deleteAlerts()).toHaveLength(1);
+  });
+
+  it('is blocked while a save is in flight', async () => {
+    let finishRefresh: () => void = () => {};
+    mockLibrary.onRefresh = () => new Promise<void>((r) => (finishRefresh = r));
+    await openFromLog();
+    await press('stub-add-set-title');
+    await press('stub-add-save');
+    expect(saveDream).toHaveBeenCalledTimes(1);
+    await press('stub-add-delete');
+    expect(deleteAlerts()).toHaveLength(0);
+    await act(async () => finishRefresh());
+    expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+
+  it('shows a stored emotion read-only, capitalized, and nothing without one', async () => {
+    mockLibrary.dreams = [{ ...finishedDream, emotion: 'uneasy, calm' }, otherDream];
+    await renderApp();
+    expect(screen.getByText('add-emotions:')).toBeTruthy();
+    await goToLog();
+    await press('stub-open-dream');
+    expect(screen.getByText('add-emotions:Uneasy,Calm')).toBeTruthy();
+    // Unchanged by an edit and saved back as it was.
+    await press('stub-add-set-title');
+    await press('stub-add-save');
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({ emotion: 'uneasy, calm' }),
+      }),
+    );
+  });
+
+  it('shows no emotions for an entry without any', async () => {
+    await openFromLog();
+    expect(screen.getByText('add-emotions:')).toBeTruthy();
   });
 });

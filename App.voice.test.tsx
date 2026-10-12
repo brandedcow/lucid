@@ -658,3 +658,90 @@ describe('App launch page with voice', () => {
     expect(marker()).toBeUndefined();
   });
 });
+
+describe('App stored entry on the real add-entry page', () => {
+  const menuItem = () => screen.getByLabelText('Delete entry');
+  const openMenu = () => press(byLabel('More options'));
+
+  it('opens with the keyboard closed: no title or body focus request', async () => {
+    await openEdit(/Plain words/);
+    expect(byLabel('Title').props.autoFocus).toBeFalsy();
+    expect(byLabel('Title').props.value).toBe('Plain words');
+    expect(byLabel('Entry text')).toBeTruthy();
+  });
+
+  it('deletes from the "..." menu: confirm, entry and audio gone, back on the log, no discard prompt', async () => {
+    await openEdit(/Thankful for tea/);
+    // An unsaved edit is lost on purpose when the delete is confirmed.
+    await fireEvent.changeText(byLabel('Entry text'), 'edited');
+    await openMenu();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+    await press(menuItem());
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      'Delete this entry?',
+      "The recording and text will be permanently deleted. This can't be undone.",
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(index()).toHaveLength(2);
+    await choose('Delete');
+    expect(index().map((d) => d.id)).toEqual(['g2']);
+    expect(__fs.has(STORED_AUDIO)).toBe(false);
+    expect(screen.queryByLabelText('Entry text')).toBeNull();
+    expect(screen.getByText('Plain words')).toBeTruthy();
+    expect(screen.queryByText('Thankful for tea')).toBeNull();
+    expect(
+      jest.mocked(Alert.alert).mock.calls.filter(([title]) => title === 'Discard changes?'),
+    ).toHaveLength(0);
+  });
+
+  it('Keep leaves the entry and its audio untouched', async () => {
+    await openEdit(/Plain words/);
+    await openMenu();
+    await press(menuItem());
+    await choose('Keep');
+    expect(index()).toHaveLength(2);
+    expect(byLabel('Entry text')).toBeTruthy();
+  });
+
+  it('a failed delete keeps the entry, its edits and the files', async () => {
+    await openEdit(/Thankful for tea/);
+    await fireEvent.changeText(byLabel('Entry text'), 'edited');
+    await openMenu();
+    await press(menuItem());
+    __fs.failWhen('delete', (uri) => uri === STORED_AUDIO, new Error('locked'));
+    await choose('Delete');
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not delete entry', expect.any(String));
+    expect(index()).toHaveLength(2);
+    expect(__fs.read(STORED_AUDIO)).toBe('old-audio');
+    expect(bodyText(byLabel('Entry text'))).toBe('edited');
+    await openMenu();
+    expect(menuItem().props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('is off while the recording panel is open', async () => {
+    await openEdit(/Plain words/);
+    await press(byLabel('Record voice note'));
+    await openMenu();
+    expect(menuItem().props.accessibilityState.disabled).toBe(true);
+    await press(menuItem());
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('shows the stored emotion as read-only chips under the title, and none without one', async () => {
+    __fs.put(
+      `${DOC}/dreams.json`,
+      JSON.stringify([{ ...TEXT_ONLY, emotion: 'uneasy, calm' }, WITH_AUDIO]),
+    );
+    await openEdit(/Plain words/);
+    expect(byLabel('Feelings: Uneasy, Calm.')).toBeTruthy();
+    expect(screen.getByText('Uneasy')).toBeTruthy();
+    expect(screen.queryByLabelText('Emotion')).toBeNull();
+    // Saving passes the stored emotion back unchanged.
+    await fireEvent.changeText(byLabel('Entry text'), 'more words');
+    await press(byLabel('Save entry'));
+    expect(index().find((d) => d.id === 'g2')?.emotion).toBe('uneasy, calm');
+    await press(byLabel(/Thankful for tea/));
+    expect(screen.queryByTestId('entry-emotions')).toBeNull();
+  });
+});

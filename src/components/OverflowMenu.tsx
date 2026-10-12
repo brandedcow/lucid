@@ -10,19 +10,27 @@ import { colors, spacing } from '../theme';
  * catches taps anywhere) and puts the button at the top-right of the bar. The menu is an
  * in-screen overlay, not a Modal, so an Alert opened right after picking an item still shows on iOS.
  *
- * - onDelete is optional; without it the menu shows only Edit.
+ * - onEdit and onDelete are both optional; the menu shows only the items it is given (the add-entry
+ *   page gives only onDelete).
+ * - top / right: where the button sits (default: the bar of a screen with its own top bar at the
+ *   edge; the add-entry page puts it left of its check). The card follows the button.
  * - disabled: items are disabled and the menu closes (the screen is busy deleting).
  * - deleteDisabled: only the Delete item is disabled and dimmed (default false); Edit and the
  *   button stay usable.
  */
 type Props = {
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
   /** Wording for the item labels; defaults to the Dream wording ("Edit dream" / "Delete dream"). */
   editLabel?: string;
   deleteLabel?: string;
+  /** The visible text of the Delete item; defaults to "Delete". */
+  deleteText?: string;
+  /** Offsets of the button from the container's top and right edge. */
+  top?: number;
+  right?: number;
 };
 
 export function OverflowMenu({
@@ -32,6 +40,9 @@ export function OverflowMenu({
   deleteDisabled = false,
   editLabel = 'Edit dream',
   deleteLabel = 'Delete dream',
+  deleteText = 'Delete',
+  top = BAR_TOP,
+  right = BAR_RIGHT,
 }: Props) {
   const [open, setOpen] = useState(false);
   const visible = open && !disabled;
@@ -61,7 +72,7 @@ export function OverflowMenu({
         accessibilityState={{ expanded: visible, disabled }}
         disabled={disabled}
         onPress={() => setOpen((o) => !o)}
-        style={styles.button}
+        style={[styles.button, { top, right }]}
       >
         <View style={styles.dots}>
           <View style={styles.dot} />
@@ -77,17 +88,19 @@ export function OverflowMenu({
             onPress={() => setOpen(false)}
             style={styles.backdrop}
           />
-          <View style={styles.card}>
-            <Pressable
-              accessibilityRole="menuitem"
-              accessibilityLabel={editLabel}
-              accessibilityState={{ disabled }}
-              disabled={disabled}
-              onPress={() => pick(onEdit)}
-              style={styles.item}
-            >
-              <Text style={styles.itemText}>Edit</Text>
-            </Pressable>
+          <View testID="overflow-menu-card" style={[styles.card, { top: top + 44, right }]}>
+            {onEdit && (
+              <Pressable
+                accessibilityRole="menuitem"
+                accessibilityLabel={editLabel}
+                accessibilityState={{ disabled }}
+                disabled={disabled}
+                onPress={() => pick(onEdit)}
+                style={styles.item}
+              >
+                <Text style={styles.itemText}>Edit</Text>
+              </Pressable>
+            )}
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"
@@ -98,7 +111,7 @@ export function OverflowMenu({
                 style={styles.item}
               >
                 <Text style={[styles.itemText, styles.delete, deleteDisabled && styles.dimmed]}>
-                  Delete
+                  {deleteText}
                 </Text>
               </Pressable>
             )}

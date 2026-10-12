@@ -164,4 +164,27 @@ describe('OverflowMenu labels', () => {
     expect(screen.getByRole('menuitem', { name: 'Edit entry' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Delete entry' })).toBeTruthy();
   });
+
+  it('shows only Delete without onEdit, with its own visible text', async () => {
+    const onDelete = jest.fn();
+    await render(
+      <OverflowMenu onDelete={onDelete} deleteLabel="Delete entry" deleteText="Delete entry" />,
+    );
+    await open();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+    expect(screen.queryByText('Edit')).toBeNull();
+    expect(screen.getByText('Delete entry')).toHaveStyle({ color: '#F26D6D' });
+    await fireEvent.press(screen.getByLabelText('Delete entry'));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves the button and its card with top and right', async () => {
+    await render(<OverflowMenu onDelete={jest.fn()} top={14} right={68} />);
+    expect(screen.getByLabelText('More options', { hidden: true })).toHaveStyle({
+      top: 14,
+      right: 68,
+    });
+    await open();
+    expect(screen.getByTestId('overflow-menu-card')).toHaveStyle({ top: 58, right: 68 });
+  });
 });

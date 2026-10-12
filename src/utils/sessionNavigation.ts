@@ -29,6 +29,8 @@ export type BackInput = {
   journalId: JournalId;
   /** log only: the log's search field is open. */
   searchOpen?: boolean;
+  /** add only: this entry's delete is in flight, so Back does nothing. */
+  entryDeleting?: boolean;
 };
 
 /**
@@ -37,11 +39,17 @@ export type BackInput = {
  * - `closeSearch`: close the log's search field first.
  * - `today`: the Today page.
  * - `journals`: Journals home (a log, or Search, whose view App also resets).
+ * - `none`: ignore Back (the open entry is being deleted).
  * - `chain`: the add-entry page keeps its own rules (App's `backFromAdd`: the leave prompts, a
  *   running recording's discard confirm, and No dream on an empty launch page).
  */
 export type BackTarget =
-  { to: 'exit' } | { to: 'closeSearch' } | { to: 'today' } | { to: 'journals' } | { to: 'chain' };
+  | { to: 'exit' }
+  | { to: 'closeSearch' }
+  | { to: 'today' }
+  | { to: 'journals' }
+  | { to: 'chain' }
+  | { to: 'none' };
 
 export function backTarget(input: BackInput): BackTarget {
   switch (input.screen) {
@@ -55,6 +63,6 @@ export function backTarget(input: BackInput): BackTarget {
     case 'search':
       return { to: 'journals' };
     case 'add':
-      return { to: 'chain' };
+      return input.entryDeleting ? { to: 'none' } : { to: 'chain' };
   }
 }

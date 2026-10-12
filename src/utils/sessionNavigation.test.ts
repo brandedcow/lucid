@@ -60,4 +60,17 @@ describe('backTarget', () => {
     expect(backTarget({ screen: 'add', journalId: 'dreams' })).toEqual({ to: 'chain' });
     expect(backTarget({ screen: 'add', journalId: 'life' })).toEqual({ to: 'chain' });
   });
+  it('ignores Back on the add-entry page while its entry is being deleted', () => {
+    expect(backTarget({ screen: 'add', journalId: 'dreams', entryDeleting: true })).toEqual({
+      to: 'none',
+    });
+    expect(backTarget({ screen: 'add', journalId: 'dreams', entryDeleting: false })).toEqual({
+      to: 'chain',
+    });
+  });
+  it('entryDeleting changes nothing on other screens', () => {
+    expect(backTarget({ screen: 'log', journalId: 'dreams', entryDeleting: true })).toEqual({
+      to: 'journals',
+    });
+  });
 });

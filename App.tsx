@@ -32,7 +32,9 @@ import {
 import { hasAudio, type Dream } from './src/types/dream';
 import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
-import { confirmDeleteJournal } from './src/utils/confirmDelete';
+import { confirmDeleteDream, confirmDeleteJournal } from './src/utils/confirmDelete';
+import { capitalizeFirst } from './src/utils/capitalizeFirst';
+import { splitEmotions } from './src/utils/emotions';
 import { formatToday } from './src/utils/format';
 import { tagsByUse } from './src/utils/tags';
 import {
@@ -122,6 +124,11 @@ export default function App() {
   const journalDialogOpen = useRef(false);
   // True while a journal delete runs, readable synchronously (rename is refused then).
   const deletingJournalRef = useRef(false);
+  // True while the delete of the entry open on the add-entry page runs (readable synchronously):
+  // Back and the check are ignored then.
+  const entryDeleting = useRef(false);
+  // True while the "Delete this entry?" dialog from the add-entry page's menu is up.
+  const entryDialogOpen = useRef(false);
   // True while any delete (an entry's or a journal's) runs, readable synchronously: a second delete
   // is ignored.
   const deleting = useRef(false);
@@ -320,7 +327,7 @@ export default function App() {
   // edit never saves a draft, and with no changes it writes nothing.
   const saveEntryAndLeave = async (status: 'draft' | 'saved') => {
     const current = entry.session;
-    if (finishing.current || !current) return;
+    if (finishing.current || entryDeleting.current || !current) return;
     const isEdit = current.origin === 'edit';
     if (isEdit && status === 'draft') return;
     if (isEdit && !entryHasEdits(current)) {
@@ -343,6 +350,7 @@ export default function App() {
   const backFromAdd = () => {
     const current = entry.session;
     if (!current || finishing.current || entry.isSaving()) return;
+    if (entryDeleting.current) return;
     // A running recording always asks first. Discard stops it, deletes its cache file and comes
     // back here, so what else is on the page gets its usual prompt.
     if (entryRecordingRef.current) {
@@ -385,21 +393,58 @@ export default function App() {
     ]);
   };
 
-  // Deletes from a list row (the caller has already confirmed). The lists keep their own view
-  // state, so nothing navigates.
+  // Deletes an entry (the caller has already confirmed). From a list row nothing navigates: the
+  // lists keep their own view state. If the add-entry page holds this very entry, a successful
+  // delete closes the page (edits are lost on purpose, the confirm said so) and leaves to where it
+  // was opened, without the discard prompt; a failure leaves the page and its edits as they were.
   const deleteDreamFor = async (target: Dream) => {
     if (deleting.current) return;
     deleting.current = true;
+    const fromEntry = current === 'add' && sessionId !== undefined && sessionId === target.id;
+    entryDeleting.current = fromEntry;
     setDeletingDream(target);
     try {
       await library.remove(target.id);
+      if (fromEntry) {
+        entry.clear();
+        leaveFlow(journalOf(target));
+      }
     } catch (e) {
       const copy = journalCopy(journalFor(journalOf(target)));
       Alert.alert(copy.deleteFailureTitle, deleteFailureMessage(e, copy));
     } finally {
       deleting.current = false;
+      entryDeleting.current = false;
       setDeletingDream(null);
     }
+  };
+
+  // The "..." menu's Delete on the add-entry page (a stored entry or draft only): the shared
+  // confirmation, then the same delete as the lists. Ignored while another delete runs, a save is in
+  // flight or a recording is open.
+  const requestDeleteOpenEntry = () => {
+    const open = entry.session;
+    if (!open?.id || current !== 'add') return;
+    const stored = library.dreams?.find((d) => d.id === open.id);
+    if (!stored) return;
+    if (
+      deleting.current ||
+      finishing.current ||
+      entry.isSaving() ||
+      entryRecordingRef.current ||
+      entryDialogOpen.current
+    ) {
+      return;
+    }
+    entryDialogOpen.current = true;
+    confirmDeleteDream({
+      hasAudio: hasAudio(stored),
+      kind: kindOf(journals, journalOf(stored)),
+      onClose: () => {
+        entryDialogOpen.current = false;
+      },
+      onConfirm: () => void deleteDreamFor(stored),
+    });
   };
 
   // Whether a custom journal may be renamed right now: only a journal in the registry's custom list,
@@ -526,6 +571,7 @@ export default function App() {
       screen: current,
       journalId,
       searchOpen: view.searching,
+      entryDeleting: entryDeleting.current,
     });
     switch (target.to) {
       case 'exit':
@@ -541,6 +587,9 @@ export default function App() {
         // Leaving Search starts it fresh next time.
         if (current === 'search') searchView.clearFilters();
         setScreen('journals');
+        return true;
+      case 'none':
+        // The open entry is being deleted: Back is handled and does nothing.
         return true;
       case 'chain':
         // The add-entry page keeps its own rules (backFromAdd).
@@ -642,6 +691,9 @@ export default function App() {
             }}
             leaveRef={entryLeaveRef}
             onRecordingDiscarded={backFromAdd}
+            emotions={splitEmotions(entry.session.emotion).map(capitalizeFirst)}
+            onDelete={entry.session.id ? requestDeleteOpenEntry : undefined}
+            deleteDisabled={deletingDream !== null || deletingJournalId !== null}
           />
         )}
         {current === 'log' && (

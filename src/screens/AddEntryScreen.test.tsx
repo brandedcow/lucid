@@ -601,4 +601,80 @@ describe('AddEntryScreen', () => {
       ).toBe(true);
     });
   });
+
+  describe('delete menu and emotions (a stored entry)', () => {
+    const base = {
+      journal: DREAMS,
+      title: 'Old title',
+      onTitleChange: () => {},
+      body: 'old text',
+      onBodyChange: () => {},
+      date: 'd',
+      onSave: () => {},
+      onBack: () => {},
+    };
+
+    it('has no menu without onDelete (a new entry)', async () => {
+      await renderPage();
+      expect(screen.queryByLabelText('More options')).toBeNull();
+    });
+
+    it('shows a "..." menu with one red Delete item that calls onDelete', async () => {
+      const onDelete = jest.fn();
+      await render(<AddEntryScreen {...base} onDelete={onDelete} />);
+      await fireEvent.press(screen.getByLabelText('More options'));
+      expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+      expect(screen.getByText('Delete dream')).toHaveStyle({ color: '#F26D6D' });
+      await fireEvent.press(screen.getByLabelText('Delete dream'));
+      expect(onDelete).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('uses the journal wording ("Delete entry" in a Life journal)', async () => {
+      await render(<AddEntryScreen {...base} journal={LIFE} onDelete={() => {}} />);
+      await fireEvent.press(screen.getByLabelText('More options'));
+      expect(screen.getByLabelText('Delete entry')).toBeTruthy();
+    });
+
+    it('sits left of the check, not over it', async () => {
+      await render(<AddEntryScreen {...base} onDelete={() => {}} />);
+      expect(screen.getByLabelText('More options')).toHaveStyle({
+        right: spacing.lg + 40 + spacing.xs,
+      });
+    });
+
+    it('does not call onDelete when the item is disabled', async () => {
+      const onDelete = jest.fn();
+      await render(<AddEntryScreen {...base} onDelete={onDelete} deleteDisabled />);
+      await fireEvent.press(screen.getByLabelText('More options'));
+      const item = screen.getByLabelText('Delete dream');
+      expect(item.props.accessibilityState.disabled).toBe(true);
+      await fireEvent.press(item);
+      expect(onDelete).not.toHaveBeenCalled();
+    });
+
+    it('shows the emotions read-only under the title, with no emotion field', async () => {
+      await render(<AddEntryScreen {...base} emotions={['Uneasy', 'Calm']} />);
+      const line = screen.getByTestId('entry-emotions');
+      expect(line).toBeTruthy();
+      expect(screen.getByText('Uneasy')).toBeTruthy();
+      expect(screen.getByText('Calm')).toBeTruthy();
+      expect(screen.getByLabelText('Feelings: Uneasy, Calm.')).toBeTruthy();
+      // Display only: no emotion input.
+      expect(screen.queryByLabelText('Emotion')).toBeNull();
+      expect(screen.queryByPlaceholderText(/emotion|feeling/i)).toBeNull();
+    });
+
+    it.each([undefined, []])('shows no emotion line without emotions (%p)', async (emotions) => {
+      await render(<AddEntryScreen {...base} emotions={emotions} />);
+      expect(screen.queryByTestId('entry-emotions')).toBeNull();
+      expect(screen.queryByTestId('dream-chips')).toBeNull();
+    });
+
+    it('does not focus the title for a stored entry (keyboard stays closed)', async () => {
+      await renderPage({ open: { dream: stored, as: 'edit' } });
+      expect(screen.getByLabelText('Title').props.autoFocus).toBeFalsy();
+      expect(screen.getByLabelText('Title').props.value).toBe('Old title');
+    });
+  });
 });

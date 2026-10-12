@@ -46,6 +46,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * - onRecordingDiscarded: the user discarded the recording to leave; the parent carries on
  *   leaving (its normal back rules run next).
  *
+ * - deleteDisabled: the parent's own reason to block the menu's Delete (a delete is running); it is
+ *   also off while saving and while the recording panel is open.
  * - onRestoreRecording: undo of a card's close: brings that recording back (reversible mark only).
  * - onBodyChange here is the session setter; the page wraps it for the undo history.
  *
@@ -116,6 +118,7 @@ export function AddEntryWithVoice({
   saving = false,
   body,
   onBodyChange,
+  deleteDisabled = false,
   ...page
 }: AddEntryWithVoiceProps) {
   const [recording, setRecordingState] = useState(false);
@@ -317,6 +320,7 @@ export function AddEntryWithVoice({
       journal={journal}
       saving={saving}
       saveDisabled={recording}
+      deleteDisabled={deleteDisabled || saving || recording}
       attachment={attachment}
       recordingPanel={recordingPanel}
       suggestions={suggestions}
