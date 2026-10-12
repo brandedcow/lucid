@@ -307,51 +307,56 @@ function VoiceNotePage({
         </>
       )}
 
-      <View style={styles.controls}>
-        {view.kind !== 'none' && (
+      <View testID="voice-note-controls" style={styles.controls}>
+        <View testID="voice-note-controls-left" style={styles.sideSlot}>
+          {view.kind !== 'none' && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
+              accessibilityState={{ selected: showTranscript }}
+              onPress={onToggleTranscript}
+              hitSlop={4}
+              style={styles.toggle}
+            >
+              <TranscriptIcon color={colors.text} size={28} filled={showTranscript} />
+            </Pressable>
+          )}
+        </View>
+        <View testID="voice-note-controls-main" style={styles.mainControls}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
-            accessibilityState={{ selected: showTranscript }}
-            onPress={onToggleTranscript}
-            hitSlop={4}
-            style={styles.toggle}
+            accessibilityLabel={`Back ${SKIP_SECONDS} seconds`}
+            accessibilityState={{ disabled: playDisabled }}
+            disabled={playDisabled}
+            onPress={() => skip(-SKIP_SECONDS)}
+            hitSlop={8}
+            style={[styles.skip, playDisabled && styles.off]}
           >
-            <TranscriptIcon color={colors.text} size={28} filled={showTranscript} />
+            <Text style={styles.skipText}>↺ {SKIP_SECONDS}</Text>
           </Pressable>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Back ${SKIP_SECONDS} seconds`}
-          accessibilityState={{ disabled: playDisabled }}
-          disabled={playDisabled}
-          onPress={() => skip(-SKIP_SECONDS)}
-          hitSlop={8}
-          style={[styles.skip, playDisabled && styles.off]}
-        >
-          <Text style={styles.skipText}>↺ {SKIP_SECONDS}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Pause audio recording' : 'Play audio recording'}
-          accessibilityState={{ disabled: playOff }}
-          disabled={playOff}
-          onPress={toggle}
-          style={[styles.play, playOff && styles.off]}
-        >
-          <Text style={styles.playGlyph}>{playing ? 'ǁ' : '▶'}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Forward ${SKIP_SECONDS} seconds`}
-          accessibilityState={{ disabled: playDisabled }}
-          disabled={playDisabled}
-          onPress={() => skip(SKIP_SECONDS)}
-          hitSlop={8}
-          style={[styles.skip, playDisabled && styles.off]}
-        >
-          <Text style={styles.skipText}>{SKIP_SECONDS} ↻</Text>
-        </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Pause audio recording' : 'Play audio recording'}
+            accessibilityState={{ disabled: playOff }}
+            disabled={playOff}
+            onPress={toggle}
+            style={[styles.play, playOff && styles.off]}
+          >
+            <Text style={styles.playGlyph}>{playing ? 'ǁ' : '▶'}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Forward ${SKIP_SECONDS} seconds`}
+            accessibilityState={{ disabled: playDisabled }}
+            disabled={playDisabled}
+            onPress={() => skip(SKIP_SECONDS)}
+            hitSlop={8}
+            style={[styles.skip, playDisabled && styles.off]}
+          >
+            <Text style={styles.skipText}>{SKIP_SECONDS} ↻</Text>
+          </Pressable>
+        </View>
+        <View testID="voice-note-controls-right" style={styles.sideSlot} />
       </View>
       <View style={styles.speedRow}>
         <Pressable
@@ -896,13 +901,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     fontVariant: ['tabular-nums'],
   },
+  // Play stays centred: the left (transcript toggle, or empty) and right slots share the leftover
+  // width equally (flex 1, no padding or margin of their own) around a symmetric back / play /
+  // forward cluster. At 320pt: 8 (row padding) + 216 (cluster) leaves 48 per slot for the 44pt toggle.
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xl,
+    paddingHorizontal: spacing.xs,
     marginTop: spacing.xl,
   },
+  sideSlot: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  mainControls: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   toggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   transcriptArea: { flex: 1, minHeight: 160, marginTop: spacing.lg },
   transcriptContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
@@ -920,7 +929,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   transcriptButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
-  skip: { minWidth: 56, height: 48, alignItems: 'center', justifyContent: 'center' },
+  skip: { width: 56, height: 48, alignItems: 'center', justifyContent: 'center' },
   skipText: { color: colors.text, fontSize: 18 },
   play: {
     width: 72,

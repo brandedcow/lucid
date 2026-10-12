@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { Alert, BackHandler, ScrollView, StyleSheet } from 'react-native';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { copyText } from '../services/clipboard';
@@ -790,6 +790,54 @@ describe('transcript', () => {
       await open();
       expect(screen.getByText('I was flying over water')).toBeTruthy();
       expect(screen.queryByText('Transcribe')).toBeNull();
+    });
+  });
+
+  describe('controls row centring', () => {
+    // Layout does not run under Jest, so assert the structure that centres play: the left and right
+    // slots are identical flex-1 boxes (no padding or margin) around a symmetric back / play / forward
+    // cluster, whether or not the toggle renders. Device-verified separately.
+    const expectCentred = () => {
+      const row = screen.getByTestId('voice-note-controls');
+      const left = screen.getByTestId('voice-note-controls-left');
+      const main = screen.getByTestId('voice-note-controls-main');
+      const right = screen.getByTestId('voice-note-controls-right');
+      const kids = row.props.children as { props: { testID: string } }[];
+      expect(kids.map((c) => c.props.testID)).toEqual([
+        'voice-note-controls-left',
+        'voice-note-controls-main',
+        'voice-note-controls-right',
+      ]);
+      expect(StyleSheet.flatten(left.props.style)).toEqual(StyleSheet.flatten(right.props.style));
+      expect(left).toHaveStyle({ flex: 1 });
+      expect(StyleSheet.flatten(left.props.style).padding).toBeUndefined();
+      expect(StyleSheet.flatten(left.props.style).paddingHorizontal).toBeUndefined();
+      expect(StyleSheet.flatten(left.props.style).margin).toBeUndefined();
+      // The cluster is back, play, forward with equal-width skips, and is not itself flexible.
+      expect(StyleSheet.flatten(main.props.style).flex).toBeUndefined();
+      const back = screen.getByLabelText('Back 15 seconds');
+      const fwd = screen.getByLabelText('Forward 15 seconds');
+      expect(StyleSheet.flatten(back.props.style).width).toBe(
+        StyleSheet.flatten(fwd.props.style).width,
+      );
+      expect(within(main).getByLabelText('Back 15 seconds')).toBe(back);
+      expect(within(main).getByLabelText('Play audio recording')).toBeTruthy();
+      expect(within(main).getByLabelText('Forward 15 seconds')).toBe(fwd);
+      return { left, right };
+    };
+
+    it('keeps play centred with the toggle shown', async () => {
+      await show({ notes: [withText] });
+      const { left } = expectCentred();
+      expect(within(left).getByLabelText('Show transcript')).toBeTruthy();
+    });
+
+    it('keeps play centred with the toggle hidden (empty left slot of the same width)', async () => {
+      fake.setSupported(false);
+      await show({ notes: [note] });
+      expect(toggle()).toBeNull();
+      const { left } = expectCentred();
+      expect(within(left).queryByLabelText(/^Show /)).toBeNull();
     });
   });
 
