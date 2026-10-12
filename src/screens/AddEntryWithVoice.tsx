@@ -1,9 +1,9 @@
-import { Keyboard, Platform, View } from 'react-native';
+import { Keyboard, Platform } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { EntryToolbar } from '../components/EntryToolbar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
-import { VoiceAttachmentCard } from '../components/VoiceAttachmentCard';
+import { VoiceNoteCarousel } from '../components/VoiceNoteCarousel';
 import { SessionRecording } from '../hooks/useEntrySession';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { useEntryHistory } from '../hooks/useEntryHistory';
@@ -14,7 +14,6 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
-import { spacing } from '../theme';
 import { suggestTags } from '../utils/tagSuggestions';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
@@ -22,8 +21,10 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 /**
  * Prop contract (everything else is AddEntryScreen's):
  * - recordings: the entry's recordings from the session, in order (closed ones are not shown). One
- *   VoiceAttachmentCard per visible recording, stacked above the date in the page flow (no cap; they
- *   scroll with the title and body), labelled "voice note N of M" when there are several. Only one card plays at a time
+ *   VoiceAttachmentCard per visible recording, in a horizontal VoiceNoteCarousel (next card peeking,
+ *   page dots; one note is full width) above the date in the page flow (no cap; it scrolls with the
+ *   title and body), labelled "voice note N of M" when there are several. Cards are not seekable;
+ *   tapping one is a no-op for now (the expanded view comes later). Only one card plays at a time
  *   (useRecordingPlayback); starting the mic stops playback.
  * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
  *   available).
@@ -61,8 +62,8 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * recording; not title or
  * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
  * typed in the text). The check is off while recording
- * (stop first); back asks to discard. While recording the toolbar is not shown at all (the panel
- * takes its place in the dock).
+ * (stop first). While the panel is open the toolbar is not shown at all (the panel takes its place
+ * in the dock); back closes an idle panel and asks to discard while recording.
  */
 export type AddEntryWithVoiceProps = Omit<
   AddEntryScreenProps,
@@ -208,20 +209,13 @@ export function AddEntryWithVoice({
 
   const attachment =
     shown.length > 0 ? (
-      <View style={{ gap: spacing.sm }}>
-        {shown.map((r, i) => (
-          <VoiceAttachmentCard
-            key={`${r.id}:${r.uri}`}
-            uri={r.uri}
-            durationMs={r.durationMs}
-            waveform={r.waveform}
-            index={i + 1}
-            count={shown.length}
-            playDisabled={recording}
-            onRemove={!saving ? () => history.onRemoveRecording(r.id) : undefined}
-          />
-        ))}
-      </View>
+      <VoiceNoteCarousel
+        notes={shown}
+        playDisabled={recording}
+        onRemove={!saving ? (id) => history.onRemoveRecording(id) : undefined}
+        // Placeholder until the expanded voice note view exists.
+        onOpen={() => {}}
+      />
     ) : undefined;
 
   const recordingPanel = recording ? (

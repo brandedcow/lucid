@@ -57,9 +57,6 @@ describe('VoiceAttachmentCard', () => {
       <VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />,
     );
     expect(filled()).toEqual([true, true, false, false]);
-    expect(screen.getByLabelText('Recording position').props.accessibilityValue).toMatchObject({
-      now: 50,
-    });
     mockStatus = { playing: false, currentTime: 4, duration: 4 };
     await view.rerender(
       <VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />,
@@ -108,7 +105,7 @@ describe('VoiceAttachmentCard', () => {
   it('labels its parts for screen readers', async () => {
     await render(<VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />);
     expect(screen.getByRole('button', { name: 'Play recording' })).toBeTruthy();
-    expect(screen.getByRole('adjustable', { name: 'Recording position' })).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'Recording position' })).toBeTruthy();
   });
 
   it('stops playback when the card is removed', async () => {
@@ -120,121 +117,77 @@ describe('VoiceAttachmentCard', () => {
   });
 });
 
-describe('VoiceAttachmentCard seeking', () => {
-  const press = (x: number) =>
-    fireEvent.press(screen.getByTestId('seek-press'), { nativeEvent: { locationX: x } });
-  const measure = () =>
-    fireEvent(screen.getByTestId('seek-press'), 'layout', {
-      nativeEvent: { layout: { width: 200, height: 40 } },
-    });
-
-  it('a tap on the waveform of a paused note seeks and does not play', async () => {
-    mockStatus = { playing: false, currentTime: 0, duration: 4 };
-    await render(<VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />);
-    await measure();
-    await act(async () => press(100));
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(2);
-    expect(mockPlayer.play).not.toHaveBeenCalled();
-  });
-
-  it('a tap on a note with no waveform seeks the plain bar', async () => {
-    mockStatus = { playing: false, currentTime: 0, duration: 4 };
-    await render(<VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} />);
-    await measure();
-    await act(async () => press(50));
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(1);
-  });
-
-  it('a tap before the length is known waits and uses the stored length', async () => {
-    const view = await render(
-      <VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />,
-    );
-    await measure();
-    await act(async () => press(100));
-    expect(mockPlayer.seekTo).not.toHaveBeenCalled();
-    expect(filled()).toEqual([true, true, false, false]);
-    mockStatus = { playing: false, currentTime: 0, duration: 4 };
-    await view.rerender(
-      <VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />,
-    );
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(2);
-  });
-
-  it('is blocked while play is disabled', async () => {
-    mockStatus = { playing: false, currentTime: 0, duration: 4 };
-    await render(
-      <VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} playDisabled />,
-    );
-    await measure();
-    await act(async () => press(100));
-    expect(mockPlayer.seekTo).not.toHaveBeenCalled();
-  });
-
-  it('names its position for screen readers and steps with increment and decrement', async () => {
-    mockStatus = { playing: false, currentTime: 12, duration: 48 };
+describe('VoiceAttachmentCard is not seekable', () => {
+  it('has no seek bar and no adjustable control, only a static progress display', async () => {
+    mockStatus = { playing: true, currentTime: 1, duration: 4 };
     await render(
       <VoiceAttachmentCard
         uri="file:///a.m4a"
-        durationMs={48000}
+        durationMs={4000}
         waveform={PEAKS}
         index={2}
         count={3}
       />,
     );
-    const bar = screen.getByLabelText('Position of voice note 2 of 3');
-    expect(bar.props.accessibilityRole).toBe('adjustable');
-    expect(bar.props.accessibilityValue).toEqual({
-      min: 0,
-      max: 100,
-      now: 25,
-      text: '0:12 of 0:48',
-    });
-    await act(async () =>
-      bar.props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }),
-    );
-    expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(17);
-    await act(async () =>
-      bar.props.onAccessibilityAction({ nativeEvent: { actionName: 'decrement' } }),
-    );
-    expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(7);
+    expect(screen.queryByTestId('seek-bar')).toBeNull();
+    expect(screen.queryByTestId('seek-press')).toBeNull();
+    expect(screen.queryByRole('adjustable')).toBeNull();
+    const display = screen.getByLabelText('Position of voice note 2 of 3');
+    expect(display.props.accessibilityValue).toEqual({ text: '0:01 of 0:04' });
+    expect(mockPlayer.seekTo).not.toHaveBeenCalled();
   });
 
-  const drag = async () => {
-    await fireEvent(screen.getByTestId('seek-press'), 'layout', {
-      nativeEvent: { layout: { width: 200, height: 40 } },
-    });
-    const bar = screen.getByTestId('seek-bar');
-    const t = (x: number, n: number) => ({
-      nativeEvent: { locationX: x, touches: [{}], changedTouches: [{}], timestamp: n },
-      touchHistory: {
-        indexOfSingleActiveTouch: 0,
-        mostRecentTimeStamp: n,
-        numberActiveTouches: 1,
-        touchBank: [
-          {
-            touchActive: true,
-            startPageX: 20,
-            startPageY: 0,
-            startTimeStamp: 0,
-            currentPageX: x,
-            currentPageY: 0,
-            currentTimeStamp: n,
-            previousPageX: n === 1 ? 20 : 50,
-            previousPageY: 0,
-            previousTimeStamp: n - 1,
-          },
-        ],
-      },
-    });
-    await act(async () => bar.props.onResponderGrant(t(50, 1)));
-    await act(async () => bar.props.onResponderMove(t(100, 2)));
-  };
-
-  it('shows m:ss / m:ss following the finger during a drag', async () => {
+  it('shows m:ss / m:ss while playing', async () => {
     mockStatus = { playing: true, currentTime: 1, duration: 4 };
     await render(<VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />);
     expect(screen.getByText('0:01 / 0:04')).toBeTruthy();
-    await drag();
-    expect(screen.getByText('0:02 / 0:04')).toBeTruthy();
+  });
+});
+
+describe('VoiceAttachmentCard open', () => {
+  it('has no open button without onOpen', async () => {
+    await render(<VoiceAttachmentCard uri="file:///a.m4a" durationMs={4000} waveform={PEAKS} />);
+    expect(screen.queryByLabelText('Open recording')).toBeNull();
+  });
+
+  it('opens from the card, labelled by place, without playing or removing', async () => {
+    const onOpen = jest.fn();
+    const onRemove = jest.fn();
+    await render(
+      <VoiceAttachmentCard
+        uri="file:///a.m4a"
+        durationMs={4000}
+        waveform={PEAKS}
+        index={2}
+        count={3}
+        onOpen={onOpen}
+        onRemove={onRemove}
+      />,
+    );
+    await fireEvent.press(screen.getByLabelText('Open voice note 2 of 3'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(mockPlayer.play).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it('keeps play and close working next to the open button', async () => {
+    const onOpen = jest.fn();
+    const onRemove = jest.fn();
+    await render(
+      <VoiceAttachmentCard
+        uri="file:///a.m4a"
+        durationMs={4000}
+        waveform={PEAKS}
+        onOpen={onOpen}
+        onRemove={onRemove}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Play recording'));
+    });
+    await fireEvent.press(screen.getByLabelText('Remove recording'));
+    expect(mockPlayer.play).toHaveBeenCalledTimes(1);
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

@@ -1051,6 +1051,43 @@ describe('several recordings on the page', () => {
     expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true, false]);
   });
 
+  it('shows the notes in a carousel above the date and title: dots only with several, no seek bar', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    const hidden = { includeHiddenElements: true };
+    expect(screen.getByTestId('entry-notes')).toContainElement(
+      screen.getByTestId('voice-note-carousel'),
+    );
+    expect(screen.queryByTestId('voice-note-dots', hidden)).toBeNull();
+    await recordNext(CACHE2, 2000);
+    await recordNext(CACHE3, 3000);
+    expect(screen.getAllByTestId('voice-note-dot', hidden)).toHaveLength(3);
+    expect(screen.queryByTestId('seek-bar')).toBeNull();
+    expect(screen.getByLabelText('Open voice note 2 of 3')).toBeTruthy();
+  });
+
+  it('tapping a card does nothing yet (no play, no removal)', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    mockPlayer.play.mockClear();
+    await fireEvent.press(screen.getByLabelText('Open recording'));
+    expect(mockPlayer.play).not.toHaveBeenCalled();
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(false);
+  });
+
+  it('closing a card updates the dots and undo restores it', async () => {
+    await renderPage();
+    await recordNext(CACHE, 1000);
+    await recordNext(CACHE2, 2000);
+    await recordNext(CACHE3, 3000);
+    const hidden = { includeHiddenElements: true };
+    await fireEvent.press(screen.getByLabelText('Remove voice note 3 of 3'));
+    expect(screen.getAllByTestId('voice-note-dot', hidden)).toHaveLength(2);
+    await press('Undo');
+    expect(screen.getAllByTestId('voice-note-dot', hidden)).toHaveLength(3);
+    expect(screen.getByLabelText('Play voice note 3 of 3')).toBeTruthy();
+  });
+
   it('an entry with 3 stored recordings shows 3 cards; closing one saves with only that name', async () => {
     await renderPage({ open: { dream: three, as: 'edit' } });
     expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(3);
