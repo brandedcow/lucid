@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { Alert, AlertButton, Keyboard, TextInput } from 'react-native';
+import { Alert, AlertButton, BackHandler, Keyboard, TextInput } from 'react-native';
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
 import { discardRecording, saveDream } from '../services/dreamStorage';
+import { shareRecording } from '../services/shareRecording';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
 import { Dream } from '../types/dream';
@@ -19,6 +20,11 @@ jest.mock('../services/dreamStorage', () => ({
   discardRecording: jest.fn(),
   recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   isIndexUnreadableError: () => false,
+}));
+
+jest.mock('../services/shareRecording', () => ({
+  ...jest.requireActual('../services/shareRecording'),
+  shareRecording: jest.fn(),
 }));
 
 const mockRec = {
@@ -97,6 +103,7 @@ function Harness({
       bodyBaseFrom={session.materializedFrom}
       knownTags={knownTags}
       date="Sunday, October 6"
+      entryCreatedAt={session.createdAt}
       saving={entry.saving}
       onSave={() => void entry.save('saved').then((ok) => ok && events.onSaved())}
       onBack={events.onBack}
@@ -143,6 +150,7 @@ beforeEach(() => {
   leaveRef.current = null;
   sessionApi = null;
   jest.mocked(saveDream).mockResolvedValue({ id: '1', createdAt: 'c' } as Dream);
+  jest.mocked(shareRecording).mockResolvedValue(undefined);
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -1168,5 +1176,234 @@ describe('notes and recording panel layout', () => {
     await act(async () => {});
     expect(screen.getByLabelText('Undo')).toBeTruthy();
     dismiss.mockRestore();
+  });
+});
+
+describe('the expanded voice note view', () => {
+  const press = async (label: string) => {
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+  };
+  const recordOne = async () => {
+    await renderPage();
+    await startRecording();
+    await stopRecording();
+  };
+  const sheet = () => screen.queryByTestId('voice-note-sheet');
+  let backHandlers: (() => boolean | null | undefined)[] = [];
+  beforeEach(() => {
+    backHandlers = [];
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
+      backHandlers.push(handler as () => boolean);
+      return { remove: () => void (backHandlers = backHandlers.filter((h) => h !== handler)) };
+    });
+  });
+
+  it('opens from a card with the title and a "mm:ss · Today, time" subtitle (stop time for a new note)', async () => {
+    await recordOne();
+    expect(sheet()).toBeNull();
+    await press('Open recording');
+    expect(sheet()).toBeTruthy();
+    expect(screen.getByText('Audio Recording')).toBeTruthy();
+    expect(screen.getByTestId('voice-note-subtitle').props.children).toMatch(
+      /^00:03 · Today, \d{1,2}:\d{2} [AP]M$/,
+    );
+  });
+
+  it('shows the entry date for a stored note', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await press('Open recording');
+    const text: string = screen.getByTestId('voice-note-subtitle').props.children;
+    expect(text.startsWith('00:12 · ')).toBe(true);
+    expect(text).not.toContain('Today');
+  });
+
+  it('opening pauses the card player that was playing', async () => {
+    await recordOne();
+    await press('Play recording');
+    expect(mockPlayer.play).toHaveBeenCalled();
+    mockPlayer.pause.mockClear();
+    await press('Open recording');
+    expect(mockPlayer.pause).toHaveBeenCalled();
+  });
+
+  it('keeps the very same page mounted (no remount) and out of the accessibility tree while open', async () => {
+    await recordOne();
+    const bodyBefore = screen.getByTestId('entry-body');
+    const titleBefore = screen.getByLabelText('Title');
+    await press('Open recording');
+    expect(screen.getByTestId('voice-note-sheet').props.accessibilityViewIsModal).toBe(true);
+    expect(screen.queryByLabelText('Title')).toBeNull();
+    expect(screen.getByTestId('entry-body', { hidden: true })).toBe(bodyBefore);
+    await press('Close voice note');
+    expect(screen.getByTestId('entry-body')).toBe(bodyBefore);
+    expect(screen.getByLabelText('Title')).toBe(titleBefore);
+  });
+
+  describe('keyboard', () => {
+    const body = () => screen.getByLabelText('Entry text', { hidden: true });
+    it('dismisses the keyboard when it opens', async () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss');
+      await recordOne();
+      await fireEvent(screen.getByLabelText('Entry text'), 'focus');
+      dismiss.mockClear();
+      await press('Open recording');
+      expect(dismiss).toHaveBeenCalledTimes(1);
+    });
+
+    // Keyboard.dismiss is a no-op in jest, so the blur it causes on a device is fired by hand.
+    it('the blur ends the typing step and hides the suggestion bar; closing neither refocuses nor remounts', async () => {
+      await renderPage({ knownTags: ['dream'] });
+      await startRecording();
+      await stopRecording();
+      const input = screen.getByLabelText('Entry text');
+      await fireEvent(input, 'focus');
+      await fireEvent.changeText(input, 'hello #dr');
+      await fireEvent(input, 'selectionChange', {
+        nativeEvent: { selection: { start: 9, end: 9 } },
+      });
+      await advance(600);
+      expect(screen.getByLabelText('Tag #dream')).toBeTruthy();
+      await press('Open recording');
+      await fireEvent(body(), 'blur');
+      expect(screen.queryByLabelText('Tag #dream', { hidden: true })).toBeNull();
+      await press('Close voice note');
+      // Closing brings neither the keyboard nor the bar back, and does not remount the body.
+      expect(screen.getByLabelText('Entry text')).toBe(input);
+      expect(screen.queryByLabelText('Tag #dream')).toBeNull();
+      expect(bodyText(input)).toBe('hello #dr');
+      // The typing was its own step.
+      await press('Undo');
+      // Undo remounts the body, so read the fresh element.
+      expect(bodyText(screen.getByLabelText('Entry text'))).toBe('');
+    });
+  });
+
+  it('the back arrow closes it and stops its own player', async () => {
+    await recordOne();
+    await press('Open recording');
+    mockPlayer.pause.mockClear();
+    await press('Close voice note');
+    expect(sheet()).toBeNull();
+    expect(mockPlayer.pause).toHaveBeenCalled();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+  });
+
+  it('Android back closes it first and does not reach the page', async () => {
+    await recordOne();
+    await press('Open recording');
+    expect(backHandlers).toHaveLength(1);
+    await act(async () => void backHandlers.at(-1)?.());
+    expect(sheet()).toBeNull();
+    expect(events.onBack).not.toHaveBeenCalled();
+    // Closed: its back handler is gone.
+    expect(backHandlers).toHaveLength(0);
+  });
+
+  it('the trash marks the note removed, closes the view, deletes nothing; Undo restores the card', async () => {
+    await recordOne();
+    await press('Open recording');
+    await press('Remove recording');
+    expect(sheet()).toBeNull();
+    expect(screen.queryByLabelText('Play recording')).toBeNull();
+    expect(sessionApi?.session?.recordings[0]).toMatchObject({ uri: CACHE, removed: true });
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(saveDream).not.toHaveBeenCalled();
+    await press('Undo');
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(false);
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    // Undoing does not reopen the view.
+    expect(sheet()).toBeNull();
+  });
+
+  it('the trash on a stored note marks it removed; nothing is deleted until a save sends removeRecordings', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await press('Open recording');
+    await press('Remove recording');
+    expect(sheet()).toBeNull();
+    expect(sessionApi?.session?.recordings[0]).toMatchObject({ removed: true });
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(saveDream).not.toHaveBeenCalled();
+    await act(async () => void (await sessionApi?.save('saved')));
+    expect(saveDream).toHaveBeenCalledWith(
+      expect.objectContaining({ id: '7', removeRecordings: ['7.m4a'] }),
+    );
+  });
+
+  it('labels the trash like the card when there are several notes', async () => {
+    await recordOne();
+    mockRec.stop.mockResolvedValue({ uri: CACHE2, durationMs: 5000 });
+    await startRecording();
+    await stopRecording();
+    await press('Open voice note 2 of 2');
+    expect(screen.getByLabelText('Remove voice note 2 of 2')).toBeTruthy();
+    await press('Remove voice note 2 of 2');
+    expect(sessionApi?.session?.recordings.map((r) => r.removed)).toEqual([false, true]);
+  });
+
+  it('trash and share are disabled while a save is in flight', async () => {
+    await recordOne();
+    await fireEvent.changeText(screen.getByLabelText('Title'), 'Voice');
+    await press('Open recording');
+    jest.mocked(saveDream).mockReturnValue(new Promise(() => {}));
+    await act(async () => void sessionApi?.save('saved'));
+    expect(screen.getByLabelText('Remove recording').props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByLabelText('Share voice note').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('trash and share are disabled while the recording panel is open', async () => {
+    await recordOne();
+    await openPanel();
+    await press('Open recording');
+    expect(sheet()).toBeTruthy();
+    expect(screen.getByLabelText('Remove recording').props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByLabelText('Share voice note').props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByLabelText('Play audio recording').props.accessibilityState.disabled).toBe(
+      true,
+    );
+  });
+
+  it('shares the cache uri of an unsaved note and changes nothing', async () => {
+    await recordOne();
+    await press('Open recording');
+    await press('Share voice note');
+    expect(shareRecording).toHaveBeenCalledWith(CACHE);
+    expect(sheet()).toBeTruthy();
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(saveDream).not.toHaveBeenCalled();
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(false);
+  });
+
+  it('shares the stored file uri of a stored note', async () => {
+    await renderPage({ open: { dream: stored, as: 'edit' } });
+    await press('Open recording');
+    await press('Share voice note');
+    expect(shareRecording).toHaveBeenCalledWith('file:///document/dreams/7.m4a');
+    expect(discardRecording).not.toHaveBeenCalled();
+  });
+
+  it('a share failure shows a quiet alert and nothing else', async () => {
+    jest.mocked(shareRecording).mockRejectedValue(new Error('no'));
+    await recordOne();
+    await press('Open recording');
+    await press('Share voice note');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Could not share',
+      'This voice note could not be shared.',
+    );
+    expect(sheet()).toBeTruthy();
+    expect(sessionApi?.session?.recordings[0]?.removed).toBe(false);
+  });
+
+  it('closes when its note disappears from under it', async () => {
+    await recordOne();
+    await press('Open recording');
+    const id = sessionApi?.session?.recordings[0]?.id ?? '';
+    await act(async () => sessionApi?.removeRecording(id));
+    expect(sheet()).toBeNull();
+    // Restoring it does not reopen the view.
+    await act(async () => sessionApi?.restoreRecording(id));
+    expect(sheet()).toBeNull();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
   });
 });

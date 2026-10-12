@@ -279,6 +279,16 @@ describe('App voice entry', () => {
   });
 
   describe('editing a saved entry', () => {
+    it("the expanded view of a stored note shows the entry's date (not Today)", async () => {
+      __fs.put(
+        `${DOC}/dreams.json`,
+        JSON.stringify([{ ...WITH_AUDIO, createdAt: '2020-03-05T12:00:00' }]),
+      );
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Open recording'));
+      expect(screen.getByTestId('voice-note-subtitle').props.children).toBe('00:09 · Mar 5, 2020');
+    });
+
     it('shows its audio in a playable card with a close button, and saving keeps the file', async () => {
       await openEdit(/Thankful for tea/);
       expect(byLabel('Play recording')).toBeTruthy();

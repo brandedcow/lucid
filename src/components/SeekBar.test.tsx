@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { View } from 'react-native';
 import { SEEK_HIT_HEIGHT, SeekBar, shouldClaimDrag } from './SeekBar';
 
 describe('shouldClaimDrag', () => {
@@ -167,5 +168,68 @@ describe('SeekBar', () => {
       bar.props.onAccessibilityAction({ nativeEvent: { actionName: 'decrement' } }),
     );
     expect(onStep).toHaveBeenLastCalledWith(-5);
+  });
+
+  describe('waveHeight', () => {
+    const flat = (el: { props: { style?: unknown } }) =>
+      Object.assign({}, ...[el.props.style].flat(Infinity).filter(Boolean)) as Record<
+        string,
+        unknown
+      >;
+    const PEAKS = [1, 0.5, 0.25];
+
+    it('defaults to 40pt hit and press areas with bars up to 32', async () => {
+      const { bar } = await setup({ peaks: PEAKS });
+      expect(flat(bar).height).toBe(40);
+      expect(flat(screen.getByTestId('seek-press')).height).toBe(40);
+      const heights = screen.getAllByTestId('wave-bar').map((b) => flat(b).height);
+      expect(heights).toEqual([32, 16, 8]);
+    });
+
+    it('96 gives bars up to 96 and a 96pt hit and press area (a tap anywhere over the wave seeks)', async () => {
+      const { bar, onSeek } = await setup({ peaks: PEAKS, waveHeight: 96 });
+      expect(flat(bar).height).toBe(96);
+      expect(flat(screen.getByTestId('seek-press')).height).toBe(96);
+      expect(screen.getAllByTestId('wave-bar').map((b) => flat(b).height)).toEqual([96, 48, 24]);
+      // The press element is what is tapped, so the whole 96pt is the target.
+      await fireEvent.press(screen.getByTestId('seek-press'), { nativeEvent: { locationX: 100 } });
+      expect(onSeek).toHaveBeenCalledWith(0.5);
+    });
+
+    it('a small waveHeight keeps the 40pt minimum hit area', async () => {
+      const { bar } = await setup({ peaks: PEAKS, waveHeight: 20 });
+      expect(flat(bar).height).toBe(40);
+      expect(flat(screen.getByTestId('seek-press')).height).toBe(40);
+      expect(screen.getAllByTestId('wave-bar').map((b) => flat(b).height)).toEqual([20, 10, 5]);
+    });
+
+    it('children sit in the press area, ignore touches and change nothing about tap or scrub', async () => {
+      const { bar, onSeek, scrub } = await setup({
+        waveHeight: 96,
+        children: <View testID="playhead-child" />,
+      });
+      const child = screen.getByTestId('playhead-child');
+      expect(screen.getByTestId('seek-press')).toContainElement(child);
+      expect(child.parent?.props.pointerEvents).toBe('none');
+      await fireEvent.press(screen.getByTestId('seek-press'), { nativeEvent: { locationX: 50 } });
+      expect(onSeek).toHaveBeenCalledWith(0.25);
+      await act(async () => bar.props.onResponderGrant(touch(60, 50, 60)));
+      expect(scrub.begin).toHaveBeenCalledWith(0.3);
+    });
+
+    it('has identical accessibility with and without waveHeight', async () => {
+      const a11y = (el: { props: Record<string, unknown> }) => ({
+        role: el.props.accessibilityRole,
+        label: el.props.accessibilityLabel,
+        value: el.props.accessibilityValue,
+        actions: el.props.accessibilityActions,
+        state: el.props.accessibilityState,
+      });
+      const { bar } = await setup();
+      const before = a11y(bar);
+      await screen.unmount();
+      const { bar: tall } = await setup({ waveHeight: 96 });
+      expect(a11y(tall)).toEqual(before);
+    });
   });
 });

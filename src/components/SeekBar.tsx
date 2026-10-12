@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import {
   AccessibilityActionEvent,
   GestureResponderEvent,
@@ -96,6 +96,10 @@ type Props = {
   /** Spoken value, e.g. "0:12 of 0:48". */
   valueText: string;
   style?: StyleProp<ViewStyle>;
+  /** Height of the tallest waveform bar (default 32). The touch area is at least this tall. */
+  waveHeight?: number;
+  /** Drawn over the bar and ignored by touches (e.g. a playhead). Positioned by the caller. */
+  children?: ReactNode;
 };
 
 /**
@@ -112,7 +116,10 @@ export function SeekBar({
   label,
   valueText,
   style,
+  waveHeight = WAVE_HEIGHT,
+  children,
 }: Props) {
+  const hitHeight = Math.max(SEEK_HIT_HEIGHT, waveHeight);
   // The gesture handlers are created once; the model reads the newest props through `sync`.
   const [model] = useState(() => new SeekModel(scrub, disabled));
   useEffect(() => {
@@ -134,7 +141,7 @@ export function SeekBar({
   return (
     <View
       testID="seek-bar"
-      style={[styles.hit, style]}
+      style={[styles.hit, { height: hitHeight }, style]}
       accessible
       accessibilityRole="adjustable"
       accessibilityLabel={label}
@@ -156,10 +163,10 @@ export function SeekBar({
         onLayout={(e: LayoutChangeEvent) => {
           model.setWidth(e.nativeEvent.layout.width);
         }}
-        style={styles.press}
+        style={[styles.press, { height: hitHeight }]}
       >
         {peaks ? (
-          <View style={styles.wave} pointerEvents="none">
+          <View style={[styles.wave, { height: waveHeight }]} pointerEvents="none">
             {peaks.map((peak, i) => (
               <View
                 key={i}
@@ -167,7 +174,7 @@ export function SeekBar({
                 pointerEvents="none"
                 style={[
                   styles.waveBar,
-                  { height: Math.max(3, peak * WAVE_HEIGHT) },
+                  { height: Math.max(3, peak * waveHeight) },
                   (i + 0.5) / peaks.length <= progress ? styles.barFilled : styles.barEmpty,
                 ]}
               />
@@ -182,15 +189,20 @@ export function SeekBar({
             />
           </View>
         )}
+        {children && (
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            {children}
+          </View>
+        )}
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  hit: { minHeight: SEEK_HIT_HEIGHT, justifyContent: 'center' },
-  press: { minHeight: SEEK_HIT_HEIGHT, justifyContent: 'center' },
-  wave: { flexDirection: 'row', alignItems: 'center', gap: 2, height: WAVE_HEIGHT },
+  hit: { justifyContent: 'center' },
+  press: { justifyContent: 'center' },
+  wave: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   waveBar: { flex: 1, borderRadius: 2 },
   barFilled: { backgroundColor: colors.accent },
   barEmpty: { backgroundColor: colors.border },

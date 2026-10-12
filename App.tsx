@@ -655,6 +655,7 @@ export default function App() {
             body={entry.session.body}
             onBodyChange={entry.setBody}
             bodyBaseFrom={entry.session.materializedFrom}
+            entryCreatedAt={entry.session.createdAt}
             knownTags={knownTags}
             date={entryDate}
             saving={entry.saving}

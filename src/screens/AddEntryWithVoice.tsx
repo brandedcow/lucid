@@ -1,9 +1,10 @@
-import { Keyboard, Platform } from 'react-native';
+import { Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { EntryToolbar } from '../components/EntryToolbar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceNoteCarousel } from '../components/VoiceNoteCarousel';
+import { VoiceNoteSheet } from '../components/VoiceNoteSheet';
 import { SessionRecording } from '../hooks/useEntrySession';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { useEntryHistory } from '../hooks/useEntryHistory';
@@ -24,8 +25,13 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  *   VoiceAttachmentCard per visible recording, in a horizontal VoiceNoteCarousel (next card peeking,
  *   page dots; one note is full width) above the date in the page flow (no cap; it scrolls with the
  *   title and body), labelled "voice note N of M" when there are several. Cards are not seekable;
- *   tapping one is a no-op for now (the expanded view comes later). Only one card plays at a time
+ *   tapping one opens the expanded view (VoiceNoteSheet, a full-screen overlay of this page, not a
+ *   route; opening it pauses the card's player; its trash is the card's undoable close, then it
+ *   closes; it also closes if its note disappears, e.g. by undo). Only one card plays at a time
  *   (useRecordingPlayback); starting the mic stops playback.
+ * - entryCreatedAt: ISO date of the stored entry, shown as the recorded time of a STORED note in the
+ *   expanded view (a new note uses the time its recording stopped). Optional; without it a stored
+ *   note's subtitle has no time.
  * - onRecorded: a recording stopped; the parent appends it to the recordings (no cap; the mic stays
  *   available).
  * - onRemoveRecording: a card's close button (by recording id), for a new recording and a stored
@@ -87,6 +93,7 @@ export type AddEntryWithVoiceProps = Omit<
   onRecordingDiscarded?: () => void;
   bodyBaseFrom?: string;
   knownTags?: readonly string[];
+  entryCreatedAt?: string;
 };
 
 const NO_TAGS: readonly string[] = [];
@@ -102,6 +109,7 @@ export function AddEntryWithVoice({
   onRecordingDiscarded,
   bodyBaseFrom,
   knownTags = NO_TAGS,
+  entryCreatedAt,
   journal = BUILT_IN_JOURNALS[0] as Journal,
   saving = false,
   body,
@@ -207,14 +215,37 @@ export function AddEntryWithVoice({
   // toolbar is not rendered, so it needs no recording state.)
   const micDisabled = saving;
 
+  // The expanded view: which note is open and the recorded time it shows (fixed when opened).
+  const [open, setOpen] = useState<{ id: string; recordedAt: Date | null } | null>(null);
+  // When each new recording stopped (by its cache uri).
+  const stoppedAt = useRef(new Map<string, Date>());
+  const openIndex = open ? shown.findIndex((r) => r.id === open.id) : -1;
+  // The note is gone (undo hid it, or it was removed): close the view.
+  if (open && openIndex < 0) setOpen(null);
+  const openNote = (id: string) => {
+    const note = shown.find((r) => r.id === id);
+    if (!note) return;
+    // The card's player pauses; the view plays from its own.
+    stopAllPlayback();
+    // A focused body would keep the keyboard over the view; blurring it also ends the typing step
+    // and hides the suggestion bar. Closing the view does not bring the keyboard back.
+    Keyboard.dismiss();
+    const at = note.persisted
+      ? entryCreatedAt
+        ? new Date(entryCreatedAt)
+        : null
+      : (stoppedAt.current.get(note.uri) ?? new Date());
+    setOpen({ id, recordedAt: at });
+  };
+  const sheetNote = open && openIndex >= 0 ? shown[openIndex] : null;
+
   const attachment =
     shown.length > 0 ? (
       <VoiceNoteCarousel
         notes={shown}
         playDisabled={recording}
         onRemove={!saving ? (id) => history.onRemoveRecording(id) : undefined}
-        // Placeholder until the expanded voice note view exists.
-        onOpen={() => {}}
+        onOpen={openNote}
       />
     ) : undefined;
 
@@ -226,6 +257,7 @@ export function AddEntryWithVoice({
         setRecording(false);
         // A new note is not undoable; typing ends as a step first.
         history.onRecordingAttached();
+        stoppedAt.current.set(rec.uri, new Date());
         onRecorded(rec);
       }}
       onClosed={() => setRecording(false)}
@@ -254,7 +286,7 @@ export function AddEntryWithVoice({
     />
   );
 
-  return (
+  const screen = (
     <AddEntryScreen
       {...page}
       body={body}
@@ -280,4 +312,36 @@ export function AddEntryWithVoice({
       toolbar={toolbar}
     />
   );
+
+  // One stable tree, so opening the view never remounts the page.
+  return (
+    <View style={styles.root}>
+      {/* The page stays mounted but is out of reach for screen readers while the view is open. */}
+      <View
+        style={styles.root}
+        accessibilityElementsHidden={sheetNote !== null}
+        importantForAccessibility={sheetNote ? 'no-hide-descendants' : 'auto'}
+      >
+        {screen}
+      </View>
+      {sheetNote && (
+        <VoiceNoteSheet
+          key={sheetNote.id}
+          note={sheetNote}
+          index={openIndex + 1}
+          count={shown.length}
+          recordedAt={open?.recordedAt ?? null}
+          busy={saving || recording}
+          playDisabled={recording}
+          onClose={() => setOpen(null)}
+          onRemove={(id) => {
+            history.onRemoveRecording(id);
+            setOpen(null);
+          }}
+        />
+      )}
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({ root: { flex: 1 } });
