@@ -31,10 +31,10 @@ npm run format       # apply Prettier
 ## Structure
 
 ```
-App.tsx              entry; switches between Today, the journals, the Dream log, Add entry, Search, Settings and Dream entry screens
+App.tsx              entry; switches between Today, the journals, the Dream log, Add entry, Search and Settings screens
 src/
-  screens/           TodayScreen, AddEntryScreen, AddEntryWithVoice, DreamLogScreen, DreamDetailScreen, JournalsScreen, SearchScreen, SettingsScreen
-  components/        RecordingPanel, RecordingPlayer, VoiceAttachmentCard, JournalPicker, TaggedBodyInput, TagSuggestionBar, EntryToolbar, EmotionInput, DreamChips, EntryRow, and others
+  screens/           TodayScreen, AddEntryScreen, AddEntryWithVoice, DreamLogScreen, JournalsScreen, SearchScreen, SettingsScreen
+  components/        RecordingPanel, VoiceNoteCarousel, VoiceAttachmentCard, VoiceNoteSheet, JournalPicker, TaggedBodyInput, TagSuggestionBar, EntryToolbar, EmotionInput, DreamChips, EntryRow, and others
   hooks/             useDreamRecorder, useEntrySession, useEntryHistory, useRecordingPlayback, useKeyboardInset, useDreamLibrary, useJournals, useToday, useLogView, useSettings
   services/          dreamStorage (local audio files + dreams.json), journalStorage, settingsStorage, dayMarker
   utils/             format, tags, inlineTags, tagSuggestions, emotions, capitalizeFirst, dreamLog, paragraphs, sessionNavigation, journals, today, waveform

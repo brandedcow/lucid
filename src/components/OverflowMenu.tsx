@@ -3,28 +3,26 @@ import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
 
 /**
- * A "..." button with an Edit / Delete menu.
+ * A "..." button with a Delete menu.
  *
  * Render it as the LAST child of a full-screen container whose top bar has `paddingTop:
  * spacing.sm` and `paddingHorizontal: spacing.lg`: it covers that container (so the backdrop
  * catches taps anywhere) and puts the button at the top-right of the bar. The menu is an
  * in-screen overlay, not a Modal, so an Alert opened right after picking an item still shows on iOS.
  *
- * - onEdit and onDelete are both optional; the menu shows only the items it is given (the add-entry
- *   page gives only onDelete).
+ * - onDelete is optional; the menu shows only the items it is given (the add-entry page gives only
+ *   onDelete).
  * - top / right: where the button sits (default: the bar of a screen with its own top bar at the
  *   edge; the add-entry page puts it left of its check). The card follows the button.
  * - disabled: items are disabled and the menu closes (the screen is busy deleting).
- * - deleteDisabled: only the Delete item is disabled and dimmed (default false); Edit and the
- *   button stay usable.
+ * - deleteDisabled: only the Delete item is disabled and dimmed (default false); the button stays
+ *   usable.
  */
 type Props = {
-  onEdit?: () => void;
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
-  /** Wording for the item labels; defaults to the Dream wording ("Edit dream" / "Delete dream"). */
-  editLabel?: string;
+  /** Wording for the item label; defaults to the Dream wording ("Delete dream"). */
   deleteLabel?: string;
   /** The visible text of the Delete item; defaults to "Delete". */
   deleteText?: string;
@@ -34,11 +32,9 @@ type Props = {
 };
 
 export function OverflowMenu({
-  onEdit,
   onDelete,
   disabled = false,
   deleteDisabled = false,
-  editLabel = 'Edit dream',
   deleteLabel = 'Delete dream',
   deleteText = 'Delete',
   top = BAR_TOP,
@@ -89,18 +85,6 @@ export function OverflowMenu({
             style={styles.backdrop}
           />
           <View testID="overflow-menu-card" style={[styles.card, { top: top + 44, right }]}>
-            {onEdit && (
-              <Pressable
-                accessibilityRole="menuitem"
-                accessibilityLabel={editLabel}
-                accessibilityState={{ disabled }}
-                disabled={disabled}
-                onPress={() => pick(onEdit)}
-                style={styles.item}
-              >
-                <Text style={styles.itemText}>Edit</Text>
-              </Pressable>
-            )}
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"
