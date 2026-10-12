@@ -204,7 +204,18 @@ export type NewRecording = {
   durationMs: number;
   /** Loudness peaks (0..1); an invalid list is dropped (the recording still saves). */
   waveform?: number[];
+  /** On-device transcript of the recording (trimmed, capped); a non-string is dropped. '' is kept. */
+  voiceTranscript?: string;
 };
+
+/** Longest stored `voiceTranscript` (characters); a longer text is cut to this length. */
+export const MAX_VOICE_TRANSCRIPT_LENGTH = 20000;
+
+/** A valid stored transcript (trimmed, capped), or undefined for a non-string. '' stays ''. */
+function cleanVoiceTranscript(text: unknown): string | undefined {
+  if (typeof text !== 'string') return undefined;
+  return text.trim().slice(0, MAX_VOICE_TRANSCRIPT_LENGTH).trimEnd();
+}
 
 export type SaveDreamInput = {
   /** Existing dream to update. Omit to create one. */
@@ -232,6 +243,13 @@ export type SaveDreamInput = {
    * after the index is written without it (CLAUDE.md deletion case 5).
    */
   removeRecordings?: string[];
+  /**
+   * Sets or replaces the `voiceTranscript` of stored recordings of this entry, by file name. Every
+   * name must belong to the entry, else the save throws before anything changes (same as
+   * `removeRecordings`); a name also being removed in this call is skipped. A non-string text is
+   * ignored. Metadata only: no file is touched.
+   */
+  recordingTexts?: { fileName: string; text: string }[];
   details: DreamDetails;
   /** 'saved' needs a title; 'draft' does not. */
   status: 'draft' | 'saved';
@@ -284,8 +302,21 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       }
       removeNames.add(name);
     }
+    const texts = new Map<string, string>();
+    for (const { fileName, text } of input.recordingTexts ?? []) {
+      if (!current.some((r) => r.fileName === fileName)) {
+        throw new Error('That recording does not belong to this entry');
+      }
+      const clean = cleanVoiceTranscript(text);
+      if (clean !== undefined) texts.set(fileName, clean);
+    }
     const removed = current.filter((r) => removeNames.has(r.fileName));
-    const kept = current.filter((r) => !removeNames.has(r.fileName));
+    const kept = current
+      .filter((r) => !removeNames.has(r.fileName))
+      .map((r) => (texts.has(r.fileName) ? { ...r, voiceTranscript: texts.get(r.fileName) } : r));
+    const textsChanged = current.some(
+      (r) => texts.has(r.fileName) && texts.get(r.fileName) !== r.voiceTranscript,
+    );
 
     // The recordings to copy in. The single-recording input only counts when none is kept.
     const additions: NewRecording[] = [];
@@ -339,10 +370,12 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
         copies.push(destination);
         referenced.add(name);
         const waveform = sanitizeWaveform(add.waveform);
+        const voiceTranscript = cleanVoiceTranscript(add.voiceTranscript);
         added.push({
           fileName: name,
           durationMs: Number.isFinite(add.durationMs) ? add.durationMs : 0,
           ...(waveform ? { waveform } : {}),
+          ...(voiceTranscript !== undefined ? { voiceTranscript } : {}),
         });
       }
     }
@@ -360,7 +393,7 @@ export async function saveDream(input: SaveDreamInput): Promise<Dream> {
       title,
       tags: details.tags,
     };
-    if (removed.length > 0 || added.length > 0) {
+    if (removed.length > 0 || added.length > 0 || textsChanged) {
       // The recordings changed: the list becomes the truth (a legacy entry converts here) and its
       // first recording is mirrored into the legacy fields for older builds.
       const list = [...kept, ...added];

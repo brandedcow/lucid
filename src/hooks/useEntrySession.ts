@@ -36,6 +36,10 @@ export type SessionRecording = {
   durationMs: number;
   /** Loudness peaks (0..1) for the card; absent on old entries. */
   waveform?: number[];
+  /** On-device transcript of this recording; absent = none, '' = transcribed, nothing heard. */
+  voiceTranscript?: string;
+  /** The transcript as stored (set when `persisted`), to tell whether it changed. */
+  baseVoiceTranscript?: string;
 };
 
 let recordingCounter = 0;
@@ -90,6 +94,7 @@ export type EntrySessionAction =
       id: string;
       recording: { uri: string; durationMs: number; waveform?: number[] };
     }
+  | { type: 'setRecordingTranscript'; id: string; text: string }
   | { type: 'removeRecording'; id: string }
   | { type: 'restoreRecording'; id: string }
   | {
@@ -97,7 +102,7 @@ export type EntrySessionAction =
       id: string;
       createdAt: string;
       /** The saved entry's recordings, in order (from `recordingsOf`), with their playable URIs. */
-      stored?: { uri: string; fileName: string }[];
+      stored?: { uri: string; fileName: string; voiceTranscript?: string }[];
     }
   | { type: 'clear' };
 
@@ -147,6 +152,17 @@ export function entrySessionReducer(
       };
       return { ...state, recordings: [...state.recordings, next] };
     }
+    case 'setRecordingTranscript': {
+      // Not an undo step (the page's history covers the body only).
+      const target = state.recordings.find((r) => r.id === action.id);
+      if (!target || target.voiceTranscript === action.text) return state;
+      return {
+        ...state,
+        recordings: state.recordings.map((r) =>
+          r.id === action.id ? { ...r, voiceTranscript: action.text } : r,
+        ),
+      };
+    }
     case 'removeRecording':
     case 'restoreRecording': {
       // Closing only marks the recording; nothing is deleted here. A stored recording's file goes
@@ -169,7 +185,16 @@ export function entrySessionReducer(
       survivors.forEach((r, i) => {
         const saved = stored[i];
         if (!saved) return;
-        recordings.push({ ...r, uri: saved.uri, fileName: saved.fileName, persisted: true });
+        const { baseVoiceTranscript: _old, ...rest } = r;
+        recordings.push({
+          ...rest,
+          uri: saved.uri,
+          fileName: saved.fileName,
+          persisted: true,
+          ...(saved.voiceTranscript !== undefined
+            ? { voiceTranscript: saved.voiceTranscript, baseVoiceTranscript: saved.voiceTranscript }
+            : {}),
+        });
       });
       return { ...state, id: action.id, createdAt: action.createdAt, recordings };
     }
@@ -199,6 +224,9 @@ export function entrySessionFromDream(dream: Dream, origin: 'draft' | 'edit'): E
     fileName: r.fileName,
     durationMs: r.durationMs,
     ...(r.waveform ? { waveform: r.waveform } : {}),
+    ...(r.voiceTranscript !== undefined
+      ? { voiceTranscript: r.voiceTranscript, baseVoiceTranscript: r.voiceTranscript }
+      : {}),
     persisted: true,
     removed: false,
   }));
@@ -260,8 +288,16 @@ export function entryHasEdits(session: EntrySession): boolean {
   if (!baseline) return false;
   if (hasPendingAudioRemoval(session)) return true;
   if (visibleRecordings(session).some((r) => !r.persisted)) return true;
+  if (visibleRecordings(session).some(changedTranscript)) return true;
   return (
     session.title.trim() !== baseline.title.trim() || session.body.trim() !== baseline.body.trim()
+  );
+}
+
+/** True for a visible stored recording whose transcript differs from the stored one. */
+function changedTranscript(r: SessionRecording): boolean {
+  return (
+    r.persisted && r.voiceTranscript !== undefined && r.voiceTranscript !== r.baseVoiceTranscript
   );
 }
 
@@ -311,6 +347,8 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
       setBody: (value: string) => dispatch({ type: 'setBody', value }),
       attachRecording: (recording: { uri: string; durationMs: number; waveform?: number[] }) =>
         dispatch({ type: 'attachRecording', id: newRecordingId(), recording }),
+      setRecordingTranscript: (id: string, text: string) =>
+        dispatch({ type: 'setRecordingTranscript', id, text }),
       removeRecording: (id: string) => dispatch({ type: 'removeRecording', id }),
       restoreRecording: (id: string) => dispatch({ type: 'restoreRecording', id }),
       /**
@@ -351,6 +389,9 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
       // Closed new recordings are not saved; their cache files go after the save succeeds.
       const added = visibleRecordings(current).filter((r) => !r.persisted);
       const removals = pendingRemovals(current);
+      const texts = visibleRecordings(current)
+        .filter(changedTranscript)
+        .map((r) => ({ fileName: r.fileName as string, text: r.voiceTranscript as string }));
       const dream = await saveDream({
         ...(current.id ? { id: current.id } : {}),
         // New recordings are copied in (with their waveforms); a reopened entry's are already stored.
@@ -360,9 +401,12 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
                 uri: r.uri,
                 durationMs: r.durationMs,
                 ...(r.waveform ? { waveform: r.waveform } : {}),
+                ...(r.voiceTranscript !== undefined ? { voiceTranscript: r.voiceTranscript } : {}),
               })),
             }
           : {}),
+        // Changed transcripts of kept stored recordings (a closed one goes with its recording).
+        ...(texts.length > 0 ? { recordingTexts: texts } : {}),
         // Stored recordings the user closed are forgotten by this save (an explicit Done or Save
         // draft; back never saves), only those. Their files are deleted by the storage layer
         // after the commit.
@@ -387,7 +431,11 @@ export function useEntrySession(journals: readonly Journal[] = BUILT_IN_JOURNALS
         type: 'markSaved',
         id: dream.id,
         createdAt: dream.createdAt,
-        stored: recordingsOf(dream).map((r) => ({ uri: recordingUri(r), fileName: r.fileName })),
+        stored: recordingsOf(dream).map((r) => ({
+          uri: recordingUri(r),
+          fileName: r.fileName,
+          ...(r.voiceTranscript !== undefined ? { voiceTranscript: r.voiceTranscript } : {}),
+        })),
       });
       return true;
     } catch (e) {

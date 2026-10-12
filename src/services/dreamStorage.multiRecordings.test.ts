@@ -1,6 +1,12 @@
 import * as fakeFs from '../test/fakeFileSystem';
 import { Dream, recordingsOf } from '../types/dream';
-import { deleteDream, listDreams, resetCorruptCopyGuard, saveDream } from './dreamStorage';
+import {
+  MAX_VOICE_TRANSCRIPT_LENGTH,
+  deleteDream,
+  listDreams,
+  resetCorruptCopyGuard,
+  saveDream,
+} from './dreamStorage';
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
@@ -356,5 +362,153 @@ describe('loading with recordings', () => {
     expect(loaded.recordings![0]).toEqual({ fileName: 'a.m4a', durationMs: 1 });
     expect(loaded.recordings![1].waveform).toEqual(PEAKS);
     expect(JSON.parse(__fs.read(INDEX)!)[0]).toEqual(raw);
+  });
+});
+
+describe('voiceTranscript', () => {
+  const withText = (id: string) =>
+    multi(id, ['x.m4a', 'y.m4a']).recordings!.map((r, i) => ({
+      ...r,
+      ...(i === 0 ? { voiceTranscript: 'hello there' } : {}),
+    }));
+
+  it('round-trips with addRecordings (trimmed; "" kept; non-string dropped) and is not mirrored', async () => {
+    ['a.m4a', 'b.m4a', 'c.m4a'].forEach(put);
+    const saved = await saveDream({
+      details: { title: 'T', tags: [] },
+      status: 'saved',
+      addRecordings: [
+        { uri: cache('a.m4a'), durationMs: 1, voiceTranscript: '  spoken words \n' },
+        { uri: cache('b.m4a'), durationMs: 2, voiceTranscript: '' },
+        { uri: cache('c.m4a'), durationMs: 3, voiceTranscript: 5 as unknown as string },
+      ],
+    });
+    expect(saved.recordings!.map((r) => r.voiceTranscript)).toEqual([
+      'spoken words',
+      '',
+      undefined,
+    ]);
+    expect('voiceTranscript' in saved.recordings![2]).toBe(false);
+    expect(saved).not.toHaveProperty('voiceTranscript');
+    expect(saved.audioFileName).toBe(saved.recordings![0].fileName);
+    const [listed] = await listDreams();
+    expect(recordingsOf(listed).map((r) => r.voiceTranscript)).toEqual([
+      'spoken words',
+      '',
+      undefined,
+    ]);
+    expect(stored()[0].transcript).toBeUndefined();
+  });
+
+  it('old records without the field read as before and survive an unrelated save', async () => {
+    const e = multi('1001', ['x.m4a']);
+    const legacy = entry('1002', { audioFileName: 'l.m4a', durationMs: 900 });
+    seed([e, legacy]);
+    expect(recordingsOf(e)[0]).toEqual({ fileName: 'x.m4a', durationMs: 1000 });
+    expect(recordingsOf(legacy)).toEqual([{ fileName: 'l.m4a', durationMs: 900 }]);
+    await save(e);
+    expect(stored()[0].recordings).toEqual(e.recordings);
+    expect(stored()[1]).toEqual(legacy);
+  });
+
+  it('recordingTexts sets, replaces and clears to "" without touching audio or the mirror', async () => {
+    const e = multi('1001', ['x.m4a', 'y.m4a']);
+    seed([e]);
+    const first = await save(e, { recordingTexts: [{ fileName: 'y.m4a', text: ' one ' }] });
+    expect(recordingsOf(first).map((r) => r.voiceTranscript)).toEqual([undefined, 'one']);
+    const second = await save(e, {
+      recordingTexts: [
+        { fileName: 'y.m4a', text: '' },
+        { fileName: 'x.m4a', text: 'two' },
+      ],
+    });
+    expect(recordingsOf(second).map((r) => r.voiceTranscript)).toEqual(['two', '']);
+    expect(second.audioFileName).toBe('x.m4a');
+    expect(second).not.toHaveProperty('voiceTranscript');
+    expect(__fs.has(audio('x.m4a')) && __fs.has(audio('y.m4a'))).toBe(true);
+    // An unrelated save keeps the text.
+    const third = await save(e);
+    expect(recordingsOf(third).map((r) => r.voiceTranscript)).toEqual(['two', '']);
+  });
+
+  it('recordingTexts converts a legacy entry to a list and caps the length', async () => {
+    const legacy = entry('1001', { audioFileName: 'l.m4a', durationMs: 900 });
+    seed([legacy]);
+    const saved = await save(legacy, {
+      recordingTexts: [{ fileName: 'l.m4a', text: 'a'.repeat(MAX_VOICE_TRANSCRIPT_LENGTH + 50) }],
+    });
+    expect(saved.recordings).toHaveLength(1);
+    expect(saved.recordings![0].voiceTranscript).toHaveLength(MAX_VOICE_TRANSCRIPT_LENGTH);
+    expect(saved.audioFileName).toBe('l.m4a');
+    expect(saved.durationMs).toBe(900);
+  });
+
+  it('recordingTexts ignores a non-string text, and throws on an unknown name before changing anything', async () => {
+    const e = multi('1001', ['x.m4a'], { recordings: withText('1001').slice(0, 1) });
+    seed([e]);
+    const same = await save(e, {
+      recordingTexts: [{ fileName: 'x.m4a', text: 7 as unknown as string }],
+    });
+    expect(recordingsOf(same)[0].voiceTranscript).toBe('hello there');
+    const before = __fs.read(INDEX);
+    await expect(
+      save(e, {
+        recordingTexts: [
+          { fileName: 'x.m4a', text: 'new' },
+          { fileName: 'nope.m4a', text: 'zzz' },
+        ],
+      }),
+    ).rejects.toThrow('does not belong');
+    expect(__fs.read(INDEX)).toBe(before);
+  });
+
+  it('removing a recording drops its text, and the backup is scrubbed too', async () => {
+    const e = multi('1001', ['x.m4a', 'y.m4a'], { recordings: withText('1001') });
+    seed([e]);
+    await save(e, { removeRecordings: ['x.m4a'] });
+    expect(stored()[0].recordings).toEqual([{ fileName: 'y.m4a', durationMs: 2000 }]);
+    expect(__fs.read(INDEX)).not.toContain('hello there');
+    expect(__fs.read(BAK)).not.toContain('hello there');
+    expect(__fs.has(audio('x.m4a'))).toBe(false);
+  });
+
+  it('a text for a recording removed in the same call is skipped; deleting the entry removes it', async () => {
+    const e = multi('1001', ['x.m4a', 'y.m4a'], { recordings: withText('1001') });
+    seed([e]);
+    const saved = await save(e, {
+      removeRecordings: ['y.m4a'],
+      recordingTexts: [{ fileName: 'y.m4a', text: 'gone' }],
+    });
+    expect(recordingsOf(saved).map((r) => r.voiceTranscript)).toEqual(['hello there']);
+    await deleteDream(e.id);
+    expect(__fs.read(INDEX)).not.toContain('hello there');
+  });
+
+  it('rolls back when the index write fails after a text-only change', async () => {
+    const e = multi('1001', ['x.m4a'], { recordings: withText('1001').slice(0, 1) });
+    seed([e]);
+    const before = __fs.read(INDEX);
+    __fs.failWhen('write', (uri) => uri === INDEX, new Error('no space'));
+    await expect(
+      save(e, { recordingTexts: [{ fileName: 'x.m4a', text: 'changed' }] }),
+    ).rejects.toThrow('no space');
+    expect(stored()[0].recordings![0].voiceTranscript).toBe('hello there');
+    expect(__fs.read(INDEX)).toBe(before);
+    expect(__fs.has(audio('x.m4a'))).toBe(true);
+  });
+
+  it('rolls back new copies (with their texts) when the index write fails', async () => {
+    seed([]);
+    put('a.m4a');
+    __fs.failWhen('write', (uri) => uri === INDEX, new Error('no space'));
+    await expect(
+      saveDream({
+        details: { title: 'T', tags: [] },
+        status: 'saved',
+        addRecordings: [{ uri: cache('a.m4a'), durationMs: 1, voiceTranscript: 'hi' }],
+      }),
+    ).rejects.toThrow('no space');
+    expect(__fs.list().filter((u) => u.startsWith(`${DOC}/dreams/`))).toEqual([]);
+    expect(__fs.has(cache('a.m4a'))).toBe(true);
   });
 });

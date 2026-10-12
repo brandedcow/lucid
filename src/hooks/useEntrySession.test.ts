@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import * as storage from '../services/dreamStorage';
 import { listDreams } from '../services/dreamStorage';
 import { __fs } from '../test/fakeFileSystem';
 import { Dream } from '../types/dream';
@@ -925,5 +926,151 @@ describe('saving and leaving with several recordings', () => {
       durationMs: 12_000,
     });
     expect(__fs.read(AUDIO)).toBe('audio-bytes');
+  });
+
+  describe('voice transcripts', () => {
+    const threeWithText: Dream = {
+      ...three,
+      recordings: three.recordings!.map((r, i) =>
+        i === 1 ? { ...r, voiceTranscript: 'stored words' } : r,
+      ),
+    };
+    const seedText = () => {
+      __fs.put(INDEX, JSON.stringify([threeWithText]));
+      __fs.put(stored('7.m4a'), 'a0');
+      __fs.put(stored('7-1.m4a'), 'a1');
+      __fs.put(stored('7-2.m4a'), 'a2');
+    };
+
+    it('loads a stored transcript into the session and an old note has none', () => {
+      const s = entrySessionFromDream(threeWithText, 'edit');
+      expect(s.recordings.map((r) => r.voiceTranscript)).toEqual([
+        undefined,
+        'stored words',
+        undefined,
+      ]);
+      expect(s.recordings[0]).not.toHaveProperty('voiceTranscript');
+      expect(entryHasEdits(s)).toBe(false);
+    });
+
+    it('the set action changes only that recording, ignores unknown ids and same text', () => {
+      const s = entrySessionFromDream(threeWithText, 'edit');
+      const next = entrySessionReducer(s, {
+        type: 'setRecordingTranscript',
+        id: 'stored:7.m4a',
+        text: 'x',
+      })!;
+      expect(next.recordings.map((r) => r.voiceTranscript)).toEqual([
+        'x',
+        'stored words',
+        undefined,
+      ]);
+      expect(
+        entrySessionReducer(next, { type: 'setRecordingTranscript', id: 'nope', text: 'y' }),
+      ).toBe(next);
+      expect(
+        entrySessionReducer(next, {
+          type: 'setRecordingTranscript',
+          id: 'stored:7.m4a',
+          text: 'x',
+        }),
+      ).toBe(next);
+    });
+
+    it('a changed stored transcript counts as an edit; setting it back does not', () => {
+      const s = entrySessionFromDream(threeWithText, 'edit');
+      const set = (state: typeof s, text: string) =>
+        entrySessionReducer(state, { type: 'setRecordingTranscript', id: 'stored:7-1.m4a', text })!;
+      const changed = set(s, 'edited');
+      expect(entryHasEdits(changed)).toBe(true);
+      expect(entryHasEdits(set(changed, 'stored words'))).toBe(false);
+      // A first transcript on a never-transcribed stored note is an edit too ('' included).
+      const first = entrySessionReducer(s, {
+        type: 'setRecordingTranscript',
+        id: 'stored:7.m4a',
+        text: '',
+      })!;
+      expect(entryHasEdits(first)).toBe(true);
+    });
+
+    it('a new note keeps its transcript through attach/set and the entry has content', async () => {
+      const { result } = await open();
+      await act(async () => result.current.startNew());
+      await act(async () => result.current.attachRecording({ uri: CACHE, durationMs: 1000 }));
+      const id = ids(result)[0];
+      await act(async () => result.current.setRecordingTranscript(id, 'dream words'));
+      expect(result.current.session?.recordings[0].voiceTranscript).toBe('dream words');
+    });
+
+    it('saves a new note transcript through addRecordings, and the session is then stored with it', async () => {
+      const { result } = await open();
+      await act(async () => {
+        result.current.startNew();
+        result.current.setTitle('Voice');
+        result.current.attachRecording({ uri: CACHE, durationMs: 1000 });
+        result.current.attachRecording({ uri: CACHE2, durationMs: 2000 });
+      });
+      await act(async () => result.current.setRecordingTranscript(ids(result)[1], ' second '));
+      const spy = jest.spyOn(storage, 'saveDream');
+      await act(async () => {
+        expect(await result.current.save('saved')).toBe(true);
+      });
+      const added = spy.mock.calls[0][0].addRecordings!;
+      expect(added.map((a) => a.voiceTranscript)).toEqual([undefined, ' second ']);
+      expect(spy.mock.calls[0][0]).not.toHaveProperty('recordingTexts');
+      const [entry] = entries();
+      expect(entry.recordings!.map((r) => r.voiceTranscript)).toEqual([undefined, 'second']);
+      expect(entry).not.toHaveProperty('voiceTranscript');
+      const rows = result.current.session?.recordings ?? [];
+      expect(rows.map((r) => r.voiceTranscript)).toEqual([undefined, 'second']);
+      // Nothing left to save: a second save sends no recordingTexts.
+      await act(async () => {
+        expect(await result.current.save('saved')).toBe(true);
+      });
+      expect(spy.mock.calls[1][0]).not.toHaveProperty('recordingTexts');
+    });
+
+    it('saves a changed stored transcript through recordingTexts only, audio untouched', async () => {
+      seedText();
+      const { result } = await open();
+      await act(async () => result.current.openEntry(threeWithText));
+      await act(async () => {
+        result.current.setRecordingTranscript('stored:7.m4a', 'fresh');
+        result.current.setRecordingTranscript('stored:7-1.m4a', '');
+      });
+      const spy = jest.spyOn(storage, 'saveDream');
+      await act(async () => {
+        expect(await result.current.save('saved')).toBe(true);
+      });
+      expect(spy.mock.calls[0][0].recordingTexts).toEqual([
+        { fileName: '7.m4a', text: 'fresh' },
+        { fileName: '7-1.m4a', text: '' },
+      ]);
+      expect(spy.mock.calls[0][0]).not.toHaveProperty('addRecordings');
+      const [entry] = entries();
+      expect(entry.recordings!.map((r) => r.voiceTranscript)).toEqual(['fresh', '', undefined]);
+      expect(__fs.read(stored('7-2.m4a'))).toBe('a2');
+    });
+
+    it('does not send recordingTexts for unchanged or closed stored notes; a closed one drops its text', async () => {
+      seedText();
+      const { result } = await open();
+      await act(async () => result.current.openEntry(threeWithText));
+      const spy = jest.spyOn(storage, 'saveDream');
+      await act(async () => {
+        expect(await result.current.save('saved')).toBe(true);
+      });
+      expect(spy.mock.calls[0][0]).not.toHaveProperty('recordingTexts');
+      await act(async () => {
+        result.current.setRecordingTranscript('stored:7-1.m4a', 'changed');
+        result.current.removeRecording('stored:7-1.m4a');
+      });
+      await act(async () => {
+        expect(await result.current.save('saved')).toBe(true);
+      });
+      expect(spy.mock.calls[1][0]).not.toHaveProperty('recordingTexts');
+      expect(spy.mock.calls[1][0].removeRecordings).toEqual(['7-1.m4a']);
+      expect(JSON.stringify(entries())).not.toContain('stored words');
+    });
   });
 });

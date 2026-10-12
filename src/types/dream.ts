@@ -41,6 +41,12 @@ export type StoredRecording = {
   fileName: string;
   durationMs: number;
   waveform?: number[];
+  /**
+   * On-device transcript of this recording. NOT `Dream.transcript` (the entry body). Additive:
+   * absent = never transcribed, '' = transcribed and nothing was heard. Read only via
+   * `recordingsOf`; never mirrored into the legacy first-recording fields.
+   */
+  voiceTranscript?: string;
 };
 
 /** The stored record type serves every journal (Dreams, Life, ...); `Dream` is its original name. */
@@ -69,13 +75,14 @@ export function recordingsOf(dream: Dream): StoredRecording[] {
     const clean: StoredRecording[] = [];
     for (const item of stored) {
       if (typeof item !== 'object' || item === null) continue;
-      const { fileName, durationMs, waveform } = item as Record<string, unknown>;
+      const { fileName, durationMs, waveform, voiceTranscript } = item as Record<string, unknown>;
       if (typeof fileName !== 'string' || fileName === '') continue;
       const wave = sanitizeWaveform(waveform);
       clean.push({
         fileName,
         durationMs: typeof durationMs === 'number' && Number.isFinite(durationMs) ? durationMs : 0,
         ...(wave ? { waveform: wave } : {}),
+        ...(typeof voiceTranscript === 'string' ? { voiceTranscript } : {}),
       });
     }
     if (clean.length > 0) return clean;
