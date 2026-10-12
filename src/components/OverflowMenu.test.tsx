@@ -1,5 +1,6 @@
 import { BackHandler } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { iconCircle } from '../theme';
 import { OverflowMenu } from './OverflowMenu';
 
 let backHandler: (() => boolean | null | undefined) | null = null;
@@ -19,6 +20,24 @@ afterEach(() => addSpy.mockRestore());
 const open = () => fireEvent.press(screen.getByLabelText('More options', { hidden: true }));
 
 describe('OverflowMenu', () => {
+  it('is a circle of the shared icon size, with three dots, and not dimmed when enabled', async () => {
+    await render(<OverflowMenu onDelete={jest.fn()} />);
+    const b = screen.getByLabelText('More options');
+    expect(b).toHaveStyle({
+      width: iconCircle,
+      height: iconCircle,
+      borderRadius: iconCircle / 2,
+    });
+    expect(b).not.toHaveStyle({ opacity: 0.4 });
+  });
+
+  it('dims the circle when disabled', async () => {
+    await render(<OverflowMenu onDelete={jest.fn()} disabled />);
+    const b = screen.getByLabelText('More options');
+    expect(b).toHaveStyle({ opacity: 0.4 });
+    expect(b.props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
   it('starts closed with a labeled, collapsed button', async () => {
     await render(<OverflowMenu onDelete={jest.fn()} />);
     const b = screen.getByRole('button', { name: 'More options' });
@@ -66,16 +85,14 @@ describe('OverflowMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
-  it('gives items 44pt targets and a red Delete', async () => {
+  it('gives items 44pt targets, the button a 44pt+ target, and a red Delete', async () => {
     await render(<OverflowMenu onDelete={jest.fn()} />);
     await open();
     for (const item of screen.getAllByRole('menuitem')) {
       expect(item).toHaveStyle({ minHeight: 44 });
     }
-    expect(screen.getByLabelText('More options', { hidden: true })).toHaveStyle({
-      width: 44,
-      height: 44,
-    });
+    // The 40pt circle gets 8pt of slop (as the check does): a 56pt touch target.
+    expect(screen.getByLabelText('More options', { hidden: true }).props.hitSlop).toBe(8);
     expect(screen.getByText('Delete')).toHaveStyle({ color: '#F26D6D' });
   });
 

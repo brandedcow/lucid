@@ -5,7 +5,7 @@ import { entryJournalLocked, useEntrySession } from '../hooks/useEntrySession';
 import { saveDream } from '../services/dreamStorage';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
-import { spacing } from '../theme';
+import { iconCircle, spacing } from '../theme';
 import { Dream } from '../types/dream';
 import { BUILT_IN_JOURNALS, Journal, journalOrDefault } from '../utils/journals';
 import { AddEntryScreen } from './AddEntryScreen';
@@ -639,7 +639,17 @@ describe('AddEntryScreen', () => {
     it('sits left of the check, not over it', async () => {
       await render(<AddEntryScreen {...base} onDelete={() => {}} />);
       expect(screen.getByLabelText('More options')).toHaveStyle({
-        right: spacing.lg + 40 + spacing.xs,
+        right: spacing.lg + iconCircle + spacing.xs,
+      });
+    });
+
+    it('is a circle the same size as the check, with room reserved beside the check', async () => {
+      await render(<AddEntryScreen {...base} onDelete={() => {}} />);
+      const circle = { width: iconCircle, height: iconCircle, borderRadius: iconCircle / 2 };
+      expect(screen.getByLabelText('More options')).toHaveStyle(circle);
+      expect(screen.getByLabelText('Save dream')).toHaveStyle({
+        ...circle,
+        marginLeft: iconCircle + spacing.xs,
       });
     });
 

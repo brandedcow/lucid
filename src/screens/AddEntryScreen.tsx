@@ -17,7 +17,7 @@ import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { DreamChips } from '../components/DreamChips';
 import { JournalMenu, JournalPill } from '../components/JournalPicker';
 import { OverflowMenu } from '../components/OverflowMenu';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, iconCircle, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal, journalCopy, titleRequired } from '../utils/journals';
 
@@ -175,6 +175,19 @@ export function AddEntryScreen({
   // got locked).
   const showMenu = menuOpen && pickable && !saving;
 
+  const pill = (
+    <JournalPill
+      journal={journal}
+      open={showMenu}
+      locked={!pickable}
+      disabled={saving}
+      onPress={() => {
+        Keyboard.dismiss();
+        setMenuOpen((open) => !open);
+      }}
+    />
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
@@ -197,16 +210,7 @@ export function AddEntryScreen({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <JournalPill
-            journal={journal}
-            open={showMenu}
-            locked={!pickable}
-            disabled={saving}
-            onPress={() => {
-              Keyboard.dismiss();
-              setMenuOpen((open) => !open);
-            }}
-          />
+          {onDelete ? <View style={styles.pillSlot}>{pill}</View> : pill}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={copy.saveButton}
@@ -214,7 +218,11 @@ export function AddEntryScreen({
             disabled={!canSave}
             onPress={onSave}
             hitSlop={8}
-            style={[styles.check, !canSave && styles.checkDisabled]}
+            style={[
+              styles.check,
+              onDelete && styles.checkBesideMenu,
+              !canSave && styles.checkDisabled,
+            ]}
           >
             <Text style={styles.checkMark}>✓</Text>
           </Pressable>
@@ -316,8 +324,8 @@ export function AddEntryScreen({
             deleteDisabled={deleteDisabled}
             deleteLabel={copy.deleteLabel}
             deleteText={copy.deleteLabel}
-            top={spacing.md - 2}
-            right={spacing.lg + 40 + spacing.xs}
+            top={spacing.md}
+            right={spacing.lg + iconCircle + spacing.xs}
           />
         )}
       </KeyboardAvoidingView>
@@ -338,13 +346,17 @@ const styles = StyleSheet.create({
   iconButton: { width: 40 },
   back: { color: colors.text, fontSize: 24 },
   check: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: iconCircle,
+    height: iconCircle,
+    borderRadius: iconCircle / 2,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Room for the "..." button, which is drawn over the bar just left of the check.
+  checkBesideMenu: { marginLeft: iconCircle + spacing.xs },
+  // The journal pill takes the space between Back and the "..." slot, so they cannot overlap.
+  pillSlot: { flex: 1, alignItems: 'center' },
   checkDisabled: { opacity: 0.4 },
   checkMark: { color: colors.accentDark, fontSize: 20, fontWeight: '700' },
   content: { padding: spacing.lg, gap: spacing.md },

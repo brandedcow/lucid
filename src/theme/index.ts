@@ -20,6 +20,9 @@ export const colors = {
 
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
 
+/** Diameter of the round icon buttons in the add-entry top bar (the check and the "..." menu). */
+export const iconCircle = 40;
+
 export const fonts = {
   serif: Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia, serif' }),
 } as const;

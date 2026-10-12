@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme';
+import { colors, iconCircle, spacing } from '../theme';
 
 /**
  * A "..." button with a Delete menu.
@@ -12,8 +12,8 @@ import { colors, spacing } from '../theme';
  *
  * - onDelete is optional; the menu shows only the items it is given (the add-entry page gives only
  *   onDelete).
- * - top / right: where the button sits (default: the bar of a screen with its own top bar at the
- *   edge; the add-entry page puts it left of its check). The card follows the button.
+ * - top / right: where the button sits (a circle of `iconCircle`, the same size as the add-entry
+ *   check; the add-entry page puts it left of its check). The card follows the button.
  * - disabled: items are disabled and the menu closes (the screen is busy deleting).
  * - deleteDisabled: only the Delete item is disabled and dimmed (default false); the button stays
  *   usable.
@@ -68,7 +68,8 @@ export function OverflowMenu({
         accessibilityState={{ expanded: visible, disabled }}
         disabled={disabled}
         onPress={() => setOpen((o) => !o)}
-        style={[styles.button, { top, right }]}
+        hitSlop={8}
+        style={[styles.button, disabled && styles.dimmed, { top, right }]}
       >
         <View style={styles.dots}>
           <View style={styles.dot} />
@@ -84,7 +85,10 @@ export function OverflowMenu({
             onPress={() => setOpen(false)}
             style={styles.backdrop}
           />
-          <View testID="overflow-menu-card" style={[styles.card, { top: top + 44, right }]}>
+          <View
+            testID="overflow-menu-card"
+            style={[styles.card, { top: top + iconCircle + spacing.xs, right }]}
+          >
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"
@@ -116,16 +120,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: BAR_TOP,
     right: BAR_RIGHT,
-    width: 44,
-    height: 44,
+    width: iconCircle,
+    height: iconCircle,
+    borderRadius: iconCircle / 2,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
-    alignItems: 'flex-end',
+    alignItems: 'center',
   },
-  dots: { gap: 4, alignItems: 'center', paddingRight: 8 },
+  dots: { gap: 4, alignItems: 'center' },
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.text },
   card: {
     position: 'absolute',
-    top: BAR_TOP + 44,
+    top: BAR_TOP + iconCircle + spacing.xs,
     right: BAR_RIGHT,
     minWidth: 160,
     paddingVertical: spacing.xs,
