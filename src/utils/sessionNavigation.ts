@@ -17,42 +17,31 @@ export const LEAVE_ENTRY_SAVE_DRAFT = 'Save draft';
 export const LEAVE_ENTRY_DISCARD = 'Discard';
 export const LEAVE_ENTRY_KEEP = 'Keep writing';
 
-/** Where the add-entry page (a new entry, or a reopened draft) returns to after a save or leave. */
-export type FlowReturn = 'today' | 'log';
+/**
+ * Where the add-entry page (a new entry, a draft or a stored entry) returns to after a save, a
+ * discard or a leave.
+ */
+export type FlowReturn = 'today' | 'log' | 'search';
 
 export type BackInput = {
-  screen: 'add' | 'log' | 'detail' | 'journals' | 'search' | 'today' | 'settings';
-  /** log: the open log's journal. detail: the journal of the open entry (read with `journalOf`). */
+  screen: 'add' | 'log' | 'journals' | 'search' | 'today' | 'settings';
+  /** log: the open log's journal. */
   journalId: JournalId;
   /** log only: the log's search field is open. */
   searchOpen?: boolean;
-  /** detail only: where the entry was opened from. */
-  detailFrom?: 'log' | 'search' | 'today';
-  /** detail only: a delete started from this entry is in flight. */
-  detailDeleting?: boolean;
 };
 
 /**
  * Where Back (the on-screen arrow and Android hardware back) goes from a screen.
  * - `exit`: leave the app (Android only; only Today).
- * - `none`: Back does nothing (an entry's delete runs).
  * - `closeSearch`: close the log's search field first.
  * - `today`: the Today page.
  * - `journals`: Journals home (a log, or Search, whose view App also resets).
- * - `search`: the Search results, state kept.
- * - `log`: that journal's log.
  * - `chain`: the add-entry page keeps its own rules (App's `backFromAdd`: the leave prompts, a
  *   running recording's discard confirm, and No dream on an empty launch page).
  */
 export type BackTarget =
-  | { to: 'exit' }
-  | { to: 'none' }
-  | { to: 'closeSearch' }
-  | { to: 'today' }
-  | { to: 'journals' }
-  | { to: 'search' }
-  | { to: 'log'; journalId: JournalId }
-  | { to: 'chain' };
+  { to: 'exit' } | { to: 'closeSearch' } | { to: 'today' } | { to: 'journals' } | { to: 'chain' };
 
 export function backTarget(input: BackInput): BackTarget {
   switch (input.screen) {
@@ -65,12 +54,6 @@ export function backTarget(input: BackInput): BackTarget {
       return input.searchOpen ? { to: 'closeSearch' } : { to: 'journals' };
     case 'search':
       return { to: 'journals' };
-    case 'detail':
-      if (input.detailDeleting) return { to: 'none' };
-      if (input.detailFrom === 'today') return { to: 'today' };
-      return input.detailFrom === 'search'
-        ? { to: 'search' }
-        : { to: 'log', journalId: input.journalId };
     case 'add':
       return { to: 'chain' };
   }

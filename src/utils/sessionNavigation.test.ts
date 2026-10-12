@@ -55,45 +55,6 @@ describe('backTarget', () => {
   it('Search goes to Journals home', () => {
     expect(backTarget({ screen: 'search', journalId: 'dreams' })).toEqual({ to: 'journals' });
   });
-  it('a detail goes back to its source', () => {
-    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'log' })).toEqual({
-      to: 'log',
-      journalId: 'life',
-    });
-    expect(backTarget({ screen: 'detail', journalId: 'dreams' })).toEqual({
-      to: 'log',
-      journalId: 'dreams',
-    });
-    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'search' })).toEqual({
-      to: 'search',
-    });
-  });
-  it('a detail opened from Today goes back to Today', () => {
-    expect(backTarget({ screen: 'detail', journalId: 'life', detailFrom: 'today' })).toEqual({
-      to: 'today',
-    });
-    expect(backTarget({ screen: 'detail', journalId: 'dreams', detailFrom: 'today' })).toEqual({
-      to: 'today',
-    });
-  });
-  it('a detail does nothing while its delete is in flight', () => {
-    expect(
-      backTarget({
-        screen: 'detail',
-        journalId: 'life',
-        detailFrom: 'search',
-        detailDeleting: true,
-      }),
-    ).toEqual({ to: 'none' });
-    expect(
-      backTarget({
-        screen: 'detail',
-        journalId: 'life',
-        detailFrom: 'today',
-        detailDeleting: true,
-      }),
-    ).toEqual({ to: 'none' });
-  });
   it('the add-entry page keeps its own chain, whatever journal it holds', () => {
     // The page decides in App (`backFromAdd`): leave prompts, recording discard, No dream.
     expect(backTarget({ screen: 'add', journalId: 'dreams' })).toEqual({ to: 'chain' });

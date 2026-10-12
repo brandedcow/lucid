@@ -327,10 +327,23 @@ describe('App journal delete live guards', () => {
     });
 
     it('sends its open entry back to Journals home without crashing', async () => {
+      // A stored entry of the journal open on the add-entry page. The session's journal is left
+      // out of sync on purpose: the real session would make the delete refuse to start, and this
+      // checks the second line of defence.
+      mockEntrySession = {
+        id: 'g1',
+        journalId: 'dreams',
+        origin: 'edit',
+        title: 'Thankful for tea',
+        body: '',
+        tags: [],
+        tagDraft: '',
+      };
       await renderApp();
       await fireEvent.press(screen.getByLabelText('Open Journals'));
       await press('open-j_g1');
       await fireEvent.press(screen.getByText('Thankful for tea'));
+      expect(screen.getByText('stub-done')).toBeTruthy();
       await startFrom();
       expect(screen.getByText('journals-screen')).toBeTruthy();
       await act(async () => open());

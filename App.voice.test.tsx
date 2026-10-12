@@ -108,8 +108,6 @@ async function openEdit(title: RegExp) {
   await press(byLabel('Open Journals'));
   await press(byLabel(/^Gratitude, /));
   await press(byLabel(title));
-  await press(byLabel('More options'));
-  await press(byLabel('Edit entry'));
 }
 
 beforeEach(() => {
@@ -544,8 +542,6 @@ describe('App with several recordings', () => {
     await press(byLabel('Open Journals'));
     await press(byLabel(/^Gratitude, /));
     await press(byLabel(/Three notes/));
-    await press(byLabel('More options'));
-    await press(byLabel('Edit entry'));
     expect(screen.getAllByLabelText(/^Play voice note \d+ of \d+$/)).toHaveLength(3);
     await fireEvent.press(screen.getByLabelText('Remove voice note 2 of 3'));
     await settle();
@@ -568,8 +564,6 @@ describe('App with several recordings', () => {
     await press(byLabel('Open Journals'));
     await press(byLabel(/^Gratitude, /));
     await press(byLabel(/Three notes/));
-    await press(byLabel('More options'));
-    await press(byLabel('Edit entry'));
     await fireEvent.press(screen.getAllByLabelText(/^Remove voice note \d+ of \d+$/)[0]);
     await settle();
     await press(byLabel('Back'));
