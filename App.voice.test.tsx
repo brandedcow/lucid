@@ -99,6 +99,7 @@ async function openNewGratitude() {
 }
 const record = async () => {
   await press(byLabel('Record voice note'));
+  await press(byLabel('Start recording'));
   await press(byLabel('Stop recording'));
 };
 async function openEdit(title: RegExp) {
@@ -220,6 +221,7 @@ describe('App voice entry', () => {
     it('back asks to discard; Keep recording stays', async () => {
       await openNewGratitude();
       await press(byLabel('Record voice note'));
+      await press(byLabel('Start recording'));
       await press(byLabel('Back'));
       expect(Alert.alert).toHaveBeenLastCalledWith(
         'Discard this recording?',
@@ -234,6 +236,7 @@ describe('App voice entry', () => {
     it('Android back asks too; Discard stops, deletes the cache file and leaves an empty page', async () => {
       await openNewGratitude();
       await press(byLabel('Record voice note'));
+      await press(byLabel('Start recording'));
       expect(await hardwareBack()).toBe(true);
       expect(Alert.alert).toHaveBeenLastCalledWith(
         'Discard this recording?',
@@ -251,6 +254,7 @@ describe('App voice entry', () => {
       await openNewGratitude();
       await fireEvent.changeText(byLabel('Entry text'), 'some words');
       await press(byLabel('Record voice note'));
+      await press(byLabel('Start recording'));
       await press(byLabel('Back'));
       await choose('Discard');
       expect(__fs.has(CACHE)).toBe(false);
@@ -267,6 +271,7 @@ describe('App voice entry', () => {
     it('the check does nothing until the recording is stopped', async () => {
       await openNewGratitude();
       await press(byLabel('Record voice note'));
+      await press(byLabel('Start recording'));
       expect(byLabel('Save entry').props.accessibilityState.disabled).toBe(true);
       await press(byLabel('Stop recording'));
       expect(byLabel('Save entry').props.accessibilityState.disabled).toBe(false);
@@ -597,6 +602,7 @@ describe('App launch page with voice', () => {
   it('back while recording asks first; Keep recording stays and marks nothing', async () => {
     await launch();
     await press(byLabel('Record voice note'));
+    await press(byLabel('Start recording'));
     await press(byLabel('Back'));
     expect(Alert.alert).toHaveBeenLastCalledWith(
       'Discard this recording?',
@@ -612,6 +618,7 @@ describe('App launch page with voice', () => {
   it('Android back while recording asks; Discard stops, deletes the cache file, then counts as No dream', async () => {
     await launch();
     await press(byLabel('Record voice note'));
+    await press(byLabel('Start recording'));
     expect(await hardwareBack()).toBe(true);
     await choose('Discard');
     expect(mockRec.stop).toHaveBeenCalledTimes(1);

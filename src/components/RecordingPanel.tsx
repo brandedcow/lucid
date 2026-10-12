@@ -1,10 +1,11 @@
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
 import { discardRecording } from '../services/dreamStorage';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
 import { downsamplePeaks } from '../utils/waveform';
+import { RecordingWaveform } from './RecordingWaveform';
 
 /** How often the recorder's level is sampled for the waveform. */
 export const LEVEL_SAMPLE_MS = 100;
@@ -16,18 +17,29 @@ type Props = {
   microphoneMessage: string;
   /** Recording stopped: the cache file and its waveform. The parent unmounts the panel. */
   onRecorded: (recording: PanelRecording) => void;
-  /** Recording never started (permission denied, error). The parent unmounts the panel. */
+  /** The panel was closed with nothing recorded (handle swipe or tap, back while idle). The parent unmounts it. */
   onClosed: () => void;
   /** The user discarded the recording to leave: recorder stopped, cache file deleted. */
   onDiscarded: () => void;
-  /** Set to the discard confirmation while mounted (null after), for the page's back handling. */
+  /**
+   * Set to the panel's back handling while mounted (null after), for the page's back: idle it closes
+   * the panel with no confirmation; once recording it shows the "Discard this recording?" confirmation.
+   */
   leaveRef?: MutableRefObject<(() => void) | null>;
 };
 
+type Phase = 'idle' | 'starting' | 'recording' | 'stopping';
+
+/** Swipe down on the handle this far (points) to close the idle panel. */
+const CLOSE_SWIPE = 40;
+/** How many recent level samples the live waveform keeps. */
+const LEVEL_HISTORY = 40;
+
 /**
- * The card shown above the title while recording: red dot, elapsed time and a stop button. Mounted
- * only while a recording is wanted, so the recorder (and its polling) exists only then. It starts
- * recording on mount. No pause: pause/resume is not offered on the page.
+ * The recording sheet shown in the bottom dock. It opens IDLE: nothing is recorded and the microphone
+ * permission is not asked until the big red button is tapped. Layout: drag handle, big timer,
+ * waveform, red record/stop button. Idle, the handle (swipe down or tap) and back close it with no
+ * confirmation; while recording the handle does nothing and back asks to discard. No pause.
  */
 export function RecordingPanel({
   microphoneMessage,
@@ -37,15 +49,15 @@ export function RecordingPanel({
   leaveRef,
 }: Props) {
   const recorder = useDreamRecorder();
-  const [phase, setPhase] = useState<'starting' | 'recording' | 'stopping'>('starting');
-  const phaseRef = useRef<'starting' | 'recording' | 'stopping' | 'done'>('starting');
-  const setPhaseBoth = (next: 'starting' | 'recording' | 'stopping') => {
+  const [phase, setPhase] = useState<Phase>('idle');
+  const phaseRef = useRef<Phase | 'done'>('idle');
+  const setPhaseBoth = (next: Phase) => {
     phaseRef.current = next;
     setPhase(next);
   };
   const levelRef = useRef(0);
   const samples = useRef<number[]>([]);
-  const startedRef = useRef(false);
+  const [levels, setLevels] = useState<number[]>([]);
   const confirmOpen = useRef(false);
   // The latest recorder and callbacks, for async code and cleanups that outlive a render.
   const recorderRef = useRef(recorder);
@@ -56,43 +68,47 @@ export function RecordingPanel({
     handlers.current = { onRecorded, onClosed, onDiscarded };
   });
 
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    (async () => {
-      try {
-        const started = await recorderRef.current.start();
-        if (phaseRef.current === 'done') return;
-        if (!started) {
-          phaseRef.current = 'done';
-          Alert.alert('Microphone access needed', microphoneMessage);
-          handlers.current.onClosed();
-          return;
-        }
-        setPhaseBoth('recording');
-      } catch {
-        if (phaseRef.current === 'done') return;
-        phaseRef.current = 'done';
-        Alert.alert('Could not start recording', 'Please try again.');
-        handlers.current.onClosed();
+  // A function, so TypeScript does not keep the narrowed phase across an await.
+  const isDone = () => phaseRef.current === 'done';
+
+  // The red button in idle: ask for permission and start. Denied or failed: alert, back to idle.
+  const start = async () => {
+    if (phaseRef.current !== 'idle') return;
+    setPhaseBoth('starting');
+    try {
+      const started = await recorderRef.current.start();
+      if (isDone()) return;
+      if (!started) {
+        setPhaseBoth('idle');
+        Alert.alert('Microphone access needed', microphoneMessage);
+        return;
       }
-    })();
-    // Starts once, on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setPhaseBoth('recording');
+    } catch {
+      if (isDone()) return;
+      setPhaseBoth('idle');
+      Alert.alert('Could not start recording', 'Please try again.');
+    }
+  };
 
   // Level samples for the waveform, about ten a second while recording.
   useEffect(() => {
     if (phase !== 'recording') return;
-    const id = setInterval(() => samples.current.push(levelRef.current), LEVEL_SAMPLE_MS);
+    const id = setInterval(() => {
+      samples.current.push(levelRef.current);
+      setLevels((prev) => [...prev, levelRef.current].slice(-LEVEL_HISTORY));
+    }, LEVEL_SAMPLE_MS);
     return () => clearInterval(id);
   }, [phase]);
 
   // Left while the recorder runs (the screen was replaced): stop it and delete the cache file.
+  // Nothing to clean up when the panel never started recording.
   useEffect(
     () => () => {
-      if (phaseRef.current === 'done') return;
+      const was = phaseRef.current;
+      if (was === 'done') return;
       phaseRef.current = 'done';
+      if (was === 'idle') return;
       const live = recorderRef.current;
       live
         .stop()
@@ -143,7 +159,19 @@ export function RecordingPanel({
     }
   };
 
+  // Idle: nothing was recorded, so closing needs no confirmation.
+  const closeIdle = () => {
+    if (phaseRef.current !== 'idle') return;
+    phaseRef.current = 'done';
+    handlers.current.onClosed();
+  };
+  const closeIdleRef = useRef(closeIdle);
+
   const confirmLeave = () => {
+    if (phaseRef.current === 'idle') {
+      closeIdle();
+      return;
+    }
     if (phaseRef.current === 'stopping' || phaseRef.current === 'done' || confirmOpen.current)
       return;
     confirmOpen.current = true;
@@ -168,6 +196,7 @@ export function RecordingPanel({
   const confirmLeaveRef = useRef(confirmLeave);
   useEffect(() => {
     confirmLeaveRef.current = confirmLeave;
+    closeIdleRef.current = closeIdle;
   });
   useEffect(() => {
     if (!leaveRef) return;
@@ -177,47 +206,93 @@ export function RecordingPanel({
     };
   }, [leaveRef]);
 
+  // Swipe down on the handle closes the idle panel. It never claims the touch while recording.
+  // The responder is created once; its callbacks only read refs when a touch happens, not in render.
+  // eslint-disable-next-line react-hooks/refs
+  const [handlePan] = useState(() =>
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) =>
+        phaseRef.current === 'idle' && g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy >= CLOSE_SWIPE) closeIdleRef.current();
+      },
+    }),
+  );
+
+  const idle = phase === 'idle';
+  const recording = phase === 'recording' || phase === 'stopping';
   const elapsed = formatDuration(Math.floor(recorder.durationMs / 1000));
   return (
-    <View style={styles.card}>
-      <View style={styles.dot} />
-      <Text style={styles.status} accessibilityLiveRegion="polite">
-        {phase === 'starting' ? 'Starting...' : `Recording ${elapsed}`}
+    <View style={styles.sheet}>
+      <View testID="recording-handle-area" style={styles.handleArea} {...handlePan.panHandlers}>
+        {idle ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close recording panel"
+            onPress={closeIdle}
+            hitSlop={12}
+            style={styles.handleHit}
+          >
+            <View style={styles.handle} />
+          </Pressable>
+        ) : (
+          <View style={styles.handleHit} importantForAccessibility="no">
+            <View style={styles.handle} />
+          </View>
+        )}
+      </View>
+      <Text style={styles.timer} accessibilityLiveRegion="none">
+        {elapsed}
       </Text>
+      <RecordingWaveform recording={recording} levels={levels} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Stop recording"
-        accessibilityState={{ disabled: phase !== 'recording' }}
-        disabled={phase !== 'recording'}
-        onPress={() => void stop()}
+        accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
+        accessibilityState={{ disabled: phase === 'starting' || phase === 'stopping' }}
+        disabled={phase === 'starting' || phase === 'stopping'}
+        onPress={() => void (recording ? stop() : start())}
         hitSlop={8}
-        style={[styles.stop, phase !== 'recording' && styles.stopDisabled]}
+        style={[styles.ring, (phase === 'starting' || phase === 'stopping') && styles.ringBusy]}
       >
-        <View style={styles.stopSquare} />
+        <View style={recording ? styles.stopSquare : styles.recordDot} />
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sheet: {
+    alignItems: 'stretch',
     gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: 16,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
     backgroundColor: colors.surface,
   },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.draft },
-  status: { flex: 1, color: colors.text, fontSize: 15, fontVariant: ['tabular-nums'] },
-  stop: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
+  handleArea: { alignItems: 'center' },
+  handleHit: { alignItems: 'center', justifyContent: 'center', width: 96, height: 28 },
+  handle: { width: 40, height: 5, borderRadius: 3, backgroundColor: colors.faint },
+  timer: {
+    color: colors.text,
+    fontSize: 48,
+    fontWeight: '300',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  ring: {
+    alignSelf: 'center',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 4,
+    borderColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stopDisabled: { opacity: 0.4 },
-  stopSquare: { width: 14, height: 14, borderRadius: 2, backgroundColor: colors.accentDark },
+  ringBusy: { opacity: 0.4 },
+  recordDot: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.draft },
+  stopSquare: { width: 28, height: 28, borderRadius: 6, backgroundColor: colors.draft },
 });

@@ -30,9 +30,10 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * - onRemoveRecording: a card's close button (by recording id), for a new recording and a stored
  *   one alike. It only marks the recording as removed in the session; nothing is deleted until the
  *   user saves.
- * - onRecordingChange: true while the recorder is starting or running, false otherwise. Fired
- *   synchronously (the parent keeps it in a ref for Android back).
- * - leaveRef: set to the "Discard this recording?" confirmation while recording.
+ * - onRecordingChange: true while the recording panel is open (idle, starting or recording), false
+ *   otherwise. Fired synchronously (the parent keeps it in a ref for Android back).
+ * - leaveRef: set to the panel's back handling while it is open: idle it closes the panel with no
+ *   confirmation; while recording it shows the "Discard this recording?" confirmation.
  * - onRecordingDiscarded: the user discarded the recording to leave; the parent carries on
  *   leaving (its normal back rules run next).
  *
@@ -51,8 +52,10 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  * action: it is stored from the text on save). Tapping a tag
  * completes the word ("#tag " with the cursor after the space) as ONE undo step, like the # button.
  *
- * While recording, the live panel takes the bottom dock and the toolbar and suggestion bar are hidden
- * (the keyboard is dismissed when the mic is tapped); they return when it ends.
+ * The mic opens the recording panel IDLE (nothing is recorded and no microphone permission is asked
+ * until its red button is tapped). While the panel is open it takes the bottom dock and the toolbar
+ * and suggestion bar are hidden (the keyboard is dismissed when the mic is tapped); they return when
+ * it closes or a recording is stopped.
  *
  * Toolbar: undo / redo (body text and closing a voice note card, one shared stack, each step naming its
  * recording; not title or

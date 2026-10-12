@@ -118,8 +118,14 @@ const renderPage = async (props: Parameters<typeof Harness>[0] = {}) => {
 };
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 const buttons = () => (jest.mocked(Alert.alert).mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
-const startRecording = async () => {
+const openPanel = async () => {
   await fireEvent.press(screen.getByLabelText('Record voice note'));
+  await act(async () => {});
+};
+// Opens the panel (idle) and taps its red button.
+const startRecording = async () => {
+  await openPanel();
+  await fireEvent.press(screen.getByLabelText('Start recording'));
   await act(async () => {});
 };
 const stopRecording = async () => {
@@ -153,7 +159,7 @@ describe('recording on the page', () => {
     );
     await startRecording();
     expect(mockRec.start).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Recording 0:00')).toBeTruthy();
+    expect(screen.getByText('0:00')).toBeTruthy();
     expect(screen.getByLabelText('Stop recording')).toBeTruthy();
     expect(screen.queryByLabelText('Record voice note')).toBeNull();
     expect(screen.getByLabelText('Save dream').props.accessibilityState.disabled).toBe(true);
@@ -165,10 +171,35 @@ describe('recording on the page', () => {
     await startRecording();
     mockRec.durationMs = 65_400;
     await view.rerender(<Harness />);
-    expect(screen.getByText('Recording 1:05')).toBeTruthy();
+    expect(screen.getByText('1:05')).toBeTruthy();
   });
 
-  it('alerts and stays idle when the microphone permission is denied', async () => {
+  it('opens idle: no recorder start, no permission request, a flat waveform and a 0:00 timer', async () => {
+    await renderPage();
+    await openPanel();
+    expect(mockRec.start).not.toHaveBeenCalled();
+    expect(screen.getByTestId('entry-recording-panel')).toBeTruthy();
+    expect(screen.getByText('0:00')).toBeTruthy();
+    expect(screen.getByTestId('recording-waveform-idle')).toBeTruthy();
+    expect(screen.queryByTestId('recording-waveform-live')).toBeNull();
+    expect(screen.getByLabelText('Start recording')).toBeTruthy();
+    expect(screen.queryByLabelText('Stop recording')).toBeNull();
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(events.onRecordingChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('the red button starts the recorder (permission asked) and the panel shows the live waveform', async () => {
+    await renderPage();
+    await openPanel();
+    await fireEvent.press(screen.getByLabelText('Start recording'));
+    await act(async () => {});
+    expect(mockRec.start).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('recording-waveform-live')).toBeTruthy();
+    expect(screen.queryByLabelText('Start recording')).toBeNull();
+    expect(screen.getByLabelText('Stop recording').props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('alerts and returns the panel to idle (still open) when the microphone permission is denied', async () => {
     mockRec.start.mockResolvedValue(false);
     await renderPage();
     await startRecording();
@@ -177,18 +208,35 @@ describe('recording on the page', () => {
       expect.stringMatching(/microphone/i),
     );
     expect(screen.queryByLabelText('Stop recording')).toBeNull();
-    expect(screen.getByLabelText('Record voice note').props.accessibilityState.disabled).toBe(
-      false,
-    );
-    expect(events.onRecordingChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId('recording-waveform-idle')).toBeTruthy();
+    expect(screen.getByLabelText('Start recording').props.accessibilityState.disabled).toBe(false);
+    expect(events.onRecordingChange).toHaveBeenLastCalledWith(true);
+    // Back from there closes the panel with no confirmation.
+    jest.mocked(Alert.alert).mockClear();
+    await act(async () => leaveRef.current?.());
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('entry-recording-panel')).toBeNull();
   });
 
-  it('alerts and stays idle when the recorder cannot start', async () => {
+  it('alerts and returns the panel to idle when the recorder cannot start', async () => {
     mockRec.start.mockRejectedValue(new Error('boom'));
     await renderPage();
     await startRecording();
     expect(Alert.alert).toHaveBeenCalledWith('Could not start recording', 'Please try again.');
     expect(screen.queryByLabelText('Stop recording')).toBeNull();
+    expect(screen.getByLabelText('Start recording')).toBeTruthy();
+  });
+
+  it('a second red tap while the recorder is starting starts nothing twice', async () => {
+    let resolve: (v: boolean) => void = () => {};
+    mockRec.start.mockReturnValue(new Promise<boolean>((r) => (resolve = r)));
+    await renderPage();
+    await openPanel();
+    await fireEvent.press(screen.getByLabelText('Start recording'));
+    await fireEvent.press(screen.getByLabelText('Start recording'));
+    await act(async () => resolve(true));
+    expect(mockRec.start).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Stop recording')).toBeTruthy();
   });
 
   it('stop attaches the recording as a card above the title with a 56-bar waveform of sampled peaks', async () => {
@@ -351,7 +399,21 @@ describe('leaving while recording', () => {
     expect(screen.getByLabelText('Stop recording')).toBeTruthy();
   });
 
-  it('only registers the confirmation while recording', async () => {
+  it('back while the panel is idle closes it with no confirmation and nothing recorded', async () => {
+    await renderPage();
+    await openPanel();
+    await act(async () => leaveRef.current?.());
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(mockRec.start).not.toHaveBeenCalled();
+    expect(mockRec.stop).not.toHaveBeenCalled();
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('entry-recording-panel')).toBeNull();
+    expect(screen.getByLabelText('Record voice note')).toBeTruthy();
+    expect(events.onRecordingChange).toHaveBeenLastCalledWith(false);
+    expect(events.onRecordingDiscarded).not.toHaveBeenCalled();
+  });
+
+  it('only registers the back handling while the panel is open', async () => {
     await renderPage();
     expect(leaveRef.current).toBeNull();
     await startRecording();
