@@ -7,10 +7,20 @@ import { stopAllPlayback, useRecordingPlayback } from './useRecordingPlayback';
 let mockStatus = { playing: false, currentTime: 0, duration: 0 };
 
 // One distinct fake player per uri, as the real hook creates one per card.
-const players: Record<string, { play: jest.Mock; pause: jest.Mock; seekTo: jest.Mock }> = {};
+const players: Record<
+  string,
+  { play: jest.Mock; pause: jest.Mock; seekTo: jest.Mock; setPlaybackRate: jest.Mock }
+> = {};
+const playerOptions: Record<string, unknown> = {};
 jest.mock('expo-audio', () => ({
-  useAudioPlayer: (uri: string) => {
-    players[uri] ??= { play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() };
+  useAudioPlayer: (uri: string, options?: unknown) => {
+    playerOptions[uri] = options;
+    players[uri] ??= {
+      play: jest.fn(),
+      pause: jest.fn(),
+      seekTo: jest.fn(),
+      setPlaybackRate: jest.fn(),
+    };
     return players[uri];
   },
   useAudioPlayerStatus: () => mockStatus,
@@ -33,6 +43,7 @@ const play = (label: string) =>
 
 beforeEach(() => {
   for (const k of Object.keys(players)) delete players[k];
+  for (const k of Object.keys(playerOptions)) delete playerOptions[k];
   mockStatus = { playing: false, currentTime: 0, duration: 0 };
   stopAllPlayback();
 });
@@ -125,8 +136,16 @@ describe('seeking and scrubbing', () => {
   const hook = new Proxy({} as Result, {
     get: (_t, key) => latest.current![key as keyof Result],
   });
-  const Harness = ({ ms = 4000, disabled = false }: { ms?: number; disabled?: boolean }) => {
-    const value = useRecordingPlayback(A, ms, disabled);
+  const Harness = ({
+    ms = 4000,
+    disabled = false,
+    updateInterval,
+  }: {
+    ms?: number;
+    disabled?: boolean;
+    updateInterval?: number;
+  }) => {
+    const value = useRecordingPlayback(A, ms, disabled, { updateInterval });
     useEffect(() => {
       latest.current = value;
     });
@@ -265,5 +284,85 @@ describe('seeking and scrubbing', () => {
       scrub.cancel();
     }).not.toThrow();
     expect(players[A].play).not.toHaveBeenCalled();
+  });
+});
+
+describe('rate, skip and update interval', () => {
+  type Result = ReturnType<typeof useRecordingPlayback>;
+  const latest: { current: Result | null } = { current: null };
+  const hook = new Proxy({} as Result, {
+    get: (_t, key) => latest.current![key as keyof Result],
+  });
+  const Harness = ({ updateInterval }: { updateInterval?: number }) => {
+    const value = useRecordingPlayback(A, 8000, false, { updateInterval });
+    useEffect(() => {
+      latest.current = value;
+    });
+    return null;
+  };
+  const run = (fn: () => void | Promise<void>) => act(async () => void (await fn()));
+
+  it('passes a fine update interval to the player only when asked', async () => {
+    const view = await render(<Harness />);
+    expect(playerOptions[A]).toBeUndefined();
+    await view.rerender(<Harness updateInterval={50} />);
+    expect(playerOptions[A]).toEqual({ updateInterval: 50 });
+  });
+
+  it('setRate applies the speed with pitch correction and reports it', async () => {
+    await render(<Harness />);
+    expect(hook.rate).toBe(1);
+    await run(() => hook.setRate(1.5));
+    expect(players[A].setPlaybackRate).toHaveBeenLastCalledWith(1.5, 'high');
+    expect(hook.rate).toBe(1.5);
+  });
+
+  it('setRate ignores zero, negative and non-finite values', async () => {
+    await render(<Harness />);
+    for (const v of [0, -1, NaN, Infinity]) await run(() => hook.setRate(v));
+    expect(players[A].setPlaybackRate).not.toHaveBeenCalled();
+    expect(hook.rate).toBe(1);
+  });
+
+  it('does not touch the rate on play when none was chosen', async () => {
+    await render(<Harness />);
+    await run(() => hook.toggle());
+    expect(players[A].play).toHaveBeenCalledTimes(1);
+    expect(players[A].setPlaybackRate).not.toHaveBeenCalled();
+  });
+
+  it('applies the chosen rate again when playback starts, before play', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 8 };
+    await render(<Harness />);
+    await run(() => hook.setRate(2));
+    players[A].setPlaybackRate.mockClear();
+    await run(() => hook.toggle());
+    expect(players[A].setPlaybackRate).toHaveBeenCalledWith(2, 'high');
+    expect(players[A].setPlaybackRate.mock.invocationCallOrder[0]).toBeLessThan(
+      players[A].play.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('skip seeks relative to the position and clamps to the recording', async () => {
+    mockStatus = { playing: false, currentTime: 4, duration: 8 };
+    await render(<Harness />);
+    await run(() => hook.skip(2));
+    expect(players[A].seekTo).toHaveBeenLastCalledWith(6);
+    await run(() => hook.skip(-15));
+    expect(players[A].seekTo).toHaveBeenLastCalledWith(0);
+    await run(() => hook.skip(15));
+    expect(players[A].seekTo).toHaveBeenLastCalledWith(7.95);
+  });
+
+  it('skip ignores non-finite input and never plays or registers', async () => {
+    mockStatus = { playing: false, currentTime: 4, duration: 8 };
+    await render(<Harness />);
+    await run(() => hook.skip(NaN));
+    await run(() => hook.skip(Infinity));
+    expect(players[A].seekTo).not.toHaveBeenCalled();
+    await run(() => hook.skip(1));
+    expect(players[A].play).not.toHaveBeenCalled();
+    stopAllPlayback();
+    expect(players[A].pause).not.toHaveBeenCalled();
   });
 });

@@ -34,9 +34,20 @@ export function stopAllPlayback() {
  * Playback of one recording: play/pause toggle, position and length. One player per mount. The
  * player stops when the owner unmounts (the card is removed or the page is left).
  * `durationMs` is the known length, used until the player reports its own.
+ * `options.updateInterval` (ms) asks the player for finer position updates; only the expanded
+ * voice note view uses it. Left out, the player's default applies.
  */
-export function useRecordingPlayback(uri: string, durationMs: number, disabled = false) {
-  const player = useAudioPlayer(uri);
+export function useRecordingPlayback(
+  uri: string,
+  durationMs: number,
+  disabled = false,
+  options: { updateInterval?: number } = {},
+) {
+  const { updateInterval } = options;
+  const player = useAudioPlayer(
+    uri,
+    updateInterval !== undefined && updateInterval > 0 ? { updateInterval } : undefined,
+  );
   const status = useAudioPlayerStatus(player);
 
   const pauseMine = useRef(() => {});
@@ -83,7 +94,27 @@ export function useRecordingPlayback(uri: string, durationMs: number, disabled =
     // Starting here pauses any other card that is playing.
     if (activePause && activePause !== pauseMine.current) stopAllPlayback();
     register(pauseMine.current);
+    applyRate();
     player.play();
+  };
+
+  // Playback speed. The chosen rate is applied again whenever playback starts: iOS may reset it.
+  const rateRef = useRef<number | null>(null);
+  const [rate, setRateState] = useState(1);
+  const applyRate = () => {
+    if (rateRef.current === null) return;
+    try {
+      player.setPlaybackRate(rateRef.current, 'high');
+    } catch {
+      // The player may already be released with its owner.
+    }
+  };
+  /** Sets the playback speed (1 = normal) with pitch correction. Ignores non-positive or non-finite values. */
+  const setRate = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    rateRef.current = value;
+    setRateState(value);
+    applyRate();
   };
 
   const toggle = async () => {
@@ -143,6 +174,12 @@ export function useRecordingPlayback(uri: string, durationMs: number, disabled =
     seekTo((now + seconds) / total);
   };
 
+  /** Skips forward (or back, when negative) by seconds, clamped to the recording. */
+  const skip = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return;
+    seekBy(seconds);
+  };
+
   const scrub = {
     /** Finger down on the bar: pauses a playing note and previews locally. */
     begin: (fraction: number) => {
@@ -183,6 +220,9 @@ export function useRecordingPlayback(uri: string, durationMs: number, disabled =
     toggle,
     seekTo,
     seekBy,
+    skip,
+    rate,
+    setRate,
     scrub,
     scrubbing,
     displayProgress,
