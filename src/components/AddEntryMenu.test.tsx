@@ -1,6 +1,7 @@
-import { AccessibilityInfo, BackHandler, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, BackHandler, Keyboard, Platform, StyleSheet, Text } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { AddEntryMenu, FAB_SIZE } from './AddEntryMenu';
+import { fakeKeyboard } from '../test/fakeKeyboard';
 import { BUILT_IN_JOURNALS, journalCopy } from '../utils/journals';
 
 let backHandler: (() => boolean | null | undefined) | null = null;
@@ -234,5 +235,55 @@ describe('AddEntryMenu', () => {
     await finishAnimation();
     expect(screen.getAllByRole('menuitem')).toHaveLength(2);
     expect(fab().props.accessibilityState).toMatchObject({ expanded: true });
+  });
+
+  it('opening dismisses the keyboard', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    await renderMenu();
+    expect(dismiss).not.toHaveBeenCalled();
+    await open();
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    dismiss.mockRestore();
+  });
+
+  describe('with the keyboard up', () => {
+    const originalOS = Platform.OS;
+    const setOS = (os: string) =>
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => os });
+    const sheetStyle = () =>
+      StyleSheet.flatten(screen.getByRole('header', { name: 'Add entry' }).parent!.props.style);
+    const fabStyle = () => StyleSheet.flatten(fab().props.style);
+    let emit: ReturnType<typeof fakeKeyboard>['emit'];
+    beforeEach(() => {
+      ({ emit } = fakeKeyboard());
+      jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS });
+      jest.restoreAllMocks();
+    });
+
+    it('Android: the sheet and button lift by the keyboard height, and drop back when it closes', async () => {
+      setOS('android');
+      await renderMenu({ bottomInset: 34 });
+      await open();
+      expect(sheetStyle()).toMatchObject({ bottom: 0, paddingBottom: 34 + 24 });
+      expect(fabStyle().bottom).toBe(34 + 16);
+      await emit('keyboardDidShow', 300);
+      expect(sheetStyle()).toMatchObject({ bottom: 334, paddingBottom: 24 });
+      expect(fabStyle().bottom).toBe(334 + 16);
+      await emit('keyboardDidHide');
+      expect(sheetStyle()).toMatchObject({ bottom: 0, paddingBottom: 34 + 24 });
+      expect(fabStyle().bottom).toBe(34 + 16);
+    });
+
+    it('iOS: unchanged by the keyboard', async () => {
+      setOS('ios');
+      await renderMenu({ bottomInset: 34 });
+      await open();
+      await emit('keyboardWillShow', 336);
+      expect(sheetStyle()).toMatchObject({ bottom: 0, paddingBottom: 34 + 24 });
+      expect(fabStyle().bottom).toBe(34 + 16);
+    });
   });
 });

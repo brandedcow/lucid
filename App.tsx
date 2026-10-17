@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, BackHandler, View } from 'react-native';
+import { Alert, BackHandler, Keyboard, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
@@ -286,6 +286,13 @@ export default function App() {
   }
 
   const current: Screen | null = screen;
+
+  // The add page can leave its keyboard up; no other screen has an input to keep it for.
+  const prevScreen = useRef(screen);
+  useEffect(() => {
+    if (prevScreen.current === 'add' && screen !== 'add') Keyboard.dismiss();
+    prevScreen.current = screen;
+  }, [screen]);
 
   // The name sheet belongs to Today and Journals home: leaving them (a new-day jump to the launch page) closes it.
   if (namingJournal && current !== 'today' && current !== 'journals') setNamingJournal(false);

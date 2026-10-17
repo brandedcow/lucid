@@ -3,11 +3,14 @@ import {
   AccessibilityInfo,
   Animated,
   BackHandler,
+  Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { Journal, journalCopy } from '../utils/journals';
@@ -32,6 +35,9 @@ export const FAB_SIZE = 56;
  *
  * The sheet slides up and the backdrop fades in (~220 ms); closing reverses it and unmounts at the end.
  * With Reduce Motion on, it appears and disappears without animation.
+ *
+ * Opening dismisses any keyboard. On Android, edge-to-edge means the window does not resize for the
+ * keyboard, so if one is still up the button and sheet lift by its height (as the add page's dock does).
  */
 type Props = {
   journals: readonly Journal[];
@@ -60,6 +66,7 @@ export function AddEntryMenu({
   const [sheetHeight, setSheetHeight] = useState(0);
   const [progress] = useState(() => new Animated.Value(0));
   const reduceMotion = useRef(false);
+  const keyboard = useKeyboardInset();
   const isOpen = open && !disabled;
   const visible = mounted && !disabled;
 
@@ -118,6 +125,7 @@ export function AddEntryMenu({
   }, [isOpen, close]);
 
   const openMenu = () => {
+    Keyboard.dismiss();
     setOpen(true);
     setMounted(true);
     animateTo(1);
@@ -135,7 +143,10 @@ export function AddEntryMenu({
     onNewJournal();
   };
 
-  const fabBottom = bottomInset + spacing.md;
+  // Android only: the keyboard height plus the system bar inset while it is up, else the inset
+  // alone. The sheet's own bottom padding then drops its inset share. iOS is unchanged.
+  const keyboardLift = Platform.OS === 'android' && keyboard.visible ? keyboard.height : 0;
+  const fabBottom = keyboardLift + bottomInset + spacing.md;
   const translateY = progress.interpolate({
     inputRange: [0, 1],
     outputRange: [sheetHeight || FALLBACK_SHEET_HEIGHT, 0],
@@ -167,7 +178,9 @@ export function AddEntryMenu({
             onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
             style={[
               styles.sheet,
-              { paddingBottom: bottomInset + spacing.lg },
+              keyboardLift > 0
+                ? { bottom: keyboardLift + bottomInset, paddingBottom: spacing.lg }
+                : { paddingBottom: bottomInset + spacing.lg },
               { transform: [{ translateY }] },
             ]}
           >

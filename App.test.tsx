@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, AlertButton, AppState, AppStateStatus, BackHandler } from 'react-native';
+import { Alert, AlertButton, AppState, AppStateStatus, BackHandler, Keyboard } from 'react-native';
 import App from './App';
 import { __fs } from './src/test/fakeFileSystem';
 import { localDateKey } from './src/utils/today';
@@ -688,6 +688,17 @@ describe('App Dream log and entry', () => {
     expect(Alert.alert).not.toHaveBeenCalled();
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(screen.getByText('query:hall')).toBeTruthy();
+  });
+
+  it('leaving the add page dismisses the keyboard, and only then', async () => {
+    await renderApp();
+    await goToLog();
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    await press('stub-open-dream');
+    expect(dismiss).not.toHaveBeenCalled();
+    await press('stub-add-back');
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
   it('hardware back on an opened entry goes to the log and is handled', async () => {
