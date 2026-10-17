@@ -1590,7 +1590,7 @@ describe('transcripts in the expanded view', () => {
     await stopRecording();
     await press('Open recording');
     expect(screen.queryByLabelText('Show transcript')).toBeNull();
-    expect(screen.queryByLabelText('More options')).toBeNull();
+    expect(screen.getByLabelText('More options')).toBeDisabled();
   });
 
   it('passes the transcription to the view: tapping the bubble starts a run for the note', async () => {

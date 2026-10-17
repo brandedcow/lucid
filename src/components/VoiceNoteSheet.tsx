@@ -950,7 +950,7 @@ export function VoiceNoteSheet({
           >
             <Text style={styles.back}>←</Text>
           </Pressable>
-          <View testID="voice-note-actions" style={[styles.pill, hasText && styles.pillShifted]}>
+          <View testID="voice-note-actions" style={[styles.pill, styles.pillShifted]}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Share voice note"
@@ -1026,13 +1026,12 @@ export function VoiceNoteSheet({
             </View>
           </View>
         )}
-        {hasText && (
-          <OverflowMenu
-            items={menuItems}
-            top={spacing.sm + (44 - iconCircle) / 2}
-            right={spacing.lg}
-          />
-        )}
+        <OverflowMenu
+          items={menuItems}
+          disabled={!hasText}
+          top={spacing.sm + (44 - iconCircle) / 2}
+          right={spacing.lg}
+        />
       </View>
     </SafeAreaView>
   );

@@ -106,9 +106,9 @@ describe('header and info', () => {
     expect(screen.getByTestId('voice-note-subtitle').props.children).toBe('00:12');
   });
 
-  it('has no transcript toggle, no menu and no dots', async () => {
+  it('has no transcript toggle and no dots, and a disabled menu', async () => {
     await renderSheet();
-    expect(screen.queryByLabelText('More options')).toBeNull();
+    expect(screen.getByLabelText('More options')).toBeDisabled();
     expect(screen.queryByTestId('voice-note-dots')).toBeNull();
     expect(screen.queryByLabelText(/transcript/i)).toBeNull();
   });
@@ -769,10 +769,10 @@ describe('transcript', () => {
   const onAddTranscript = jest.fn();
 
   describe('with the default (unsupported) transcription', () => {
-    it('hides the toggle and the menu, and never starts anything', async () => {
+    it('hides the toggle, disables the menu, and never starts anything', async () => {
       await renderSheet();
       expect(toggle()).toBeNull();
-      expect(screen.queryByLabelText('More options')).toBeNull();
+      expect(screen.getByLabelText('More options')).toBeDisabled();
       expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
     });
 
@@ -1275,22 +1275,37 @@ describe('transcript', () => {
   });
 
   describe('menu', () => {
-    const menuHidden = () => expect(screen.queryByLabelText('More options')).toBeNull();
+    const menuOff = () => {
+      const button = screen.getByLabelText('More options');
+      expect(button).toBeDisabled();
+      expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+      expect(StyleSheet.flatten(button.props.style).opacity).toBe(0.4);
+    };
     const pick = async (label: string) => {
       await fireEvent.press(screen.getByLabelText('More options'));
       await fireEvent.press(screen.getByLabelText(label));
       await act(async () => {});
     };
 
-    it('is hidden without a non-empty transcript', async () => {
-      const v = await show();
-      menuHidden();
+    it('is present but disabled without a non-empty transcript, and its items are unreachable', async () => {
+      const v = await show({ onAddTranscript });
+      menuOff();
+      await fireEvent.press(screen.getByLabelText('More options'));
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(screen.queryByLabelText('Copy transcript')).toBeNull();
       await v.unmount();
       const v2 = await show({ notes: [{ ...note, voiceTranscript: '' }] });
-      menuHidden();
+      menuOff();
       await v2.unmount();
       await show({ notes: [{ ...note, voiceTranscript: '  \n' }] });
-      menuHidden();
+      menuOff();
+    });
+
+    it('is enabled once the note has text', async () => {
+      await show({ notes: [withText] });
+      const button = screen.getByLabelText('More options');
+      expect(button).toBeEnabled();
+      expect(button.props.accessibilityState).toMatchObject({ disabled: false });
     });
 
     it('is a 40pt circle at the top right, with the share/trash pill shifted left of it', async () => {
@@ -1301,13 +1316,34 @@ describe('transcript', () => {
         borderRadius: iconCircle / 2,
       });
       const pill = screen.getByTestId('voice-note-actions');
-      expect(StyleSheet.flatten(pill.props.style).marginRight).toBe(iconCircle + 4);
+      expect(StyleSheet.flatten(pill.props.style).marginRight).toBe(iconCircle + spacing.xs);
     });
 
-    it('leaves the pill unshifted without a menu', async () => {
-      await show();
-      const pill = screen.getByTestId('voice-note-actions');
-      expect(StyleSheet.flatten(pill.props.style).marginRight).toBeUndefined();
+    it('keeps the pill margin and the button position the same with and without text', async () => {
+      const geometry = () => ({
+        pillMargin: StyleSheet.flatten(screen.getByTestId('voice-note-actions').props.style)
+          .marginRight,
+        top: StyleSheet.flatten(screen.getByLabelText('More options').props.style).top,
+        right: StyleSheet.flatten(screen.getByLabelText('More options').props.style).right,
+      });
+      const v = await show();
+      const without = geometry();
+      await v.unmount();
+      await show({ notes: [withText] });
+      const withT = geometry();
+      expect(withT).toEqual(without);
+      expect(withT).toEqual({
+        pillMargin: iconCircle + spacing.xs,
+        top: spacing.sm + (44 - iconCircle) / 2,
+        right: spacing.lg,
+      });
+    });
+
+    it('fits back, pill, menu and both gutters within 320pt', () => {
+      const back = 44;
+      const pill = 2 * 44 + 2 * spacing.xs;
+      const total = back + pill + (iconCircle + spacing.xs) + spacing.lg * 2;
+      expect(total).toBeLessThanOrEqual(320);
     });
 
     it('lists Copy transcript and Add transcript to entry as menu items', async () => {
