@@ -1,6 +1,7 @@
-import { BackHandler } from 'react-native';
+import { BackHandler, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { fakeKeyboard } from '../test/fakeKeyboard';
 import { JournalError } from '../services/journalStorage';
 import { BUILT_IN_JOURNALS } from '../utils/journals';
 import { NewJournalSheet } from './NewJournalSheet';
@@ -214,5 +215,57 @@ describe('NewJournalSheet', () => {
   it('without excludeId the initial name counts as taken', async () => {
     await setup({ initialName: 'Gratitude' });
     expect(screen.getByText('A journal named "Gratitude" already exists.')).toBeTruthy();
+  });
+
+  describe('with the keyboard up', () => {
+    const originalOS = Platform.OS;
+    const setOS = (os: string) =>
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => os });
+    const sheetStyle = () =>
+      StyleSheet.flatten(screen.getByRole('header', { name: 'New journal' }).parent!.props.style);
+    const avoiderStyle = () =>
+      StyleSheet.flatten(
+        screen.getByRole('header', { name: 'New journal' }).parent!.parent!.props.style,
+      );
+    let emit: ReturnType<typeof fakeKeyboard>['emit'];
+    beforeEach(() => {
+      ({ emit } = fakeKeyboard());
+    });
+    afterEach(() => {
+      Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS });
+      jest.restoreAllMocks();
+    });
+
+    it('Android: the sheet lifts by the keyboard height and drops back when it closes', async () => {
+      setOS('android');
+      await setup();
+      expect(avoiderStyle().paddingBottom).toBeUndefined();
+      expect(sheetStyle()).toMatchObject({ paddingBottom: 34 + 24 });
+      await emit('keyboardDidShow', 300);
+      expect(avoiderStyle()).toMatchObject({ paddingBottom: 334 });
+      expect(sheetStyle()).toMatchObject({ paddingBottom: 24 });
+      await emit('keyboardDidHide');
+      expect(avoiderStyle().paddingBottom).toBeUndefined();
+      expect(sheetStyle()).toMatchObject({ paddingBottom: 34 + 24 });
+    });
+
+    it('Android: the rename use lifts the same way', async () => {
+      setOS('android');
+      await setup({ initialName: 'Gratitude', title: 'Rename journal', submitLabel: 'Save' });
+      await emit('keyboardDidShow', 300);
+      const header = screen.getByRole('header', { name: 'Rename journal' });
+      expect(StyleSheet.flatten(header.parent!.parent!.props.style)).toMatchObject({
+        paddingBottom: 334,
+      });
+    });
+
+    it('iOS: unchanged by the keyboard', async () => {
+      setOS('ios');
+      await setup();
+      await emit('keyboardWillShow', 336);
+      // KeyboardAvoidingView (iOS) owns the lift; our own style adds nothing (0 or unset).
+      expect(avoiderStyle().paddingBottom ?? 0).toBe(0);
+      expect(sheetStyle()).toMatchObject({ paddingBottom: 34 + 24 });
+    });
   });
 });

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { JournalError } from '../services/journalStorage';
 import { colors, fonts, spacing } from '../theme';
 import {
@@ -89,6 +90,7 @@ function Sheet({
   submitLabel = NEW_JOURNAL_COPY.submit,
 }: Omit<Props, 'visible'>) {
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardInset();
   const [name, setName] = useState(initialName);
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -152,6 +154,12 @@ function Sheet({
     if (!savingRef.current) onClose();
   };
 
+  // Android only: edge-to-edge means the window does not resize for the keyboard, so
+  // KeyboardAvoidingView does nothing there and the IME would cover the sheet. Lift it by the
+  // keyboard height plus the system bar inset (the rule AddEntryMenu uses); the sheet's own bottom
+  // padding then drops its inset share. iOS keeps KeyboardAvoidingView and is unchanged.
+  const keyboardLift = Platform.OS === 'android' && keyboard.visible ? keyboard.height : 0;
+
   return (
     <View accessibilityViewIsModal style={styles.layer}>
       <Pressable
@@ -163,10 +171,18 @@ function Sheet({
       />
       <KeyboardAvoidingView
         pointerEvents="box-none"
-        style={styles.avoider}
+        style={[
+          styles.avoider,
+          keyboardLift > 0 && { paddingBottom: keyboardLift + insets.bottom },
+        ]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: (keyboardLift > 0 ? 0 : insets.bottom) + spacing.lg },
+          ]}
+        >
           <View style={styles.grabber} importantForAccessibility="no" />
           <Text style={styles.title} accessibilityRole="header">
             {title}
