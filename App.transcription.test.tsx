@@ -152,16 +152,11 @@ const openSheetTranscript = async () => {
   await press(byLabel('Open recording'));
   await press(byLabel('Show transcript'));
 };
-const transcribe = async () => {
-  await press(byLabel('Transcribe'));
-};
 
 describe('App transcription', () => {
-  it('offers Transcribe when supported, starts an on-device run and shows the result', async () => {
+  it('tapping the bubble starts an on-device run and shows the result', async () => {
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    expect(screen.getByText('No transcript yet.')).toBeTruthy();
-    await transcribe();
     expect(fakeSpeech.starts).toHaveLength(1);
     expect(fakeSpeech.starts[0]).toMatchObject({
       requiresOnDeviceRecognition: true,
@@ -183,7 +178,6 @@ describe('App transcription', () => {
   it('the text survives removing the note and Undo', async () => {
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    await transcribe();
     await heard('kept words');
     await press(byLabel('Close voice note'));
     await press(byLabel('Remove recording'));
@@ -196,7 +190,6 @@ describe('App transcription', () => {
   it('a result for a note removed while it ran still lands (Undo shows it)', async () => {
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    await transcribe();
     await press(byLabel('Close voice note'));
     await press(byLabel('Remove recording'));
     expect(fakeSpeech.aborts).toBe(0); // removing a note does not cancel the run
@@ -209,7 +202,6 @@ describe('App transcription', () => {
   it('leaving the page cancels the run and nothing lands', async () => {
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    await transcribe();
     await press(byLabel('Close voice note'));
     expect(await hardwareBack()).toBe(true);
     expect(fakeSpeech.aborts).toBe(1);
@@ -223,17 +215,16 @@ describe('App transcription', () => {
     await press(byLabel('Start recording'));
     await press(byLabel('Open recording'));
     await press(byLabel('Show transcript'));
-    expect(byLabel('Transcribe').props.accessibilityState.disabled).toBe(true);
-    await press(byLabel('Transcribe'));
+    expect(screen.queryByLabelText('Transcribe')).toBeNull();
     expect(fakeSpeech.starts).toHaveLength(0);
     expect(fakeSpeech.permissionRequests).toEqual([]);
   });
 
-  it('does not ask for any permission before Transcribe is tapped', async () => {
+  it('does not ask for any permission before the bubble is tapped', async () => {
     await openEdit(/Thankful for tea/);
-    await openSheetTranscript();
+    await press(byLabel('Open recording'));
     expect(fakeSpeech.permissionRequests).toEqual([]);
-    await transcribe();
+    await press(byLabel('Show transcript'));
     expect(fakeSpeech.permissionRequests).toEqual(['requestSpeechRecognizerPermissionsAsync']);
   });
 });
@@ -247,13 +238,11 @@ describe('App online transcription (opt-in)', () => {
   // An iPhone whose system locale cannot transcribe on-device: only the online route can work.
   const noOnDevice = () => fakeSpeech.set({ onDevice: false });
 
-  it('setting ON, no on-device support: Transcribe is offered with the Apple line, and the run is online', async () => {
+  it('setting ON, no on-device support: the bubble starts an online run with the Apple line', async () => {
     allowOnline();
     noOnDevice();
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
-    await transcribe();
     expect(fakeSpeech.starts).toHaveLength(1);
     expect(fakeSpeech.starts[0]).toMatchObject({
       requiresOnDeviceRecognition: false,
@@ -271,7 +260,6 @@ describe('App online transcription (opt-in)', () => {
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
     expect(screen.queryByText(/Uses .* servers/)).toBeNull();
-    await transcribe();
     expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
   });
 
@@ -288,7 +276,6 @@ describe('App online transcription (opt-in)', () => {
     noOnDevice();
     await openEdit(/Thankful for tea/);
     await openSheetTranscript();
-    await transcribe();
     await emit(() => fakeSpeech.error('network'));
     await emit(() => fakeSpeech.end());
     expect(

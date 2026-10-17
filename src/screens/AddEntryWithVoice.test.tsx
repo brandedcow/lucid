@@ -1593,7 +1593,7 @@ describe('transcripts in the expanded view', () => {
     expect(screen.queryByLabelText('More options')).toBeNull();
   });
 
-  it('passes the transcription to the view: Transcribe starts a run for the note', async () => {
+  it('passes the transcription to the view: tapping the bubble starts a run for the note', async () => {
     fakeT = createFakeTranscription();
     await renderPage();
     mockRec.stop.mockResolvedValueOnce({ uri: CACHE, durationMs: 1000 });
@@ -1601,7 +1601,6 @@ describe('transcripts in the expanded view', () => {
     await stopRecording();
     await press('Open recording');
     await press('Show transcript');
-    await press('Transcribe');
     expect(fakeT.start).toHaveBeenCalledWith(sessionApi?.session?.recordings[0].id, CACHE, 1000);
   });
 

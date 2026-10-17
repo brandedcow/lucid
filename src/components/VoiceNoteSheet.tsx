@@ -94,7 +94,8 @@ type PageProps = {
   view: TranscriptView;
   /** The transcript area is showing instead of the waveform. */
   transcriptOpen: boolean;
-  onToggleTranscript: () => void;
+  /** Shows (true) or hides (false) the transcript; idempotent, so a fast double tap cannot flip it back. */
+  onSetTranscriptOpen: (open: boolean) => void;
   transcription: RecordingTranscription;
   /** Transcribe is off (a save is in flight or a recording is running). */
   busy: boolean;
@@ -156,7 +157,6 @@ function TranscriptArea({
           {view.busyElsewhere && (
             <Text style={styles.transcriptNote}>Another voice note is being transcribed.</Text>
           )}
-          {action('Transcribe', start, busy || view.busyElsewhere)}
           {serverLine}
         </>
       );
@@ -219,7 +219,7 @@ function VoiceNotePage({
   onWaveTouch,
   view,
   transcriptOpen,
-  onToggleTranscript,
+  onSetTranscriptOpen,
   transcription,
   busy,
 }: PageProps) {
@@ -257,6 +257,17 @@ function VoiceNotePage({
   useEffect(() => () => onWaveTouch(false), [onWaveTouch]);
   const playOff = playDisabled && !playing;
   const showTranscript = transcriptOpen && view.kind !== 'none';
+  // A note with no transcript (or a failed run) starts transcribing on a tap of the bubble and
+  // keeps the view open, whether or not it was open. A ready or running transcript only toggles.
+  const busyElsewhere = transcription.busyId !== null && transcription.busyId !== note.id;
+  const onPressTranscript = () => {
+    if (view.kind === 'offer' || view.kind === 'failed') {
+      if (!busy && !busyElsewhere) void transcription.start(note.id, note.uri, note.durationMs);
+      onSetTranscriptOpen(true);
+      return;
+    }
+    onSetTranscriptOpen(!showTranscript);
+  };
   // The waveform goes away under a touch: never leave paging locked behind it.
   useEffect(() => {
     if (showTranscript) onWaveTouch(false);
@@ -273,13 +284,18 @@ function VoiceNotePage({
         </Text>
       </View>
 
-      {showTranscript ? (
-        <TranscriptArea note={note} view={view} transcription={transcription} busy={busy} />
-      ) : (
-        <>
+      {/* The stage is the waveform's box in both modes: the waveform stays mounted (hidden in
+          transcript mode) so the stage keeps its exact height, and the transcript is laid over it
+          as a sibling. The clock sits below the stage and is always visible. Nothing below the
+          region moves when the mode or the transcript state changes. */}
+      <View testID="voice-note-media-region">
+        <View testID="voice-note-stage">
           <View
             testID="voice-note-wave-block"
-            style={styles.waveBlock}
+            style={[styles.waveBlock, showTranscript && styles.mediaHidden]}
+            pointerEvents={showTranscript ? 'none' : 'auto'}
+            accessibilityElementsHidden={showTranscript}
+            importantForAccessibility={showTranscript ? 'no-hide-descendants' : 'auto'}
             onTouchStart={() => onWaveTouch(true)}
             onTouchEnd={() => onWaveTouch(false)}
             onTouchCancel={() => onWaveTouch(false)}
@@ -315,12 +331,15 @@ function VoiceNotePage({
               ))}
             </View>
           </View>
+          {showTranscript && (
+            <TranscriptArea note={note} view={view} transcription={transcription} busy={busy} />
+          )}
+        </View>
 
-          <Text testID="voice-note-clock" style={styles.clock}>
-            {formatClock(displayPosition)}
-          </Text>
-        </>
-      )}
+        <Text testID="voice-note-clock" style={styles.clock}>
+          {formatClock(displayPosition)}
+        </Text>
+      </View>
 
       <View testID="voice-note-controls" style={styles.controls}>
         <View testID="voice-note-controls-left" style={styles.sideSlot}>
@@ -329,7 +348,7 @@ function VoiceNotePage({
               accessibilityRole="button"
               accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
               accessibilityState={{ selected: showTranscript }}
-              onPress={onToggleTranscript}
+              onPress={onPressTranscript}
               hitSlop={4}
               style={styles.toggle}
             >
@@ -760,7 +779,7 @@ export function VoiceNoteSheet({
                   onWaveTouch={onWaveTouch}
                   view={view}
                   transcriptOpen={transcriptOpen}
-                  onToggleTranscript={() => setTranscriptOpen((o) => !o)}
+                  onSetTranscriptOpen={setTranscriptOpen}
                   transcription={transcription}
                   busy={busy}
                 />
@@ -928,7 +947,9 @@ const styles = StyleSheet.create({
   sideSlot: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   mainControls: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   toggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  transcriptArea: { flex: 1, minHeight: 160, marginTop: spacing.lg },
+  mediaHidden: { opacity: 0 },
+  // Laid over the waveform's box (the stage): same box, text scrolls inside it.
+  transcriptArea: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 },
   transcriptContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
   transcriptText: { color: colors.text, fontSize: 17, lineHeight: 26 },
   transcriptCentered: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },

@@ -856,7 +856,7 @@ describe('transcript', () => {
       expect(toggle()).toBeNull();
     });
 
-    it('swaps the waveform and clock for the transcript, with labels, selected state and a filled icon', async () => {
+    it('swaps the waveform for the transcript, keeping the clock, with labels, selected state and a filled icon', async () => {
       await show({ notes: [withText] });
       const off = screen.getByLabelText('Show transcript');
       expect(off.props.accessibilityState).toMatchObject({ selected: false });
@@ -868,7 +868,7 @@ describe('transcript', () => {
       ).toBe('transparent');
       await open();
       expect(screen.queryByTestId('voice-note-wave-block')).toBeNull();
-      expect(screen.queryByTestId('voice-note-clock')).toBeNull();
+      expect(screen.getByTestId('voice-note-clock')).toBeTruthy();
       const on = screen.getByLabelText('Show waveform');
       expect(on.props.accessibilityState).toMatchObject({ selected: true });
       expect(
@@ -930,36 +930,164 @@ describe('transcript', () => {
   });
 
   describe('states', () => {
-    it('offers Transcribe, which starts the run with the note id and uri', async () => {
+    it('starts transcribing once when the bubble is tapped on a note with none, with no Transcribe button', async () => {
       await show();
-      await open();
-      expect(screen.getByText('No transcript yet.')).toBeTruthy();
-      await fireEvent.press(screen.getByLabelText('Transcribe'));
+      expect(screen.queryByLabelText('Transcribe')).toBeNull();
+      await fireEvent.press(screen.getByLabelText('Show transcript'));
+      await act(async () => {});
+      expect(fake.start).toHaveBeenCalledTimes(1);
       expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a', 12_000);
       expect(fake.cancel).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText('Transcribe')).toBeNull();
     });
 
-    it('does not start anything on its own (opening the toggle only shows the offer)', async () => {
+    it('does not start anything until the bubble is tapped', async () => {
       await show();
-      await open();
       expect(fake.start).not.toHaveBeenCalled();
     });
 
-    it('disables Transcribe while saving or recording, and when another note is running', async () => {
+    it('a tap with the view already open on a note with none starts it and keeps the view open', async () => {
+      await show();
+      await open();
+      await fireEvent.press(screen.getByLabelText('Show waveform'));
+      expect(fake.start).toHaveBeenCalledTimes(2);
+      expect(screen.getByLabelText('Show waveform')).toBeTruthy();
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
+    });
+
+    it('a fast double tap leaves the view open', async () => {
+      await show();
+      const bubble = screen.getByLabelText('Show transcript');
+      await fireEvent.press(bubble);
+      await fireEvent.press(bubble);
+      await act(async () => {});
+      expect(screen.getByLabelText('Show waveform')).toBeTruthy();
+    });
+
+    it('a ready or running transcript only toggles the view', async () => {
+      const v = await show({ notes: [withText] });
+      await open();
+      await fireEvent.press(screen.getByLabelText('Show waveform'));
+      expect(screen.getByLabelText('Show transcript')).toBeTruthy();
+      await v.unmount();
+      fake.setState('n1', { status: 'running' });
+      await show();
+      await open();
+      await fireEvent.press(screen.getByLabelText('Show waveform'));
+      expect(screen.getByLabelText('Show transcript')).toBeTruthy();
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('tapping while running only shows the running view', async () => {
+      fake.setState('n1', { status: 'running' });
+      await show();
+      await open();
+      expect(screen.getByText('Transcribing...')).toBeTruthy();
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('retries a failed run from the bubble', async () => {
+      fake.setState('n1', { status: 'failed', error: { code: 'failed', message: 'x' } });
+      await show();
+      await open();
+      expect(fake.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start (but shows the view) while saving, recording or another note runs', async () => {
       const v = await show({ busy: true });
       await open();
-      const t = () => screen.getByLabelText('Transcribe');
-      expect(t().props.accessibilityState).toMatchObject({ disabled: true });
-      await fireEvent.press(t());
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
       expect(fake.start).not.toHaveBeenCalled();
       await v.unmount();
       fake.setState('other', { status: 'running' });
       await show();
       await open();
       expect(screen.getByText('Another voice note is being transcribed.')).toBeTruthy();
-      expect(t().props.accessibilityState).toMatchObject({ disabled: true });
-      await fireEvent.press(t());
       expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    it('never starts for a note that already has a transcript', async () => {
+      await show({ notes: [withText] });
+      await open();
+      expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    describe('fixed layout', () => {
+      const visible = (el: { props: { style?: unknown } }) =>
+        (StyleSheet.flatten(el.props.style as object) as { opacity?: number } | undefined)
+          ?.opacity !== 0;
+      const buttons = () =>
+        screen
+          .getAllByRole('button')
+          .map((b) => b.props.accessibilityLabel as string)
+          .filter((l) => /transcript|waveform|Back 15|Play audio|Forward 15|speed/.test(l))
+          .map((l) => (/^Show (transcript|waveform)$/.test(l) ? 'toggle' : l));
+      const stateTests: [string, () => void, P, string][] = [
+        ['none', () => {}, {}, 'voice-note-transcript-state'],
+        [
+          'running',
+          () => fake.setState('n1', { status: 'running' }),
+          {},
+          'voice-note-transcript-state',
+        ],
+        [
+          'failed',
+          () => fake.setState('n1', { status: 'failed', error: { code: 'failed', message: 'x' } }),
+          {},
+          'voice-note-transcript-state',
+        ],
+        ['short text', () => {}, { notes: [withText] }, 'voice-note-transcript'],
+        [
+          'long text',
+          () => {},
+          { notes: [{ ...note, voiceTranscript: 'word '.repeat(2000) }] },
+          'voice-note-transcript',
+        ],
+      ];
+
+      it.each(stateTests)(
+        'covers only the waveform; clock and controls stay visible (%s)',
+        async (_name, setup, props, areaId) => {
+          setup();
+          const v = await show(props);
+          await refresh(v);
+          const before = buttons();
+          await open();
+          // The clock is rendered, readable, not faded, and outside the stage that is covered.
+          const clock = screen.getByTestId('voice-note-clock');
+          expect(visible(clock)).toBe(true);
+          expect(clock.props.children).toBe('00:00.00');
+          const region = screen.getByTestId('voice-note-media-region');
+          const stage = screen.getByTestId('voice-note-stage');
+          expect(visible(stage)).toBe(true);
+          expect(stage).not.toContainElement(clock);
+          expect(region).toContainElement(clock);
+          // The controls row keeps every control, in the same order, all reachable.
+          expect(buttons()).toEqual(before);
+          expect(screen.getByTestId('voice-note-controls')).toBeVisible();
+          // The waveform is hidden (faded, inert, out of the accessibility tree).
+          expect(screen.queryByTestId('voice-note-wave-block')).toBeNull();
+          const wave = screen.getByTestId('voice-note-wave-block', { hidden: true });
+          expect(visible(wave)).toBe(false);
+          expect(wave.props.pointerEvents).toBe('none');
+          // The transcript is a sibling of the waveform in the stage (the box the waveform keeps),
+          // absolute-filled, so its height comes from the stage and never from its own content.
+          const area = screen.getByTestId(areaId);
+          expect(stage).toContainElement(area);
+          expect(area.parent).toBe(wave.parent);
+          expect(StyleSheet.flatten(area.props.style)).toMatchObject({
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+          });
+          expect(StyleSheet.flatten(area.props.style)).not.toHaveProperty('height');
+          expect(StyleSheet.flatten(area.props.style)).not.toHaveProperty('minHeight');
+          // The region is only the stage and the clock, and the controls row follows it.
+          expect(region.props.children).toHaveLength(2);
+        },
+      );
     });
 
     describe('online route line', () => {
@@ -974,12 +1102,12 @@ describe('transcript', () => {
         expect(screen.queryByText(SERVERS)).toBeNull();
       });
 
-      it("shows the provider line under Transcribe and while running when the route is online (iOS: Apple's)", async () => {
+      it("shows the provider line in the region and while running when the route is online (iOS: Apple's)", async () => {
         fake.setRoute('online');
         const v = await show();
         await open();
         expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
-        expect(screen.getByLabelText('Transcribe')).toBeTruthy();
+        expect(screen.queryByLabelText('Transcribe')).toBeNull();
         fake.setState('n1', { status: 'running' });
         await refresh(v);
         expect(screen.getByText('Transcribing online...')).toBeTruthy();
@@ -1057,14 +1185,15 @@ describe('transcript', () => {
       });
     });
 
-    it('returns to the offer after a cancel, with no message', async () => {
+    it('returns to the empty prompt after a cancel, with no message', async () => {
       const v = await show();
       await open();
       fake.setState('n1', { status: 'running' });
       await refresh(v);
       fake.setState('n1', { status: 'failed', error: { code: 'cancelled', message: 'x' } });
       await refresh(v);
-      expect(screen.getByLabelText('Transcribe')).toBeTruthy();
+      expect(screen.getByText('No transcript yet.')).toBeTruthy();
+      expect(screen.queryByLabelText('Transcribe')).toBeNull();
       expect(screen.queryByText(/Could not/)).toBeNull();
       expect(screen.queryByLabelText('Try again')).toBeNull();
     });
