@@ -76,6 +76,24 @@ const MENU_BOTTOM = spacing.lg + (PLAY_SIZE - SPEED_HEIGHT) / 2 + SPEED_HEIGHT +
 const MINOR_TICK_HEIGHT = 4;
 const MAJOR_TICK_HEIGHT = 8;
 const EDGE = 20;
+/** Bars-area height before the region is measured (and for the static neighbour pages). */
+export const WAVE_DEFAULT_HEIGHT = WAVE_HEIGHT;
+/** The bars area never gets shorter than this, however small the region. */
+export const WAVE_MIN_HEIGHT = 48;
+/** ... nor taller than this (landscape tablets); beyond it the waveform stays centred in the region. */
+export const WAVE_MAX_HEIGHT = 360;
+/** Vertical padding of the media region, the same in both modes. */
+const REGION_PADDING = spacing.lg;
+const SECOND_TICKS_HEIGHT = MAJOR_TICK_HEIGHT + spacing.xs;
+const LABEL_STRIP_HEIGHT = 24 + spacing.xs;
+/** Height under the bars: second marks and the 0:00 / 0:05 labels (with their gaps). */
+const BELOW_WAVE_HEIGHT = SECOND_TICKS_HEIGHT + LABEL_STRIP_HEIGHT;
+
+/** The bars-area height for a measured stage height (0 = not measured yet). */
+export function waveHeightFor(stageHeight: number): number {
+  if (!(stageHeight > 0)) return WAVE_DEFAULT_HEIGHT;
+  return Math.min(WAVE_MAX_HEIGHT, Math.max(WAVE_MIN_HEIGHT, stageHeight - BELOW_WAVE_HEIGHT));
+}
 
 export type SheetNote = {
   id: string;
@@ -300,6 +318,8 @@ function VoiceNotePage({
   // Width of the waveform (the same box the playhead and scrubbing map time onto).
   const { width: windowWidth } = useWindowDimensions();
   const [tickWidth, setTickWidth] = useState(0);
+  const [stageHeight, setStageHeight] = useState(0);
+  const waveHeight = waveHeightFor(stageHeight);
   const secondMarks = secondTicks(
     total,
     tickWidth > 0 ? tickWidth : Math.max(0, windowWidth - 2 * (spacing.lg + EDGE)),
@@ -368,7 +388,11 @@ function VoiceNotePage({
           the transcript is laid over the whole stage as a sibling. The clock and controls are
           outside, so nothing moves when the mode or the transcript state changes. */}
         <View testID="voice-note-media-region" style={styles.region}>
-          <View testID="voice-note-stage" style={styles.stage}>
+          <View
+            testID="voice-note-stage"
+            style={styles.stage}
+            onLayout={(e: LayoutChangeEvent) => setStageHeight(e.nativeEvent.layout.height)}
+          >
             <View
               testID="voice-note-wave-block"
               style={[styles.waveBlock, showTranscript && styles.mediaHidden]}
@@ -382,7 +406,7 @@ function VoiceNotePage({
               <SeekBar
                 progress={displayProgress}
                 peaks={bars}
-                waveHeight={WAVE_HEIGHT}
+                waveHeight={waveHeight}
                 onSeek={seekTo}
                 scrub={scrub}
                 onStep={seekBy}
@@ -568,7 +592,7 @@ function VoiceNotePlaceholder({ note }: { note: SheetNote }) {
         <Text style={styles.title}>Audio Recording</Text>
         <Text style={styles.subtitle}>{subtitleOf(note.durationMs / 1000, note.recordedAt)}</Text>
       </View>
-      <View style={styles.waveBlock}>
+      <View style={[styles.waveBlock, styles.staticBlock]}>
         <View style={[styles.staticWave, { height: WAVE_HEIGHT }]}>
           {bars ? (
             bars.map((peak, i) => (
@@ -1071,7 +1095,8 @@ const styles = StyleSheet.create({
   titleBlock: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.xs },
   title: { color: colors.text, fontSize: 24, fontWeight: '600' },
   subtitle: { color: colors.muted, fontSize: 14 },
-  waveBlock: { paddingHorizontal: spacing.lg + EDGE, paddingTop: spacing.xl },
+  waveBlock: { paddingHorizontal: spacing.lg + EDGE },
+  staticBlock: { paddingTop: spacing.xl },
   playhead: { position: 'absolute', top: 0, bottom: 0, width: 0, alignItems: 'center' },
   playheadLine: { flex: 1, width: 2, backgroundColor: colors.text },
   playheadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.text },
@@ -1080,7 +1105,7 @@ const styles = StyleSheet.create({
   pageBody: { flex: 1 },
   pageScroll: { flex: 1 },
   pageContent: { flexGrow: 1 },
-  region: { flex: 1, minHeight: REGION_MIN_HEIGHT },
+  region: { flex: 1, minHeight: REGION_MIN_HEIGHT, paddingVertical: REGION_PADDING },
   stage: { flex: 1, justifyContent: 'center' },
   // One mark per second, directly under the waveform; shares the waveform's width and time scale.
   secondTicks: { height: MAJOR_TICK_HEIGHT, marginTop: spacing.xs },

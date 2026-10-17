@@ -4,8 +4,17 @@ import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { copyText } from '../services/clipboard';
 import { createFakeTranscription } from '../test/fakeTranscription';
 import { shareRecording, ShareUnavailableError } from '../services/shareRecording';
-import { colors, iconCircle } from '../theme';
-import { secondTicks, SheetNote, SPEEDS, VoiceNoteSheet } from './VoiceNoteSheet';
+import { colors, iconCircle, spacing } from '../theme';
+import {
+  secondTicks,
+  SheetNote,
+  SPEEDS,
+  VoiceNoteSheet,
+  WAVE_DEFAULT_HEIGHT,
+  WAVE_MAX_HEIGHT,
+  WAVE_MIN_HEIGHT,
+  waveHeightFor,
+} from './VoiceNoteSheet';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -174,7 +183,7 @@ describe('clock and playback', () => {
     expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(0);
   });
 
-  it('the press area is 96pt tall and a tap at the top and at the bottom of it seeks', async () => {
+  it('the press area is 96pt tall before the region is measured and a tap at the top and at the bottom of it seeks', async () => {
     await renderSheet();
     const press = screen.getByTestId('seek-press');
     const heightOf = (el: { props: { style?: unknown } }) =>
@@ -1766,5 +1775,89 @@ describe('pager bar and menu fit', () => {
     await fireEvent.press(screen.getByLabelText(/^Playback speed 1x/));
     const big = StyleSheet.flatten(screen.getByTestId('speed-menu').props.style).maxHeight;
     expect(big).toBeGreaterThan(small as number);
+  });
+});
+
+describe('content padding and a waveform that fills the region', () => {
+  const flat = (id: string) =>
+    StyleSheet.flatten(screen.getByTestId(id, { hidden: true }).props.style) as Record<
+      string,
+      unknown
+    >;
+  const barsHeight = () => flat('seek-bar').height;
+  const measureStage = (height: number) =>
+    act(async () => {
+      fireEvent(screen.getByTestId('voice-note-stage'), 'layout', {
+        nativeEvent: { layout: { width: 300, height, x: 0, y: 0 } },
+      });
+    });
+  // Second marks (8 + 4) and label strip (24 + 4) under the bars.
+  const BELOW = 40;
+
+  it('pads the region vertically with the spacing token, in both modes', async () => {
+    const withText = { ...note, voiceTranscript: 'hello' };
+    await renderSheet({ notes: [withText], transcription: createFakeTranscription() });
+    expect(flat('voice-note-media-region').paddingVertical).toBe(spacing.lg);
+    await fireEvent.press(screen.getByLabelText('Show transcript'));
+    expect(flat('voice-note-media-region').paddingVertical).toBe(spacing.lg);
+    // The stage (waveform and transcript overlay) is inside the padded region, filling it.
+    expect(screen.getByTestId('voice-note-media-region')).toContainElement(
+      screen.getByTestId('voice-note-stage'),
+    );
+    expect(flat('voice-note-stage')).toMatchObject({ flex: 1 });
+  });
+
+  it('uses a sane default height before the first measurement', async () => {
+    await renderSheet();
+    expect(barsHeight()).toBe(WAVE_DEFAULT_HEIGHT);
+    expect(barsHeight()).toBeGreaterThan(0);
+  });
+
+  it('sizes the bars area from the measured stage height minus the tick strips', async () => {
+    await renderSheet();
+    await measureStage(300);
+    expect(barsHeight()).toBe(300 - BELOW);
+    expect(flat('seek-press').height).toBe(300 - BELOW);
+    const peaks = screen.getAllByTestId('wave-bar');
+    // Tallest bar (0.9) scales to the new area.
+    expect(Math.max(...peaks.map((b) => StyleSheet.flatten(b.props.style).height as number))).toBe(
+      0.9 * (300 - BELOW),
+    );
+    await measureStage(400);
+    expect(barsHeight()).toBe(400 - BELOW);
+  });
+
+  it('keeps the same bars height in transcript mode, and the ticks stay under the bars', async () => {
+    const withText = { ...note, voiceTranscript: 'hello' };
+    await renderSheet({ notes: [withText], transcription: createFakeTranscription() });
+    await measureStage(300);
+    await fireEvent.press(screen.getByLabelText('Show transcript'));
+    expect(barsHeight()).toBe(300 - BELOW);
+    const wave = screen.getByTestId('voice-note-wave-block', { hidden: true });
+    const kids = wave.children.map((c) => (c as unknown as { props: { testID?: string } }).props);
+    expect(kids.map((k) => k.testID)).toEqual([
+      'seek-bar',
+      'voice-note-second-ticks',
+      'voice-note-ticks',
+    ]);
+  });
+
+  it('clamps to the minimum and the maximum', async () => {
+    await renderSheet();
+    await measureStage(60);
+    expect(barsHeight()).toBe(WAVE_MIN_HEIGHT);
+    await measureStage(2000);
+    expect(barsHeight()).toBe(WAVE_MAX_HEIGHT);
+    expect(waveHeightFor(0)).toBe(WAVE_DEFAULT_HEIGHT);
+    expect(waveHeightFor(WAVE_MIN_HEIGHT + BELOW)).toBe(WAVE_MIN_HEIGHT);
+  });
+
+  it('still maps time to x and seeks after the height changed', async () => {
+    await renderSheet();
+    await measureStage(300);
+    const press = screen.getByTestId('seek-press');
+    await fireEvent(press, 'layout', { nativeEvent: { layout: { width: 200, height: 260 } } });
+    await fireEvent.press(press, { nativeEvent: { locationX: 100, locationY: 250 } });
+    expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(6);
   });
 });
