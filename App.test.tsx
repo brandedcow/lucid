@@ -1855,9 +1855,10 @@ describe('App launch cap timer', () => {
     const cleared: unknown[] = [];
     globalThis.setTimeout = ((fn: () => void, ms?: number) => {
       const id = fakeSet(fn, ms);
-      // Only App's own cap timer: react-navigation also sets a 1000 ms timer (useLinking), so
-      // identify ours by the file that called setTimeout.
-      if (ms === 1000 && /\/App\.tsx:\d+/.test(new Error().stack ?? '')) capIds.push(id);
+      // Only the app's own cap timer (now in AppFlowProvider.tsx): react-navigation also sets a
+      // 1000 ms timer (useLinking), so identify ours by the file that called setTimeout.
+      if (ms === 1000 && /\/(App|AppFlowProvider)\.tsx:\d+/.test(new Error().stack ?? ''))
+        capIds.push(id);
       return id;
     }) as never;
     globalThis.clearTimeout = ((id: never) => {
