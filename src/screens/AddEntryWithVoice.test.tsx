@@ -1602,7 +1602,7 @@ describe('transcripts in the expanded view', () => {
     await press('Open recording');
     await press('Show transcript');
     await press('Transcribe');
-    expect(fakeT.start).toHaveBeenCalledWith(sessionApi?.session?.recordings[0].id, CACHE);
+    expect(fakeT.start).toHaveBeenCalledWith(sessionApi?.session?.recordings[0].id, CACHE, 1000);
   });
 
   it("shows a stored note's transcript in the view and offers the menu", async () => {

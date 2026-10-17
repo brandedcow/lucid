@@ -15,7 +15,9 @@ describe('UNSUPPORTED_TRANSCRIPTION', () => {
     expect(UNSUPPORTED_TRANSCRIPTION.supported).toBe(false);
     expect(UNSUPPORTED_TRANSCRIPTION.busyId).toBeNull();
     expect(UNSUPPORTED_TRANSCRIPTION.stateOf('any')).toEqual({ status: 'none' });
-    await expect(UNSUPPORTED_TRANSCRIPTION.start('a', 'file:///a.m4a')).resolves.toBeUndefined();
+    await expect(
+      UNSUPPORTED_TRANSCRIPTION.start('a', 'file:///a.m4a', 1000),
+    ).resolves.toBeUndefined();
     expect(() => UNSUPPORTED_TRANSCRIPTION.cancel('a')).not.toThrow();
   });
 });

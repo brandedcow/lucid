@@ -6,7 +6,7 @@ import { RecordingTranscription, RecordingTranscriptionState } from '../services
  * `start` and `cancel` are spies and change nothing by themselves.
  */
 export type FakeTranscription = RecordingTranscription & {
-  start: jest.Mock<Promise<void>, [string, string]>;
+  start: jest.Mock<Promise<void>, [string, string, number?]>;
   cancel: jest.Mock<void, [string]>;
   setSupported(supported: boolean): void;
   /** Sets one recording's run state; a running state also marks it busy, any other frees it. */

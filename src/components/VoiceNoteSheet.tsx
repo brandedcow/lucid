@@ -121,7 +121,7 @@ function TranscriptArea({
       <Text style={styles.transcriptButtonText}>{label}</Text>
     </Pressable>
   );
-  const start = () => void transcription.start(note.id, note.uri);
+  const start = () => void transcription.start(note.id, note.uri, note.durationMs);
   let body: ReactNode = null;
   switch (view.kind) {
     case 'text':

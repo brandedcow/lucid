@@ -935,7 +935,7 @@ describe('transcript', () => {
       await open();
       expect(screen.getByText('No transcript yet.')).toBeTruthy();
       await fireEvent.press(screen.getByLabelText('Transcribe'));
-      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a', 12_000);
       expect(fake.cancel).not.toHaveBeenCalled();
     });
 
@@ -990,7 +990,7 @@ describe('transcript', () => {
       expect(screen.getByText(message)).toBeTruthy();
       expect(screen.queryByText('raw')).toBeNull();
       await fireEvent.press(screen.getByLabelText('Try again'));
-      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a', 12_000);
     });
 
     it('disables Try again while saving or recording', async () => {
@@ -1027,7 +1027,7 @@ describe('transcript', () => {
       await v.rerender(view({ notes: [{ ...note, voiceTranscript: results.n1 }] }));
       expect(screen.getByText('No speech was found in this note.')).toBeTruthy();
       await fireEvent.press(screen.getByLabelText('Try again'));
-      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a');
+      expect(fake.start).toHaveBeenCalledWith('n1', 'file:///cache/r1.m4a', 12_000);
     });
 
     it('shows the empty message without Try again when unsupported', async () => {

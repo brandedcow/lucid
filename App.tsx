@@ -15,6 +15,7 @@ import {
 import { useJournals } from './src/hooks/useJournals';
 import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
+import { useRecordingTranscription } from './src/hooks/useRecordingTranscription';
 import { useToday } from './src/hooks/useToday';
 import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
@@ -105,6 +106,21 @@ export default function App() {
   const journalFor = (id: JournalId): Journal => journalOrDefault(journals, id);
   // The entry on the add-entry page (new entries, drafts and edits).
   const entry = useEntrySession(journals);
+  // On-device transcription of voice notes. Lives here, above the page, so closing the sheet does
+  // not cancel a run; results go straight to the session recording.
+  const transcription = useRecordingTranscription({
+    onResult: entry.setRecordingTranscript,
+    isRecording: () => entryRecordingRef.current,
+  });
+  const { cancelAll: cancelTranscription, busyId: transcribingId } = transcription;
+  const sessionRecordings = entry.session?.recordings;
+  // The page was left (no session) or the session changed to another entry: stop the run.
+  useEffect(() => {
+    if (transcribingId === null) return;
+    if (!sessionRecordings || !sessionRecordings.some((r) => r.id === transcribingId)) {
+      cancelTranscription();
+    }
+  }, [sessionRecordings, transcribingId, cancelTranscription]);
   const library = useDreamLibrary();
   const dayMarker = useDayMarker();
   const settings = useSettings();
@@ -683,6 +699,7 @@ export default function App() {
             onSave={() => void saveEntryAndLeave('saved')}
             onBack={() => void performBack()}
             recordings={entry.session.recordings}
+            transcription={transcription}
             onRecorded={entry.attachRecording}
             onRemoveRecording={entry.removeRecording}
             onRestoreRecording={entry.restoreRecording}
