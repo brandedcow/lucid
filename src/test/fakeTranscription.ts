@@ -6,7 +6,7 @@ import { RecordingTranscription, RecordingTranscriptionState } from '../services
  * `start` and `cancel` are spies and change nothing by themselves.
  */
 export type FakeTranscription = RecordingTranscription & {
-  start: jest.Mock<Promise<void>, [string, string, number?]>;
+  start: jest.Mock<Promise<void>, [string, string, number?, { auto?: boolean }?]>;
   cancel: jest.Mock<void, [string]>;
   setSupported(supported: boolean): void;
   /** Sets the route the sheet shows (null = cannot transcribe). Does not change `supported`. */
@@ -27,7 +27,7 @@ export function createFakeTranscription(
     route: supported ? 'on-device' : null,
     busyId: null,
     stateOf: (id) => states.get(id) ?? { status: 'none' },
-    start: jest.fn<Promise<void>, [string, string]>(async () => {}),
+    start: jest.fn<Promise<void>, [string, string, number?, { auto?: boolean }?]>(async () => {}),
     cancel: jest.fn<void, [string]>(),
     setSupported(value) {
       fake.supported = value;

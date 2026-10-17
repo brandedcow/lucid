@@ -30,6 +30,7 @@ const initial = () => ({
   onDeviceAtStart: [] as boolean[],
   aborts: 0,
   permissionRequests: [] as string[],
+  permissionReads: [] as string[],
   getSupportedLocalesCalls: 0,
 });
 
@@ -50,6 +51,10 @@ export const fakeSpeech = {
   },
   get permissionRequests() {
     return s.permissionRequests;
+  },
+  /** Every get*PermissionsAsync call (a read: it never prompts). */
+  get permissionReads() {
+    return s.permissionReads;
   },
   get getSupportedLocalesCalls() {
     return s.getSupportedLocalesCalls;
@@ -127,6 +132,12 @@ const askPermission = async (kind: string): Promise<Permission> => {
   return s.permission;
 };
 
+// A status read: returns `permission` (set it with fakeSpeech.set) and records the call, never prompts.
+const readPermission = async (kind: string): Promise<Permission> => {
+  s.permissionReads.push(kind);
+  return s.permission;
+};
+
 export const ExpoSpeechRecognitionModule = {
   isRecognitionAvailable() {
     guard('isRecognitionAvailable');
@@ -145,6 +156,8 @@ export const ExpoSpeechRecognitionModule = {
   requestPermissionsAsync: () => askPermission('requestPermissionsAsync'),
   requestSpeechRecognizerPermissionsAsync: () =>
     askPermission('requestSpeechRecognizerPermissionsAsync'),
+  getPermissionsAsync: () => readPermission('getPermissionsAsync'),
+  getSpeechRecognizerPermissionsAsync: () => readPermission('getSpeechRecognizerPermissionsAsync'),
   start(options: Record<string, unknown>) {
     s.starts.push(options);
     s.onDeviceAtStart.push(s.onDevice);

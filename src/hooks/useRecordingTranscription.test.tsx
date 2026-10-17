@@ -1260,3 +1260,155 @@ describe('opt-in online transcription (Revision 6)', () => {
 });
 
 const normalizeLang = (system: string | null) => system?.replace(/_/g, '-');
+
+describe('automatic start (Revision 8): start(..., { auto: true })', () => {
+  const beginAuto = async (id = 'a', uri = NEW_URI, durationMs?: number) => {
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = latest.hook.start(id, uri, durationMs, { auto: true });
+      await flush();
+    });
+    return { done };
+  };
+  const untouched = () => {
+    expect(fakeSpeech.permissionRequests).toEqual([]);
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(latest.hook.busyId).toBeNull();
+    expect(latest.hook.stateOf('a')).toEqual({ status: 'none' });
+  };
+
+  describe.each(['ios', 'android'] as const)('%s', (os) => {
+    const getter = os === 'ios' ? 'getSpeechRecognizerPermissionsAsync' : 'getPermissionsAsync';
+    beforeEach(() => setOs(os));
+
+    it.each([
+      ['undetermined', { granted: false, status: 'undetermined', canAskAgain: true }],
+      ['denied', { granted: false, status: 'denied', canAskAgain: false }],
+    ])(
+      'permission %s: reads the status, never requests, starts nothing, sets no state',
+      async (_n, permission) => {
+        fakeSpeech.set({ permission });
+        await mount();
+        const { done } = await beginAuto();
+        await done;
+        expect(fakeSpeech.permissionReads).toEqual([getter]);
+        untouched();
+        expect(stopAllPlayback).not.toHaveBeenCalled();
+        expect(results).toEqual([]);
+      },
+    );
+
+    it('permission granted + on-device: starts on-device with the locale rules intact', async () => {
+      await mount();
+      const { done } = await beginAuto('a', NEW_URI, 5_000);
+      expect(fakeSpeech.permissionRequests).toEqual([]);
+      expect(fakeSpeech.permissionReads).toEqual([getter]);
+      expect(fakeSpeech.starts).toHaveLength(1);
+      expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+      expect(fakeSpeech.onDeviceAtStart).toEqual([true]);
+      expect(fakeSpeech.starts[0].lang).toBe('en-US');
+      expect(latest.hook.busyId).toBe('a');
+      expect(latest.hook.stateOf('a').status).toBe('running');
+      await emit(() => {
+        fakeSpeech.result('hello', true);
+        fakeSpeech.end();
+      });
+      await done;
+      expect(results).toEqual([['a', 'hello']]);
+      expect(latest.hook.busyId).toBeNull();
+    });
+
+    it('a failure after the run really started surfaces as failed', async () => {
+      await mount();
+      const { done } = await beginAuto();
+      await emit(() => {
+        fakeSpeech.error('audio-capture', 'mic');
+        fakeSpeech.end();
+      });
+      await done;
+      expect(latest.hook.stateOf('a').status).toBe('failed');
+      expect(latest.hook.busyId).toBeNull();
+    });
+  });
+
+  it('unsupported device: silent no-op, never failed', async () => {
+    fakeSpeech.set({ available: false, onDevice: false });
+    await mount();
+    const { done } = await beginAuto();
+    await done;
+    untouched();
+    expect(fakeSpeech.permissionReads).toEqual([]);
+  });
+
+  it('online route (opt-in on, no on-device): silent no-op, no network start, never failed', async () => {
+    setOs('ios');
+    setVersion(18);
+    fakeSpeech.set({ onDevice: false, available: true });
+    onlineSetting = true;
+    await mount();
+    expect(latest.hook.route).toBe('online');
+    const { done } = await beginAuto();
+    await done;
+    untouched();
+    expect(fakeSpeech.permissionReads).toEqual([]);
+    // The same note by a manual tap does go online.
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(false);
+  });
+
+  it('a recording open: silent no-op, no state', async () => {
+    await mount();
+    recording = true;
+    const { done } = await beginAuto();
+    await done;
+    untouched();
+    expect(fakeSpeech.permissionReads).toEqual([]);
+  });
+
+  it('a skipped auto start frees the slot: a manual start right after prompts and runs as before', async () => {
+    fakeSpeech.set({ permission: { granted: false, status: 'undetermined' } });
+    await mount();
+    const { done } = await beginAuto();
+    await done;
+    fakeSpeech.set({ permission: { granted: true } });
+    await begin('a');
+    expect(fakeSpeech.permissionRequests).toEqual(['requestPermissionsAsync']);
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(latest.hook.busyId).toBe('a');
+  });
+
+  it('a manual start (no auto, or auto: false) still prompts and fails visibly when denied', async () => {
+    fakeSpeech.set({ permission: { granted: false, status: 'denied' } });
+    await mount();
+    await begin('a');
+    expect(fakeSpeech.permissionRequests).toEqual(['requestPermissionsAsync']);
+    expect(fakeSpeech.permissionReads).toEqual([]);
+    expect(latest.hook.stateOf('a').status).toBe('failed');
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = latest.hook.start('b', NEW_URI, undefined, { auto: false });
+      await flush();
+    });
+    await done;
+    expect(fakeSpeech.permissionRequests).toHaveLength(2);
+    expect(latest.hook.stateOf('b').status).toBe('failed');
+  });
+
+  it('a second start while an auto run is active is ignored', async () => {
+    await mount();
+    await beginAuto('a');
+    await begin('b', STORED_URI);
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(latest.hook.busyId).toBe('a');
+  });
+
+  it('cancel works on an auto run that started', async () => {
+    await mount();
+    const { done } = await beginAuto('a');
+    await act(async () => latest.hook.cancel('a'));
+    await done;
+    expect(fakeSpeech.aborts).toBe(1);
+    expect(latest.hook.busyId).toBeNull();
+  });
+});

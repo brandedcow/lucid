@@ -33,6 +33,8 @@ type Run = {
   token: number;
   /** True once the module's start was called (an abort is only meaningful then). */
   started: boolean;
+  /** False while an automatic start is still checking its consent: busyId and the state stay untouched, and ending the run sets nothing. */
+  visible: boolean;
   /** The route this run was started on (decides how a `network` error is mapped). */
   online: boolean;
   finals: string[];
@@ -187,7 +189,7 @@ export function useRecordingTranscription({
     if (run.current !== r) return false;
     if (r.timer) clearTimeout(r.timer);
     run.current = null;
-    if (mounted.current) {
+    if (mounted.current && r.visible) {
       setBusyId(null);
       setState(r.id, state);
     }
@@ -289,101 +291,132 @@ export function useRecordingTranscription({
       endWaiters.current.push(waiter);
     });
 
-  const start = useCallback(async (id: string, uri: string, durationMs?: number): Promise<void> => {
-    // 1. One run at a time: leave the active one alone and touch no state.
-    if (run.current) return;
-    // 2. The audio session belongs to the recorder.
-    if (isRecordingRef.current()) {
-      setState(id, {
-        status: 'failed',
-        error: { code: 'busy', message: 'Finish recording first, then transcribe.' },
-      });
-      return;
-    }
-    // Claim the slot at once so a second tap during the permission prompt cannot start another run.
-    let settle = () => {};
-    const ended = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    const r: Run = {
-      settle,
-      id,
-      token: ++tokenCounter.current,
-      started: false,
-      online: false,
-      finals: [],
-      lastPartial: '',
-      timer: null,
-      limitMs: watchdogMs(durationMs),
-    };
-    run.current = r;
-    setBusyId(id);
-    setState(id, { status: 'running' });
-    const alive = () => run.current === r && mounted.current;
-
-    const launch = async () => {
-      try {
-        // 3. Re-check the route and locale right now (the system locale can change while the app
-        // runs, and the online setting is read from its ref each time).
-        const first = await decide();
-        if (!alive()) return;
-        if (first.mode === 'none') {
-          fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
-          return;
-        }
-        // A previous native run that has not ended (an abort can take a moment) blocks a new one.
-        if (nativeActive.current && !(await waitForEnd(END_WAIT_MS))) {
-          fail(r, 'busy', 'Still finishing the previous transcription. Try again in a moment.');
-          return;
-        }
-        if (!alive()) return;
-        // 4. Permissions at first use (the system prompt appears here, never earlier).
-        const permission =
-          Platform.OS === 'ios'
-            ? await ExpoSpeechRecognitionModule.requestSpeechRecognizerPermissionsAsync()
-            : await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-        if (!alive()) return;
-        if (!permission.granted) {
-          fail(r, 'permission', permissionDeniedMessage(Platform.OS));
-          return;
-        }
-        // A recording may have been opened while the prompt was up.
-        if (isRecordingRef.current()) {
-          fail(r, 'busy', 'Finish recording first, then transcribe.');
-          return;
-        }
-        // 5. Nothing plays while the module takes over the audio session.
-        stopAllPlayback();
-        // The locale used is the one checked right now, not the one from before the prompt.
-        // The online setting is read again here: if it was turned off while the prompt was up, an
-        // online route is gone and nothing starts.
-        const final = await decide();
-        if (!alive()) return;
-        if (final.mode === 'none') {
-          fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
-          return;
-        }
-        if (nativeActive.current) {
-          fail(r, 'busy', 'Still finishing the previous transcription. Try again in a moment.');
-          return;
-        }
-        // 6. Start. The options come only from buildStartOptions (the flag is the mode's).
-        r.started = true;
-        r.online = final.mode === 'online';
-        armWatchdog(r);
-        ExpoSpeechRecognitionModule.start(buildStartOptions(Platform.OS, final, uri));
-        nativeActive.current = true;
-      } catch {
-        if (run.current === r) {
-          if (r.started) abortModule();
-          fail(r, 'failed', 'Could not transcribe this voice note.');
-        }
+  const start = useCallback(
+    async (
+      id: string,
+      uri: string,
+      durationMs?: number,
+      options?: { auto?: boolean },
+    ): Promise<void> => {
+      const auto = options?.auto === true;
+      // 1. One run at a time: leave the active one alone and touch no state.
+      if (run.current) return;
+      // 2. The audio session belongs to the recorder. An automatic start just does not happen.
+      if (isRecordingRef.current()) {
+        if (auto) return;
+        setState(id, {
+          status: 'failed',
+          error: { code: 'busy', message: 'Finish recording first, then transcribe.' },
+        });
+        return;
       }
-    };
-    await launch();
-    await ended;
+      // Claim the slot at once so a second tap during the permission prompt cannot start another run.
+      let settle = () => {};
+      const ended = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const r: Run = {
+        settle,
+        id,
+        token: ++tokenCounter.current,
+        started: false,
+        visible: !auto,
+        online: false,
+        finals: [],
+        lastPartial: '',
+        timer: null,
+        limitMs: watchdogMs(durationMs),
+      };
+      run.current = r;
+      // An automatic start shows nothing until its consent checks pass (see `show` below).
+      const show = () => {
+        r.visible = true;
+        setBusyId(id);
+        setState(id, { status: 'running' });
+      };
+      if (!auto) show();
+      // An automatic start that is not eligible ends without any state, message or prompt.
+      const skip = () => finish(r, NONE);
+      const alive = () => run.current === r && mounted.current;
+
+      const launch = async () => {
+        try {
+          // 3. Re-check the route and locale right now (the system locale can change while the app
+          // runs, and the online setting is read from its ref each time).
+          const first = await decide();
+          if (!alive()) return;
+          // Automatic starts only run on-device (the online route is always a tap).
+          if (first.mode === 'none' || (auto && first.mode !== 'on-device')) {
+            if (auto) skip();
+            else fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
+            return;
+          }
+          // A previous native run that has not ended (an abort can take a moment) blocks a new one.
+          if (nativeActive.current && !(await waitForEnd(END_WAIT_MS))) {
+            if (auto) skip();
+            else
+              fail(r, 'busy', 'Still finishing the previous transcription. Try again in a moment.');
+            return;
+          }
+          if (!alive()) return;
+          // 4. Permissions at first use (the system prompt appears here, never earlier). An
+          // automatic start only reads the current status: it never prompts.
+          const ios = Platform.OS === 'ios';
+          const permission = auto
+            ? ios
+              ? await ExpoSpeechRecognitionModule.getSpeechRecognizerPermissionsAsync()
+              : await ExpoSpeechRecognitionModule.getPermissionsAsync()
+            : ios
+              ? await ExpoSpeechRecognitionModule.requestSpeechRecognizerPermissionsAsync()
+              : await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+          if (!alive()) return;
+          if (!permission.granted) {
+            if (auto) skip();
+            else fail(r, 'permission', permissionDeniedMessage(Platform.OS));
+            return;
+          }
+          if (auto) show();
+          // A recording may have been opened while the prompt was up.
+          if (isRecordingRef.current()) {
+            if (auto) skip();
+            else fail(r, 'busy', 'Finish recording first, then transcribe.');
+            return;
+          }
+          // 5. Nothing plays while the module takes over the audio session.
+          stopAllPlayback();
+          // The locale used is the one checked right now, not the one from before the prompt.
+          // The online setting is read again here: if it was turned off while the prompt was up, an
+          // online route is gone and nothing starts.
+          const final = await decide();
+          if (!alive()) return;
+          if (final.mode === 'none' || (auto && final.mode !== 'on-device')) {
+            if (auto) skip();
+            else fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
+            return;
+          }
+          if (nativeActive.current) {
+            fail(r, 'busy', 'Still finishing the previous transcription. Try again in a moment.');
+            return;
+          }
+          // 6. Start. The options come only from buildStartOptions (the flag is the mode's).
+          r.started = true;
+          r.online = final.mode === 'online';
+          armWatchdog(r);
+          ExpoSpeechRecognitionModule.start(buildStartOptions(Platform.OS, final, uri));
+          nativeActive.current = true;
+        } catch {
+          if (run.current === r) {
+            if (r.started) abortModule();
+            fail(r, 'failed', 'Could not transcribe this voice note.');
+          }
+        }
+      };
+      await launch();
+      await ended;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers only read refs and stable setters
-  }, []);
+    [],
+  );
 
   const cancel = useCallback((id: string) => {
     const r = run.current;

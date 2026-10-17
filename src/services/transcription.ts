@@ -29,8 +29,9 @@ export type RecordingTranscription = {
   /** Id of the recording currently running, or null (one at a time). */
   busyId: string | null;
   stateOf(id: string): RecordingTranscriptionState;
-  /** Starts a run. Resolves when it ends (result delivered through the hook's own onResult). `durationMs` (the clip length, optional) scales the hook's inactivity limit. Never rejects: failures become stateOf(id) = failed. */
-  start(id: string, uri: string, durationMs?: number): Promise<void>;
+  /** Starts a run. Resolves when it ends (result delivered through the hook's own onResult). `durationMs` (the clip length, optional) scales the hook's inactivity limit. Never rejects: failures become stateOf(id) = failed.
+   * `auto: true` (a start nobody tapped) may only do what is already consented: it never prompts for a permission (starts only if already granted), only runs on the 'on-device' route, and if it is not eligible it returns at once without setting any state. */
+  start(id: string, uri: string, durationMs?: number, options?: { auto?: boolean }): Promise<void>;
   /** Cancels that recording's run (no-op when not running). */
   cancel(id: string): void;
 };
