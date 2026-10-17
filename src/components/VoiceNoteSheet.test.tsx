@@ -4,8 +4,8 @@ import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { copyText } from '../services/clipboard';
 import { createFakeTranscription } from '../test/fakeTranscription';
 import { shareRecording, ShareUnavailableError } from '../services/shareRecording';
-import { iconCircle } from '../theme';
-import { SheetNote, VoiceNoteSheet } from './VoiceNoteSheet';
+import { colors, iconCircle } from '../theme';
+import { secondTicks, SheetNote, SPEEDS, VoiceNoteSheet } from './VoiceNoteSheet';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -172,24 +172,6 @@ describe('clock and playback', () => {
     );
     await fireEvent.press(screen.getByLabelText('Back 15 seconds'));
     expect(mockPlayer.seekTo).toHaveBeenLastCalledWith(0);
-  });
-
-  it('cycles the speed 1x, 1.5x, 2x, 0.75x, 1x and applies each rate to the player', async () => {
-    await renderSheet();
-    const speed = () => screen.getByLabelText(/Playback speed/);
-    expect(speed().props.accessibilityLabel).toBe('Playback speed 1x');
-    const seen: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      await fireEvent.press(speed());
-      seen.push(speed().props.accessibilityLabel);
-    }
-    expect(seen).toEqual([
-      'Playback speed 1.5x',
-      'Playback speed 2x',
-      'Playback speed 0.75x',
-      'Playback speed 1x',
-    ]);
-    expect(mockPlayer.setPlaybackRate.mock.calls.map((c) => c[0])).toEqual([1.5, 2, 0.75, 1]);
   });
 
   it('the press area is 96pt tall and a tap at the top and at the bottom of it seeks', async () => {
@@ -481,7 +463,7 @@ describe('the pager', () => {
 
   it('the speed carries over to the next note and is applied to its player', async () => {
     await render3();
-    await fireEvent.press(screen.getByLabelText('Playback speed 1x'));
+    await chooseSpeed('1x', '1.5x');
     expect(screen.getByLabelText('Playback speed 1.5x')).toBeTruthy();
     mockPlayer.setPlaybackRate.mockClear();
     await swipeTo(1);
@@ -721,7 +703,7 @@ describe('the pager: rest and settle', () => {
 
   it('the speed goes back to 1x when the view is opened again', async () => {
     const view = await mount();
-    await fireEvent.press(screen.getByLabelText('Playback speed 1x'));
+    await chooseSpeed('1x', '1.5x');
     expect(screen.getByLabelText('Playback speed 1.5x')).toBeTruthy();
     await view.unmount();
     await renderSheet({ notes: three });
@@ -794,37 +776,66 @@ describe('transcript', () => {
   });
 
   describe('controls row centring', () => {
-    // Layout does not run under Jest, so assert the structure that centres play: the left and right
-    // slots are identical flex-1 boxes (no padding or margin) around a symmetric back / play / forward
-    // cluster, whether or not the toggle renders. Device-verified separately.
+    // Layout does not run under Jest, so assert the structure that spaces the controls evenly and
+    // centres play: five identical flex-1 cells (no padding or margin of their own), play in the
+    // middle one, whether or not the bubble renders. Device-verified separately.
+    const IDS = ['left', 'back', 'play', 'forward', 'right'].map((n) => `voice-note-controls-${n}`);
     const expectCentred = () => {
       const row = screen.getByTestId('voice-note-controls');
-      const left = screen.getByTestId('voice-note-controls-left');
-      const main = screen.getByTestId('voice-note-controls-main');
-      const right = screen.getByTestId('voice-note-controls-right');
       const kids = row.props.children as { props: { testID: string } }[];
-      expect(kids.map((c) => c.props.testID)).toEqual([
-        'voice-note-controls-left',
-        'voice-note-controls-main',
-        'voice-note-controls-right',
-      ]);
-      expect(StyleSheet.flatten(left.props.style)).toEqual(StyleSheet.flatten(right.props.style));
-      expect(left).toHaveStyle({ flex: 1 });
-      expect(StyleSheet.flatten(left.props.style).padding).toBeUndefined();
-      expect(StyleSheet.flatten(left.props.style).paddingHorizontal).toBeUndefined();
-      expect(StyleSheet.flatten(left.props.style).margin).toBeUndefined();
-      // The cluster is back, play, forward with equal-width skips, and is not itself flexible.
-      expect(StyleSheet.flatten(main.props.style).flex).toBeUndefined();
-      const back = screen.getByLabelText('Back 15 seconds');
-      const fwd = screen.getByLabelText('Forward 15 seconds');
-      expect(StyleSheet.flatten(back.props.style).width).toBe(
-        StyleSheet.flatten(fwd.props.style).width,
+      expect(kids.map((c) => c.props.testID)).toEqual(IDS);
+      const cells = IDS.map((id) => screen.getByTestId(id));
+      const base = StyleSheet.flatten(cells[0].props.style);
+      expect(base.flex).toBe(1);
+      for (const c of cells) {
+        const st = StyleSheet.flatten(c.props.style);
+        expect(st).toEqual(base);
+        expect(st.padding).toBeUndefined();
+        expect(st.paddingHorizontal).toBeUndefined();
+        expect(st.margin).toBeUndefined();
+        expect(st.marginHorizontal).toBeUndefined();
+        expect(st.alignItems).toBe('center');
+      }
+      expect(within(cells[1]).getByLabelText('Back 15 seconds')).toBeTruthy();
+      expect(within(cells[2]).getByLabelText('Play audio recording')).toBeTruthy();
+      expect(within(cells[3]).getByLabelText('Forward 15 seconds')).toBeTruthy();
+      expect(within(cells[4]).getByLabelText(/^Playback speed/)).toBeTruthy();
+      // Every item fits a cell at 320pt: (320 - 2 x 24) / 5 = 54.4.
+      const gutter = StyleSheet.flatten(row.props.style).paddingHorizontal as number;
+      const cellWidth = (320 - 2 * gutter) / 5;
+      const widthOf = (label: string) =>
+        StyleSheet.flatten(screen.getByLabelText(label).props.style).width as number;
+      expect(widthOf('Back 15 seconds')).toBe(widthOf('Forward 15 seconds'));
+      // Neighbouring items never overlap: half of each plus the cell pitch.
+      const w = widthOf;
+      expect(w('Back 15 seconds')).toBeLessThanOrEqual(cellWidth);
+      expect(w('Playback speed 1x')).toBeLessThanOrEqual(cellWidth);
+      expect(w('Play audio recording') / 2 + w('Back 15 seconds') / 2).toBeLessThanOrEqual(
+        cellWidth,
       );
-      expect(within(main).getByLabelText('Back 15 seconds')).toBe(back);
-      expect(within(main).getByLabelText('Play audio recording')).toBeTruthy();
-      expect(within(main).getByLabelText('Forward 15 seconds')).toBe(fwd);
-      return { left, right };
+      expect(w('Play audio recording') / 2 + w('Playback speed 1x') / 2).toBeLessThanOrEqual(
+        cellWidth,
+      );
+      return { left: cells[0], right: cells[4] };
     };
+
+    it('uses the same side gutter as the title block', async () => {
+      await show({ notes: [withText] });
+      const title = StyleSheet.flatten(screen.getByText('Audio Recording').parent?.props.style) as {
+        paddingHorizontal: number;
+      };
+      const row = StyleSheet.flatten(screen.getByTestId('voice-note-controls').props.style);
+      expect(row.paddingHorizontal).toBe(title.paddingHorizontal);
+      expect(row.paddingHorizontal).toBeGreaterThan(0);
+    });
+
+    it('lets the speed label shrink to one line instead of overflowing', async () => {
+      await show({ notes: [withText] });
+      await chooseSpeed('1x', '1.75x');
+      const text = within(screen.getByLabelText('Playback speed 1.75x')).getByText('1.75x');
+      expect(text.props.numberOfLines).toBe(1);
+      expect(text.props.adjustsFontSizeToFit).toBe(true);
+    });
 
     it('keeps play centred with the toggle shown', async () => {
       await show({ notes: [withText] });
@@ -882,18 +893,19 @@ describe('transcript', () => {
       expect(screen.getByTestId('voice-note-wave-block')).toBeTruthy();
     });
 
-    it('is the first control, 44pt, before back 15 s', async () => {
+    it('is the first of the five controls, 44pt, before back 15 s', async () => {
       await show({ notes: [withText] });
       expect(screen.getByLabelText('Show transcript')).toHaveStyle({ width: 44, height: 44 });
       const labels = screen
         .getAllByRole('button')
         .map((b) => b.props.accessibilityLabel)
-        .filter((l: string) => /transcript|Back 15|Play audio|Forward 15/.test(l));
+        .filter((l: string) => /transcript|Back 15|Play audio|Forward 15|speed/i.test(l));
       expect(labels).toEqual([
         'Show transcript',
         'Back 15 seconds',
         'Play audio recording',
         'Forward 15 seconds',
+        'Playback speed 1x',
       ]);
     });
 
@@ -1052,6 +1064,11 @@ describe('transcript', () => {
           const v = await show(props);
           await refresh(v);
           const before = buttons();
+          const regionStyle = StyleSheet.flatten(
+            screen.getByTestId('voice-note-media-region').props.style,
+          );
+          const order = () => pageBlocks().map((k) => k.testID);
+          const orderBefore = order();
           await open();
           // The clock is rendered, readable, not faded, and outside the stage that is covered.
           const clock = screen.getByTestId('voice-note-clock');
@@ -1061,7 +1078,8 @@ describe('transcript', () => {
           const stage = screen.getByTestId('voice-note-stage');
           expect(visible(stage)).toBe(true);
           expect(stage).not.toContainElement(clock);
-          expect(region).toContainElement(clock);
+          expect(region).not.toContainElement(clock);
+          expect(region).toContainElement(stage);
           // The controls row keeps every control, in the same order, all reachable.
           expect(buttons()).toEqual(before);
           expect(screen.getByTestId('voice-note-controls')).toBeVisible();
@@ -1084,8 +1102,13 @@ describe('transcript', () => {
           });
           expect(StyleSheet.flatten(area.props.style)).not.toHaveProperty('height');
           expect(StyleSheet.flatten(area.props.style)).not.toHaveProperty('minHeight');
-          // The region is only the stage and the clock, and the controls row follows it.
-          expect(region.props.children).toHaveLength(2);
+          // The region is only the stage; the clock and then the controls follow it.
+          expect(region.props.children.props.testID).toBe('voice-note-stage');
+          expect(StyleSheet.flatten(region.props.style)).toMatchObject({ flex: 1 });
+          expect(StyleSheet.flatten(region.props.style).minHeight).toBeGreaterThan(0);
+          expect(StyleSheet.flatten(stage.props.style)).toMatchObject({ flex: 1 });
+          expect(regionStyle).toEqual(StyleSheet.flatten(region.props.style));
+          expect(order()).toEqual(orderBefore);
         },
       );
     });
@@ -1361,5 +1384,387 @@ describe('transcript', () => {
         });
       });
     });
+  });
+});
+
+/** The page's blocks in render order (props of each element child of the scroll content). */
+const pageBlocks = () =>
+  (screen.getByTestId('voice-note-media-region').parent?.children ?? [])
+    .filter((c): c is Exclude<typeof c, string> => typeof c !== 'string')
+    .map((c) => c.props as { testID?: string; style?: object });
+
+const chooseSpeed = async (current: string, next: string) => {
+  await fireEvent.press(screen.getByLabelText(`Playback speed ${current}`));
+  await fireEvent.press(screen.getByLabelText(`${next} speed`));
+};
+
+describe('speed menu', () => {
+  const button = () => screen.getByLabelText(/^Playback speed \d/, { hidden: true });
+  const items = () =>
+    screen.queryAllByRole('menuitem', { hidden: true }).map((i) => i.props.accessibilityLabel);
+
+  it('lists exactly 0.5x to 2x in the agreed steps', () => {
+    expect(SPEEDS).toEqual([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
+  });
+
+  it('is closed at first and shows the current speed on the button', async () => {
+    await renderSheet();
+    expect(screen.queryByTestId('speed-menu')).toBeNull();
+    expect(button().props.accessibilityLabel).toBe('Playback speed 1x');
+    expect(within(button()).getByText('1x')).toBeTruthy();
+    expect(button().props.accessibilityState).toMatchObject({ expanded: false });
+  });
+
+  it('opens a menu listing exactly the seven speeds with the current one marked', async () => {
+    await renderSheet();
+    await fireEvent.press(button());
+    expect(screen.getByTestId('speed-menu').props.accessibilityRole).toBe('menu');
+    expect(items()).toEqual([
+      '0.5x speed',
+      '0.75x speed',
+      '1x speed',
+      '1.25x speed',
+      '1.5x speed',
+      '1.75x speed',
+      '2x speed',
+    ]);
+    expect(button().props.accessibilityState).toMatchObject({ expanded: true });
+    const selected = screen
+      .getAllByRole('menuitem')
+      .filter((i) => i.props.accessibilityState.selected)
+      .map((i) => i.props.accessibilityLabel);
+    expect(selected).toEqual(['1x speed']);
+  });
+
+  it.each(SPEEDS)(
+    'picking %sx applies it to the player, labels the button and closes the menu',
+    async (v) => {
+      await renderSheet();
+      await fireEvent.press(button());
+      mockPlayer.setPlaybackRate.mockClear();
+      await fireEvent.press(screen.getByLabelText(`${v}x speed`));
+      expect(screen.queryByTestId('speed-menu')).toBeNull();
+      expect(button().props.accessibilityLabel).toBe(`Playback speed ${v}x`);
+      if (v !== 1) expect(mockPlayer.setPlaybackRate).toHaveBeenLastCalledWith(v, 'high');
+    },
+  );
+
+  it('marks the newly chosen speed when reopened', async () => {
+    await renderSheet();
+    await chooseSpeed('1x', '0.5x');
+    await fireEvent.press(button());
+    const selected = screen
+      .getAllByRole('menuitem')
+      .filter((i) => i.props.accessibilityState.selected)
+      .map((i) => i.props.accessibilityLabel);
+    expect(selected).toEqual(['0.5x speed']);
+  });
+
+  it('closes when the outside is tapped, without changing the speed', async () => {
+    await renderSheet();
+    await chooseSpeed('1x', '1.5x');
+    await fireEvent.press(button());
+    mockPlayer.setPlaybackRate.mockClear();
+    await fireEvent.press(screen.getByLabelText('Close speed menu'));
+    expect(screen.queryByTestId('speed-menu')).toBeNull();
+    expect(button().props.accessibilityLabel).toBe('Playback speed 1.5x');
+    expect(mockPlayer.setPlaybackRate).not.toHaveBeenCalled();
+  });
+
+  it('pressing the speed button again closes it', async () => {
+    await renderSheet();
+    await fireEvent.press(button());
+    await fireEvent.press(button());
+    expect(screen.queryByTestId('speed-menu')).toBeNull();
+  });
+
+  it('Android back closes the menu (handled) and does not close the sheet', async () => {
+    await renderSheet();
+    await fireEvent.press(button());
+    // The newest handler (the menu) runs first.
+    let handled: boolean | null | undefined;
+    await act(async () => {
+      handled = backHandler?.();
+    });
+    expect(handled).toBe(true);
+    expect(screen.queryByTestId('speed-menu')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('the old tap-to-cycle behaviour is gone: one tap changes nothing but opens the menu', async () => {
+    await renderSheet();
+    await fireEvent.press(button());
+    expect(button().props.accessibilityLabel).toBe('Playback speed 1x');
+    expect(mockPlayer.setPlaybackRate).not.toHaveBeenCalled();
+  });
+});
+
+describe('second ticks', () => {
+  const marks = () => [
+    ...screen.queryAllByTestId('second-tick', { hidden: true }),
+    ...screen.queryAllByTestId('second-tick-major', { hidden: true }),
+  ];
+  const lefts = () =>
+    screen
+      .getByTestId('voice-note-second-ticks', { hidden: true })
+      .children.map((c) => (c as unknown as { props: { style: { left?: string } } }).props.style)
+      .map((st) => StyleSheet.flatten(st).left);
+  const measure = (width: number) =>
+    fireEvent(screen.getByTestId('voice-note-second-ticks', { hidden: true }), 'layout', {
+      nativeEvent: { layout: { width, height: 8, x: 0, y: 0 } },
+    });
+
+  it('draws one mark per second from 0 up to the length (12 s: 13 marks)', async () => {
+    await renderSheet();
+    expect(marks()).toHaveLength(13);
+    // 0, 5, 10 are the taller ones.
+    expect(screen.getAllByTestId('second-tick-major', { hidden: true })).toHaveLength(3);
+  });
+
+  it('counts floor(duration) + 1 marks, whole or part seconds', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 7.4 };
+    await renderSheet({ notes: [{ ...note, durationMs: 7_400 }] });
+    expect(marks()).toHaveLength(8);
+  });
+
+  it('puts mark t at t / length of the width, the playhead scale', async () => {
+    await renderSheet();
+    expect(lefts()[0]).toBe('0%');
+    expect(lefts()[6]).toBe('50%');
+    expect(lefts()[12]).toBe('100%');
+  });
+
+  it('thins out when seconds are closer than 4pt: every 5th second, with every 5th mark taller', async () => {
+    mockStatus = { playing: false, currentTime: 0, duration: 120 };
+    await renderSheet({ notes: [{ ...note, durationMs: 120_000 }] });
+    await measure(300); // 2.5 pt per second
+    expect(marks()).toHaveLength(25); // 0, 5, ... 120
+    expect(screen.getAllByTestId('second-tick-major', { hidden: true })).toHaveLength(5); // 0, 25, 50, 75, 100
+  });
+
+  it('does not thin when each second still gets 4pt', async () => {
+    await renderSheet();
+    await measure(48); // 12 s at 4 pt a second
+    expect(marks()).toHaveLength(13);
+    await measure(47);
+    expect(marks()).toHaveLength(3); // 0, 5, 10
+  });
+
+  it('is decorative: no pointer events, hidden from accessibility, themed colour', async () => {
+    await renderSheet();
+    const box = screen.getByTestId('voice-note-second-ticks', { hidden: true });
+    expect(box.props.pointerEvents).toBe('none');
+    expect(box.props.accessibilityElementsHidden).toBe(true);
+    expect(box.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(screen.queryAllByTestId('second-tick', { hidden: true })[0].props.pointerEvents).toBe(
+      'none',
+    );
+    expect(
+      StyleSheet.flatten(screen.queryAllByTestId('second-tick', { hidden: true })[0].props.style),
+    ).toMatchObject({ backgroundColor: colors.muted });
+    expect(screen.queryByLabelText(/tick/i)).toBeNull();
+  });
+
+  it('sits inside the waveform block (same width as the seek bar), so it hides with it', async () => {
+    await renderSheet();
+    expect(screen.getByTestId('voice-note-wave-block')).toContainElement(
+      screen.getByTestId('voice-note-second-ticks', { hidden: true }),
+    );
+  });
+
+  describe('secondTicks', () => {
+    it('is empty for no length', () => {
+      expect(secondTicks(0, 300)).toEqual([]);
+      expect(secondTicks(NaN, 300)).toEqual([]);
+      expect(secondTicks(-3, 300)).toEqual([]);
+    });
+    it('counts floor(duration) + 1 when there is room', () => {
+      expect(secondTicks(7.4, 1000)).toHaveLength(8);
+      expect(secondTicks(7, 1000)).toHaveLength(8);
+      expect(secondTicks(0.5, 1000)).toHaveLength(1);
+    });
+    it('steps 1, 5, 10, 30, 60 s as the gap shrinks, never closer than 4pt', () => {
+      const gap = (d: number, w: number) => {
+        const t = secondTicks(d, w);
+        return t.length > 1 ? ((t[1].seconds - t[0].seconds) * w) / d : Infinity;
+      };
+      expect(secondTicks(100, 400)[1].seconds).toBe(1);
+      expect(secondTicks(100, 399)[1].seconds).toBe(5);
+      expect(secondTicks(1000, 300)[1].seconds).toBe(30);
+      expect(secondTicks(3600, 300)[1].seconds).toBe(60);
+      expect(secondTicks(36000, 300)[1].seconds).toBe(600);
+      for (const [d, w] of [
+        [100, 399],
+        [1000, 300],
+        [3600, 300],
+        [90, 100],
+      ]) {
+        expect(gap(d, w)).toBeGreaterThanOrEqual(4);
+      }
+    });
+    it('flags every 5th drawn mark as major', () => {
+      const t = secondTicks(12, 1000);
+      expect(t.filter((x) => x.major).map((x) => x.seconds)).toEqual([0, 5, 10]);
+    });
+  });
+});
+
+describe('bottom controls', () => {
+  const controlLabels = () =>
+    within(screen.getByTestId('voice-note-controls'))
+      .getAllByRole('button')
+      .map((b) => b.props.accessibilityLabel as string);
+
+  it('has exactly five items: bubble, back 15, play, forward 15, speed', async () => {
+    await renderSheet({ transcription: createFakeTranscription() });
+    expect(controlLabels()).toEqual([
+      'Show transcript',
+      'Back 15 seconds',
+      'Play audio recording',
+      'Forward 15 seconds',
+      'Playback speed 1x',
+    ]);
+  });
+
+  it('keeps the other four where they were when the bubble is hidden (slot reserved)', async () => {
+    await renderSheet(); // default transcription cannot transcribe: no bubble
+    expect(controlLabels()).toEqual([
+      'Back 15 seconds',
+      'Play audio recording',
+      'Forward 15 seconds',
+      'Playback speed 1x',
+    ]);
+    const row = screen.getByTestId('voice-note-controls');
+    const kids = row.props.children as { props: { testID: string } }[];
+    expect(kids.map((c) => c.props.testID)).toEqual(
+      ['left', 'back', 'play', 'forward', 'right'].map((n) => `voice-note-controls-${n}`),
+    );
+    expect(within(screen.getByTestId('voice-note-controls-left')).queryAllByRole('button')).toEqual(
+      [],
+    );
+  });
+
+  const pageOrder = pageBlocks;
+
+  it('orders the page: title, flexible region, clock directly above the controls, controls last', async () => {
+    await renderSheet();
+    const kids = pageOrder();
+    expect(kids.map((k) => k.testID).filter(Boolean)).toEqual([
+      'voice-note-media-region',
+      'voice-note-clock',
+      'voice-note-controls',
+    ]);
+    expect(kids[kids.length - 1].testID).toBe('voice-note-controls');
+    expect(kids[kids.length - 2].testID).toBe('voice-note-clock');
+    expect(StyleSheet.flatten(kids[1].style as object)).toMatchObject({ flex: 1 });
+    expect(
+      (StyleSheet.flatten(kids[kids.length - 1].style as object) as { paddingBottom: number })
+        .paddingBottom,
+    ).toBeGreaterThan(0);
+  });
+
+  it('has a scroll fallback whose content is at least the page height', async () => {
+    await renderSheet({ notes: three });
+    await fireEvent(screen.getByTestId('voice-note-pager'), 'layout', {
+      nativeEvent: { layout: { width: 300, height: 500 } },
+    });
+    const sc = screen.getByTestId('voice-note-page-scroll');
+    expect(StyleSheet.flatten(sc.props.contentContainerStyle)).toMatchObject({
+      flexGrow: 1,
+      minHeight: 500,
+    });
+  });
+
+  it('gives the page the measured pager height so the spacer can push the row down', async () => {
+    await renderSheet({ notes: three });
+    expect(
+      StyleSheet.flatten(screen.getByTestId('voice-note-page-body').props.style).height,
+    ).toBeUndefined();
+    await fireEvent(screen.getByTestId('voice-note-pager'), 'layout', {
+      nativeEvent: { layout: { width: 300, height: 640 } },
+    });
+    expect(
+      StyleSheet.flatten(screen.getByTestId('voice-note-page-body').props.style),
+    ).toMatchObject({
+      height: 640,
+      flex: 1,
+    });
+  });
+
+  it('sits inside a SafeAreaView that insets the bottom edge', async () => {
+    await renderSheet();
+    const sheet = screen.getByTestId('voice-note-sheet');
+    expect(Object.keys(sheet.props.edges)).toEqual(expect.arrayContaining(['top', 'bottom']));
+    expect(sheet).toContainElement(screen.getByTestId('voice-note-controls'));
+  });
+
+  it('keeps share, remove and the transcript menu in the header, outside the row', async () => {
+    await renderSheet({
+      notes: [{ ...note, voiceTranscript: 'hello' }],
+      transcription: createFakeTranscription(),
+    });
+    const row = screen.getByTestId('voice-note-controls');
+    for (const l of ['Share voice note', 'Remove recording', 'More options']) {
+      expect(screen.getByLabelText(l)).toBeTruthy();
+      expect(row).not.toContainElement(screen.getByLabelText(l));
+    }
+  });
+
+  it('keeps the same five controls in transcript mode, and the speed button works there', async () => {
+    const fake = createFakeTranscription();
+    await renderSheet({ notes: [{ ...note, voiceTranscript: 'hello' }], transcription: fake });
+    const before = controlLabels();
+    await fireEvent.press(screen.getByLabelText('Show transcript'));
+    expect(controlLabels()).toEqual(
+      before.map((l) => (l === 'Show transcript' ? 'Show waveform' : l)),
+    );
+    await chooseSpeed('1x', '2x');
+    expect(controlLabels()).toContain('Playback speed 2x');
+  });
+});
+
+describe('pager bar and menu fit', () => {
+  const layout = (height = 640) =>
+    fireEvent(screen.getByTestId('voice-note-pager'), 'layout', {
+      nativeEvent: { layout: { width: 300, height } },
+    });
+
+  it('with several notes the pager bar sits just above the clock, then the controls last', async () => {
+    await renderSheet({ notes: three });
+    const ids = pageBlocks().map((k) => k.testID);
+    expect(ids.slice(-3)).toEqual([
+      'voice-note-pager-bar',
+      'voice-note-clock',
+      'voice-note-controls',
+    ]);
+    expect(screen.getAllByTestId('voice-note-pager-bar')).toHaveLength(1);
+  });
+
+  it('a single note has no pager bar', async () => {
+    await renderSheet();
+    expect(screen.queryByTestId('voice-note-pager-bar')).toBeNull();
+  });
+
+  it('clamps the speed menu to the room above the row and scrolls inside it', async () => {
+    await renderSheet();
+    await layout(260);
+    await fireEvent.press(screen.getByLabelText(/^Playback speed 1x/));
+    const card = StyleSheet.flatten(screen.getByTestId('speed-menu').props.style);
+    expect(card.maxHeight).toBeGreaterThanOrEqual(88);
+    expect(card.maxHeight).toBeLessThan(260);
+    expect(screen.getByTestId('speed-menu-scroll')).toBeTruthy();
+    expect(screen.getAllByRole('menuitem', { hidden: true })).toHaveLength(7);
+  });
+
+  it('a taller pager gives a larger clamp', async () => {
+    await renderSheet();
+    await layout(260);
+    await fireEvent.press(screen.getByLabelText(/^Playback speed 1x/));
+    const small = StyleSheet.flatten(screen.getByTestId('speed-menu').props.style).maxHeight;
+    await fireEvent.press(screen.getByLabelText('Close speed menu'));
+    await layout(700);
+    await fireEvent.press(screen.getByLabelText(/^Playback speed 1x/));
+    const big = StyleSheet.flatten(screen.getByTestId('speed-menu').props.style).maxHeight;
+    expect(big).toBeGreaterThan(small as number);
   });
 });

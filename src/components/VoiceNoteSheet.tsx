@@ -36,10 +36,45 @@ import { ShareIcon, TrashIcon, TranscriptIcon } from './VoiceNoteIcons';
 export const SKIP_SECONDS = 15;
 /** Position update interval (ms) while the view is open; finer than the default for the clock and playhead. */
 export const SHEET_UPDATE_INTERVAL = 50;
-/** Playback speeds, in the order the speed button cycles through them. */
-export const SPEEDS = [1, 1.5, 2, 0.75] as const;
+/** Playback speeds offered by the speed menu, slowest first. */
+export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+/** Nearest the second marks may get to each other (pt) before they are thinned out. */
+export const MIN_TICK_GAP = 4;
+/** Steps (seconds between drawn marks) tried in turn: the first that keeps the gap wins. */
+const TICK_STEPS = [1, 5, 10, 30, 60, 300, 600, 1800, 3600];
+/** Every this-many-th drawn mark is taller. */
+export const MAJOR_EVERY = 5;
+
+export type SecondTick = { seconds: number; major: boolean };
+
+/**
+ * The small marks along the bottom of the waveform: one per second, at t = 0, 1, ... up to the
+ * length (never past it). `widthPx` is the waveform's width: when seconds would be closer than
+ * MIN_TICK_GAP pt, only every 5th, 10th, 30th, ... second is drawn (the first step in TICK_STEPS
+ * that fits). Every 5th drawn mark is flagged `major` (taller). Empty for a length that is not a
+ * positive finite number.
+ */
+export function secondTicks(durationSec: number, widthPx: number): SecondTick[] {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return [];
+  const perSecond = widthPx > 0 ? widthPx / durationSec : Infinity;
+  const step =
+    TICK_STEPS.find((s) => perSecond * s >= MIN_TICK_GAP) ?? TICK_STEPS[TICK_STEPS.length - 1];
+  const ticks: SecondTick[] = [];
+  for (let t = 0, n = 0; t <= durationSec; t += step, n++) {
+    ticks.push({ seconds: t, major: n % MAJOR_EVERY === 0 });
+  }
+  return ticks;
+}
 
 const WAVE_HEIGHT = 96;
+/** The waveform / transcript region never gets shorter than this; the page scrolls instead. */
+const REGION_MIN_HEIGHT = 160;
+const PLAY_SIZE = 64;
+const SPEED_HEIGHT = 44;
+/** Gap from the page bottom to the menu: row padding + the speed button's offset in the row + its height + a gap. */
+const MENU_BOTTOM = spacing.lg + (PLAY_SIZE - SPEED_HEIGHT) / 2 + SPEED_HEIGHT + spacing.xs;
+const MINOR_TICK_HEIGHT = 4;
+const MAJOR_TICK_HEIGHT = 8;
 const EDGE = 20;
 
 export type SheetNote = {
@@ -75,6 +110,13 @@ const failureMessage = (error: TranscriptionError) => {
       return 'Could not transcribe this voice note.';
   }
 };
+/** One line that shrinks rather than overflowing its cell (large fonts, 320pt). */
+const FIT = {
+  numberOfLines: 1,
+  adjustsFontSizeToFit: true,
+  minimumFontScale: 0.7,
+  maxFontSizeMultiplier: 1.3,
+} as const;
 const speedLabel = (rate: number) => `${rate}x`;
 const subtitleOf = (seconds: number, recordedAt: Date | null | undefined) =>
   [mmss(seconds), recordedAt ? formatRecordedAt(recordedAt) : '']
@@ -96,6 +138,10 @@ type PageProps = {
   transcriptOpen: boolean;
   /** Shows (true) or hides (false) the transcript; idempotent, so a fast double tap cannot flip it back. */
   onSetTranscriptOpen: (open: boolean) => void;
+  /** Height of the pager, so the page can pin its controls to the bottom; 0 until measured. */
+  pageHeight: number;
+  /** The "N of M" bar (several notes); shown above the controls so the controls are the lowest element. */
+  pagerBar: ReactNode;
   transcription: RecordingTranscription;
   /** Transcribe is off (a save is in flight or a recording is running). */
   busy: boolean;
@@ -220,6 +266,8 @@ function VoiceNotePage({
   view,
   transcriptOpen,
   onSetTranscriptOpen,
+  pageHeight,
+  pagerBar,
   transcription,
   busy,
 }: PageProps) {
@@ -249,9 +297,25 @@ function VoiceNotePage({
   const bars = isValidWaveform(note.waveform) ? note.waveform : null;
   const subtitle = subtitleOf(Math.round(total), note.recordedAt);
   const ticks = timeTicks(total);
-  const cycleSpeed = () => {
-    const at = SPEEDS.findIndex((s) => s === rate);
-    onRateChange(SPEEDS[(at + 1) % SPEEDS.length]);
+  // Width of the waveform (the same box the playhead and scrubbing map time onto).
+  const { width: windowWidth } = useWindowDimensions();
+  const [tickWidth, setTickWidth] = useState(0);
+  const secondMarks = secondTicks(
+    total,
+    tickWidth > 0 ? tickWidth : Math.max(0, windowWidth - 2 * (spacing.lg + EDGE)),
+  );
+  const [speedOpen, setSpeedOpen] = useState(false);
+  useEffect(() => {
+    if (!speedOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSpeedOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [speedOpen]);
+  const pickSpeed = (value: number) => {
+    setSpeedOpen(false);
+    onRateChange(value);
   };
   // Never leave paging locked behind a page that went away mid-touch.
   useEffect(() => () => onWaveTouch(false), [onWaveTouch]);
@@ -274,136 +338,220 @@ function VoiceNotePage({
   }, [showTranscript, onWaveTouch]);
 
   return (
-    <>
-      <View style={styles.titleBlock}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Audio Recording
-        </Text>
-        <Text testID="voice-note-subtitle" style={styles.subtitle}>
-          {subtitle}
-        </Text>
-      </View>
-
-      {/* The stage is the waveform's box in both modes: the waveform stays mounted (hidden in
-          transcript mode) so the stage keeps its exact height, and the transcript is laid over it
-          as a sibling. The clock sits below the stage and is always visible. Nothing below the
-          region moves when the mode or the transcript state changes. */}
-      <View testID="voice-note-media-region">
-        <View testID="voice-note-stage">
-          <View
-            testID="voice-note-wave-block"
-            style={[styles.waveBlock, showTranscript && styles.mediaHidden]}
-            pointerEvents={showTranscript ? 'none' : 'auto'}
-            accessibilityElementsHidden={showTranscript}
-            importantForAccessibility={showTranscript ? 'no-hide-descendants' : 'auto'}
-            onTouchStart={() => onWaveTouch(true)}
-            onTouchEnd={() => onWaveTouch(false)}
-            onTouchCancel={() => onWaveTouch(false)}
-          >
-            <SeekBar
-              progress={displayProgress}
-              peaks={bars}
-              waveHeight={WAVE_HEIGHT}
-              onSeek={seekTo}
-              scrub={scrub}
-              onStep={seekBy}
-              disabled={playDisabled}
-              label="Voice note position"
-              valueText={`${mmss(displayPosition)} of ${mmss(total)}`}
-            >
-              <View
-                testID="sheet-playhead"
-                style={[styles.playhead, { left: `${displayProgress * 100}%` }]}
-              >
-                <View style={[styles.playheadDot, styles.dotTop]} />
-                <View style={styles.playheadLine} />
-                <View style={[styles.playheadDot, styles.dotBottom]} />
-              </View>
-            </SeekBar>
-            <View testID="voice-note-ticks" style={styles.ticks} pointerEvents="none">
-              {ticks.map((t) => (
-                <View
-                  key={t.seconds}
-                  style={[styles.tick, { left: `${(t.seconds / total) * 100}%` }]}
-                >
-                  <Text style={styles.tickText}>{t.label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          {showTranscript && (
-            <TranscriptArea note={note} view={view} transcription={transcription} busy={busy} />
-          )}
+    <View
+      testID="voice-note-page-body"
+      style={[styles.pageBody, pageHeight > 0 && { height: pageHeight }]}
+    >
+      {/* Vertical order: title, the flexible region (waveform or transcript), the pager bar, the
+          clock, the controls. The ScrollView is only a fallback: its content is at least as tall as
+          the page, so it scrolls only when the minimum region height does not fit (landscape,
+          large fonts). */}
+      <ScrollView
+        testID="voice-note-page-scroll"
+        nestedScrollEnabled
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        style={styles.pageScroll}
+        contentContainerStyle={[styles.pageContent, pageHeight > 0 && { minHeight: pageHeight }]}
+      >
+        <View style={styles.titleBlock}>
+          <Text accessibilityRole="header" style={styles.title}>
+            Audio Recording
+          </Text>
+          <Text testID="voice-note-subtitle" style={styles.subtitle}>
+            {subtitle}
+          </Text>
         </View>
 
+        {/* The region fills the space between the title and the clock in both modes. The stage is its
+          box: the waveform (centred, with its ticks) stays mounted, hidden in transcript mode, and
+          the transcript is laid over the whole stage as a sibling. The clock and controls are
+          outside, so nothing moves when the mode or the transcript state changes. */}
+        <View testID="voice-note-media-region" style={styles.region}>
+          <View testID="voice-note-stage" style={styles.stage}>
+            <View
+              testID="voice-note-wave-block"
+              style={[styles.waveBlock, showTranscript && styles.mediaHidden]}
+              pointerEvents={showTranscript ? 'none' : 'auto'}
+              accessibilityElementsHidden={showTranscript}
+              importantForAccessibility={showTranscript ? 'no-hide-descendants' : 'auto'}
+              onTouchStart={() => onWaveTouch(true)}
+              onTouchEnd={() => onWaveTouch(false)}
+              onTouchCancel={() => onWaveTouch(false)}
+            >
+              <SeekBar
+                progress={displayProgress}
+                peaks={bars}
+                waveHeight={WAVE_HEIGHT}
+                onSeek={seekTo}
+                scrub={scrub}
+                onStep={seekBy}
+                disabled={playDisabled}
+                label="Voice note position"
+                valueText={`${mmss(displayPosition)} of ${mmss(total)}`}
+              >
+                <View
+                  testID="sheet-playhead"
+                  style={[styles.playhead, { left: `${displayProgress * 100}%` }]}
+                >
+                  <View style={[styles.playheadDot, styles.dotTop]} />
+                  <View style={styles.playheadLine} />
+                  <View style={[styles.playheadDot, styles.dotBottom]} />
+                </View>
+              </SeekBar>
+              <View
+                testID="voice-note-second-ticks"
+                style={styles.secondTicks}
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                onLayout={(e: LayoutChangeEvent) => setTickWidth(e.nativeEvent.layout.width)}
+              >
+                {secondMarks.map((t) => (
+                  <View
+                    key={t.seconds}
+                    testID={t.major ? 'second-tick-major' : 'second-tick'}
+                    pointerEvents="none"
+                    style={[
+                      styles.secondTick,
+                      t.major && styles.secondTickMajor,
+                      { left: `${(t.seconds / total) * 100}%` },
+                    ]}
+                  />
+                ))}
+              </View>
+              <View testID="voice-note-ticks" style={styles.ticks} pointerEvents="none">
+                {ticks.map((t) => (
+                  <View
+                    key={t.seconds}
+                    style={[styles.tick, { left: `${(t.seconds / total) * 100}%` }]}
+                  >
+                    <Text style={styles.tickText}>{t.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            {showTranscript && (
+              <TranscriptArea note={note} view={view} transcription={transcription} busy={busy} />
+            )}
+          </View>
+        </View>
+
+        {pagerBar}
         <Text testID="voice-note-clock" style={styles.clock}>
           {formatClock(displayPosition)}
         </Text>
-      </View>
-
-      <View testID="voice-note-controls" style={styles.controls}>
-        <View testID="voice-note-controls-left" style={styles.sideSlot}>
-          {view.kind !== 'none' && (
+        <View testID="voice-note-controls" style={styles.controls}>
+          <View testID="voice-note-controls-left" style={styles.cell}>
+            {view.kind !== 'none' && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
+                accessibilityState={{ selected: showTranscript }}
+                onPress={onPressTranscript}
+                hitSlop={4}
+                style={styles.toggle}
+              >
+                <TranscriptIcon color={colors.text} size={28} filled={showTranscript} />
+              </Pressable>
+            )}
+          </View>
+          <View testID="voice-note-controls-back" style={styles.cell}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={showTranscript ? 'Show waveform' : 'Show transcript'}
-              accessibilityState={{ selected: showTranscript }}
-              onPress={onPressTranscript}
-              hitSlop={4}
-              style={styles.toggle}
+              accessibilityLabel={`Back ${SKIP_SECONDS} seconds`}
+              accessibilityState={{ disabled: playDisabled }}
+              disabled={playDisabled}
+              onPress={() => skip(-SKIP_SECONDS)}
+              hitSlop={8}
+              style={[styles.skip, playDisabled && styles.off]}
             >
-              <TranscriptIcon color={colors.text} size={28} filled={showTranscript} />
+              <Text {...FIT} style={styles.skipText}>
+                ↺ {SKIP_SECONDS}
+              </Text>
             </Pressable>
-          )}
+          </View>
+          <View testID="voice-note-controls-play" style={styles.cell}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={playing ? 'Pause audio recording' : 'Play audio recording'}
+              accessibilityState={{ disabled: playOff }}
+              disabled={playOff}
+              onPress={toggle}
+              style={[styles.play, playOff && styles.off]}
+            >
+              <Text style={styles.playGlyph}>{playing ? 'ǁ' : '▶'}</Text>
+            </Pressable>
+          </View>
+          <View testID="voice-note-controls-forward" style={styles.cell}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Forward ${SKIP_SECONDS} seconds`}
+              accessibilityState={{ disabled: playDisabled }}
+              disabled={playDisabled}
+              onPress={() => skip(SKIP_SECONDS)}
+              hitSlop={8}
+              style={[styles.skip, playDisabled && styles.off]}
+            >
+              <Text {...FIT} style={styles.skipText}>
+                {SKIP_SECONDS} ↻
+              </Text>
+            </Pressable>
+          </View>
+          <View testID="voice-note-controls-right" style={styles.cell}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Playback speed ${speedLabel(rate)}`}
+              accessibilityState={{ expanded: speedOpen }}
+              onPress={() => setSpeedOpen((o) => !o)}
+              hitSlop={4}
+              style={styles.speed}
+            >
+              <Text {...FIT} style={styles.speedText}>
+                {speedLabel(rate)}
+              </Text>
+            </Pressable>
+          </View>
         </View>
-        <View testID="voice-note-controls-main" style={styles.mainControls}>
+      </ScrollView>
+      {speedOpen && (
+        <View testID="speed-menu-layer" accessibilityViewIsModal style={styles.menuLayer}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Back ${SKIP_SECONDS} seconds`}
-            accessibilityState={{ disabled: playDisabled }}
-            disabled={playDisabled}
-            onPress={() => skip(-SKIP_SECONDS)}
-            hitSlop={8}
-            style={[styles.skip, playDisabled && styles.off]}
+            accessibilityLabel="Close speed menu"
+            onPress={() => setSpeedOpen(false)}
+            style={styles.menuBackdrop}
+          />
+          <View
+            testID="speed-menu"
+            accessibilityRole="menu"
+            accessibilityLabel="Playback speed"
+            style={[
+              styles.menuCard,
+              pageHeight > 0 && { maxHeight: Math.max(88, pageHeight - MENU_BOTTOM - spacing.sm) },
+            ]}
           >
-            <Text style={styles.skipText}>↺ {SKIP_SECONDS}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={playing ? 'Pause audio recording' : 'Play audio recording'}
-            accessibilityState={{ disabled: playOff }}
-            disabled={playOff}
-            onPress={toggle}
-            style={[styles.play, playOff && styles.off]}
-          >
-            <Text style={styles.playGlyph}>{playing ? 'ǁ' : '▶'}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Forward ${SKIP_SECONDS} seconds`}
-            accessibilityState={{ disabled: playDisabled }}
-            disabled={playDisabled}
-            onPress={() => skip(SKIP_SECONDS)}
-            hitSlop={8}
-            style={[styles.skip, playDisabled && styles.off]}
-          >
-            <Text style={styles.skipText}>{SKIP_SECONDS} ↻</Text>
-          </Pressable>
+            <ScrollView testID="speed-menu-scroll" bounces={false}>
+              {SPEEDS.map((s) => (
+                <Pressable
+                  key={s}
+                  accessibilityRole="menuitem"
+                  accessibilityLabel={`${speedLabel(s)} speed`}
+                  accessibilityState={{ selected: s === rate }}
+                  onPress={() => pickSpeed(s)}
+                  style={styles.menuItem}
+                >
+                  <Text style={[styles.menuItemText, s === rate && styles.menuItemOn]}>
+                    {speedLabel(s)}
+                  </Text>
+                  <Text style={styles.menuCheck}>{s === rate ? '✓' : ''}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
         </View>
-        <View testID="voice-note-controls-right" style={styles.sideSlot} />
-      </View>
-      <View style={styles.speedRow}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Playback speed ${speedLabel(rate)}`}
-          onPress={cycleSpeed}
-          hitSlop={8}
-          style={styles.speed}
-        >
-          <Text style={styles.speedText}>{speedLabel(rate)}</Text>
-        </Pressable>
-      </View>
-    </>
+      )}
+    </View>
   );
 }
 
@@ -467,7 +615,7 @@ type Props = {
  * tapping a card. Back arrow, share and trash at the top (they act on the active note); below, a
  * horizontal pager with one page per note: title, "mm:ss · Today, h:mm PM", a large waveform with a
  * playhead (drag or tap to seek, through SeekBar), time ticks, the elapsed time with centiseconds,
- * and back 15 s / play / forward 15 s / speed.
+ * and, pinned to the bottom, transcript toggle / back 15 s / play / forward 15 s / speed (a menu, 0.5x to 2x).
  *
  * Only the active page has a player (fine update interval); neighbours are static placeholders.
  * Swiping unmounts the old page, which pauses its note; the new one starts paused. The playback
@@ -542,6 +690,7 @@ export function VoiceNoteSheet({
   // synchronously) mirrored in state (drives `scrollEnabled`).
   const window = useWindowDimensions();
   const [layoutWidth, setLayoutWidth] = useState(0);
+  const [layoutHeight, setLayoutHeight] = useState(0);
   const width = layoutWidth > 0 ? layoutWidth : window.width;
   const pager = useRef<ScrollView>(null);
   const lockRef = useRef(false);
@@ -641,6 +790,8 @@ export function VoiceNoteSheet({
   const onPagerLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
     if (w !== layoutWidth) setLayoutWidth(w);
+    const h = e.nativeEvent.layout.height;
+    if (h !== layoutHeight) setLayoutHeight(h);
     if (needsRest.current) restPager();
   };
 
@@ -703,9 +854,59 @@ export function VoiceNoteSheet({
         ]
       : []),
   ];
-  const actionsOff = busy;
   const first = activeIndex === 0;
   const last = activeIndex === count - 1;
+  const pagerBar = many ? (
+    <View testID="voice-note-pager-bar" style={styles.pagerBar}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Previous voice note"
+        accessibilityState={{ disabled: first }}
+        disabled={first}
+        onPress={() => goTo(targetRef.current - 1, true)}
+        hitSlop={8}
+        style={[styles.chevron, first && styles.off]}
+      >
+        <Text style={styles.chevronText}>‹</Text>
+      </Pressable>
+      <View style={styles.pagerMiddle}>
+        <Text
+          testID="voice-note-position"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={`Voice note ${activeIndex + 1} of ${count}`}
+          style={styles.position}
+        >
+          {activeIndex + 1} of {count}
+        </Text>
+        <View
+          testID="voice-note-sheet-dots"
+          style={styles.dots}
+          importantForAccessibility="no"
+          accessibilityElementsHidden
+        >
+          {notes.map((n, i) => (
+            <View
+              key={n.id}
+              testID="voice-note-sheet-dot"
+              style={[styles.dot, i === activeIndex && styles.dotOn]}
+            />
+          ))}
+        </View>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Next voice note"
+        accessibilityState={{ disabled: last }}
+        disabled={last}
+        onPress={() => goTo(targetRef.current + 1, true)}
+        hitSlop={8}
+        style={[styles.chevron, last && styles.off]}
+      >
+        <Text style={styles.chevronText}>›</Text>
+      </Pressable>
+    </View>
+  ) : null;
+  const actionsOff = busy;
 
   return (
     <SafeAreaView
@@ -780,6 +981,8 @@ export function VoiceNoteSheet({
                   view={view}
                   transcriptOpen={transcriptOpen}
                   onSetTranscriptOpen={setTranscriptOpen}
+                  pageHeight={layoutHeight}
+                  pagerBar={pagerBar}
                   transcription={transcription}
                   busy={busy}
                 />
@@ -790,56 +993,6 @@ export function VoiceNoteSheet({
           ))}
         </ScrollView>
 
-        {many && (
-          <View testID="voice-note-pager-bar" style={styles.pagerBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Previous voice note"
-              accessibilityState={{ disabled: first }}
-              disabled={first}
-              onPress={() => goTo(targetRef.current - 1, true)}
-              hitSlop={8}
-              style={[styles.chevron, first && styles.off]}
-            >
-              <Text style={styles.chevronText}>‹</Text>
-            </Pressable>
-            <View style={styles.pagerMiddle}>
-              <Text
-                testID="voice-note-position"
-                accessibilityLiveRegion="polite"
-                accessibilityLabel={`Voice note ${activeIndex + 1} of ${count}`}
-                style={styles.position}
-              >
-                {activeIndex + 1} of {count}
-              </Text>
-              <View
-                testID="voice-note-sheet-dots"
-                style={styles.dots}
-                importantForAccessibility="no"
-                accessibilityElementsHidden
-              >
-                {notes.map((n, i) => (
-                  <View
-                    key={n.id}
-                    testID="voice-note-sheet-dot"
-                    style={[styles.dot, i === activeIndex && styles.dotOn]}
-                  />
-                ))}
-              </View>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Next voice note"
-              accessibilityState={{ disabled: last }}
-              disabled={last}
-              onPress={() => goTo(targetRef.current + 1, true)}
-              hitSlop={8}
-              style={[styles.chevron, last && styles.off]}
-            >
-              <Text style={styles.chevronText}>›</Text>
-            </Pressable>
-          </View>
-        )}
         {copied && (
           <View pointerEvents="none" style={styles.copiedLayer}>
             <View style={styles.copiedPill}>
@@ -924,6 +1077,22 @@ const styles = StyleSheet.create({
   playheadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.text },
   dotTop: { marginTop: -2 },
   dotBottom: { marginBottom: -2 },
+  pageBody: { flex: 1 },
+  pageScroll: { flex: 1 },
+  pageContent: { flexGrow: 1 },
+  region: { flex: 1, minHeight: REGION_MIN_HEIGHT },
+  stage: { flex: 1, justifyContent: 'center' },
+  // One mark per second, directly under the waveform; shares the waveform's width and time scale.
+  secondTicks: { height: MAJOR_TICK_HEIGHT, marginTop: spacing.xs },
+  secondTick: {
+    position: 'absolute',
+    top: 0,
+    width: 1,
+    marginLeft: -0.5,
+    height: MINOR_TICK_HEIGHT,
+    backgroundColor: colors.muted,
+  },
+  secondTickMajor: { height: MAJOR_TICK_HEIGHT },
   ticks: { height: 24, marginTop: spacing.xs },
   tick: { position: 'absolute', width: 40, marginLeft: -20, alignItems: 'center' },
   tickText: { color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] },
@@ -932,20 +1101,20 @@ const styles = StyleSheet.create({
     fontSize: 44,
     fontWeight: '300',
     textAlign: 'center',
-    marginTop: spacing.xl,
+    marginTop: spacing.sm,
     fontVariant: ['tabular-nums'],
   },
-  // Play stays centred: the left (transcript toggle, or empty) and right slots share the leftover
-  // width equally (flex 1, no padding or margin of their own) around a symmetric back / play /
-  // forward cluster. At 320pt: 8 (row padding) + 216 (cluster) leaves 48 per slot for the 44pt toggle.
+  // Five equal cells (flex 1, no margin or padding of their own) across the same side gutter as the
+  // title, so the gaps are equal and play, the middle cell, is centred. A hidden bubble leaves its
+  // cell empty, so nothing shifts. Items are narrower than a cell at 320pt (272 / 5 = 54).
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.xs,
-    marginTop: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
   },
-  sideSlot: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  mainControls: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  cell: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center' },
   toggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   mediaHidden: { opacity: 0 },
   // Laid over the waveform's box (the stage): same box, text scrolls inside it.
@@ -966,26 +1135,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   transcriptButtonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
-  skip: { width: 56, height: 48, alignItems: 'center', justifyContent: 'center' },
-  skipText: { color: colors.text, fontSize: 18 },
+  skip: { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' },
+  skipText: { color: colors.text, fontSize: 16 },
   play: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: PLAY_SIZE,
+    height: PLAY_SIZE,
+    borderRadius: PLAY_SIZE / 2,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   playGlyph: { color: colors.accentDark, fontSize: 26, fontWeight: '700' },
-  speedRow: { alignItems: 'center', marginTop: spacing.lg },
   speed: {
-    minWidth: 64,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: SPEED_HEIGHT,
+    borderRadius: 22,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  menuLayer: { ...StyleSheet.absoluteFill },
+  menuBackdrop: { ...StyleSheet.absoluteFill },
+  // Opens upward from the speed button at the bottom right of the controls row.
+  menuCard: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: MENU_BOTTOM,
+    minWidth: 140,
+    paddingVertical: spacing.xs,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  menuItem: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
   },
+  menuItemText: { color: colors.text, fontSize: 16 },
+  menuItemOn: { color: colors.accent, fontWeight: '600' },
+  menuCheck: { color: colors.accent, fontSize: 16, width: 24, textAlign: 'right' },
   speedText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });
