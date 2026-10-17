@@ -52,6 +52,21 @@ jest.mock('./src/services/dreamStorage', () => ({
   isSafetyCopyBlockedError: (e: any) => e?.kind === 'blocked',
 }));
 
+// The navigation container's ref, as the provider created it: tests read the stack and the Add
+// route's options from it, and drive `goBack` the way a swipe or a system back would.
+const mockNav: { current: any } = { current: null };
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    createNavigationContainerRef: () => {
+      const ref = actual.createNavigationContainerRef();
+      mockNav.current = ref;
+      return ref;
+    },
+  };
+});
+
 jest.mock('./src/screens/AddEntryScreen', () => {
   const { Pressable, Text, View } = require('react-native');
   return {
@@ -1972,6 +1987,30 @@ describe('App resume on a new day', () => {
     expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
+  it('pushes the Add route once: a second return while it is up changes nothing', async () => {
+    await launch();
+    expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main']);
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main', 'Add']);
+    // Another new day while the page is still open: no second page.
+    await awayUntil(new Date(2026, 9, 12, 9, 0, 0));
+    expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main', 'Add']);
+    await press('stub-add-back');
+    expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main']);
+    expectToday();
+  });
+
+  it('from Settings, backing out of the jump lands on Today (not Settings)', async () => {
+    await launch();
+    await pressLabel('Open Settings');
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    await press('stub-add-back');
+    expectToday();
+    expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
+  });
+
   it('the jump is a launch page: saving returns to Today', async () => {
     await launch();
     await awayUntil(DAY2);
@@ -2851,5 +2890,390 @@ describe('App delete from the add-entry page', () => {
   it('shows no emotions for an entry without any', async () => {
     await openFromLog();
     expect(screen.getByText('add-emotions:')).toBeTruthy();
+  });
+});
+
+// ---- The Add route and its leave guard ----
+
+describe('App Add route', () => {
+  const routeNames = (): string[] => mockNav.current.getRootState().routes.map((r: any) => r.name);
+  const gesture = (): boolean | undefined => mockNav.current.getCurrentOptions()?.gestureEnabled;
+  const directGoBack = () =>
+    act(async () => {
+      mockNav.current.goBack();
+    });
+  const alertCount = () => jest.mocked(Alert.alert).mock.calls.length;
+  const alertReset = () => jest.mocked(Alert.alert).mockClear();
+  const choose = (text: string) =>
+    act(async () =>
+      lastAlertButtons()
+        .find((b) => b.text === text)
+        ?.onPress?.(),
+    );
+
+  beforeEach(() => {
+    mockLibrary.dreams = [todayDream, finishedDream];
+    putSettings(false);
+  });
+
+  describe('the stack', () => {
+    it('is Main alone on a Today launch, and Add is pushed over Main by the shared +', async () => {
+      await renderApp();
+      expectToday();
+      expect(routeNames()).toEqual(['Main']);
+      await addEntry('Dreams');
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await press('stub-add-back');
+      expect(routeNames()).toEqual(['Main']);
+      expectToday();
+    });
+
+    it('starts as [Main, Add] when the launch rule says capture, with Today under it', async () => {
+      putSettings(true);
+      mockLibrary.dreams = [oldDream];
+      await renderApp();
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(screen.getByText('add-screen')).toBeTruthy();
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
+    });
+
+    it('a draft and a stored entry also push Add', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-draft');
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await press('stub-add-back');
+      await choose('Discard');
+      expect(routeNames()).toEqual(['Main']);
+      await press('stub-open-dream');
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('opening an entry again while the page is up does not stack a second page', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-dream');
+      // The log is hidden under the page; a stray second open still arrives from it.
+      await fireEvent.press(screen.getByText('stub-open-dream', { includeHiddenElements: true }));
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await press('stub-add-back');
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it("keeps Today mounted under the page (its state is the stack's, not a copy)", async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      expect(screen.getByTestId('today-screen', { includeHiddenElements: true })).toBeTruthy();
+      expect(screen.queryByLabelText('Add entry')).toBeNull();
+    });
+  });
+
+  describe('the beforeRemove guard', () => {
+    beforeEach(async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      await press('stub-add-set-body');
+    });
+
+    it('the arrow reaches backFromAdd: the prompt shows and the page stays', async () => {
+      await press('stub-add-back');
+      expect(alertCount()).toBe(1);
+      expect(lastAlertButtons().map((b) => b.text)).toEqual([
+        'Save draft',
+        'Discard',
+        'Keep writing',
+      ]);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('hardware back reaches backFromAdd once', async () => {
+      expect(await hardwareBack()).toBe(true);
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('a direct goBack (a swipe or system pop) reaches backFromAdd', async () => {
+      await directGoBack();
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('Keep writing stays and the guard still holds afterwards', async () => {
+      await directGoBack();
+      await choose('Keep writing');
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await directGoBack();
+      expect(alertCount()).toBe(2);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('Discard pops once, with no second prompt (the allow flag stops the loop)', async () => {
+      await directGoBack();
+      await choose('Discard');
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main']);
+      expectToday();
+    });
+
+    it('Save draft saves and pops, with no second prompt', async () => {
+      await press('stub-add-back');
+      await choose('Save draft');
+      await flush();
+      expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('the guard is live again for the next page after a pop that was allowed', async () => {
+      await directGoBack();
+      await choose('Discard');
+      expect(routeNames()).toEqual(['Main']);
+      await addEntry('Dreams');
+      await press('stub-add-set-body');
+      await directGoBack();
+      expect(alertCount()).toBe(2);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+    });
+
+    it('a clean page leaves at once through the same guard, with no prompt', async () => {
+      await directGoBack();
+      await choose('Discard');
+      alertReset();
+      await addEntry('Dreams');
+      await directGoBack();
+      expect(alertCount()).toBe(0);
+      expect(routeNames()).toEqual(['Main']);
+    });
+  });
+
+  describe('back chain', () => {
+    it('with Add up only the container handles hardware back: the app handler is off, then back on', async () => {
+      await renderApp();
+      const onToday = liveBackHandlers.length;
+      await addEntry('Dreams');
+      // The shared + sheet registers and removes its own while open; settled, one handler fewer.
+      expect(liveBackHandlers.length).toBe(onToday - 1);
+      expect(await hardwareBack()).toBe(true);
+      expectToday();
+      expect(liveBackHandlers.length).toBe(onToday);
+      // On Today the app handler declines to handle, so the system exits.
+      expect(await hardwareBack()).toBe(false);
+    });
+
+    it('hardware back with a recorder-free empty page pops it without a prompt', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      expect(await hardwareBack()).toBe(true);
+      expect(alertCount()).toBe(0);
+      expect(routeNames()).toEqual(['Main']);
+    });
+  });
+
+  describe('the iOS swipe (gestureEnabled)', () => {
+    it('is on for an empty new page and off once something is typed', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      expect(gesture()).toBe(true);
+      await press('stub-add-set-body');
+      expect(gesture()).toBe(false);
+    });
+
+    it('follows typed text: off when something is typed, on when it is cleared again', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      await press('stub-add-set-title');
+      expect(gesture()).toBe(false);
+      await press('stub-add-clear-title');
+      expect(gesture()).toBe(true);
+    });
+
+    it('is off while a save is in flight and the swipe/goBack is ignored', async () => {
+      let resolve: (v: unknown) => void = () => {};
+      jest.mocked(saveDream).mockReturnValue(new Promise((r) => (resolve = r)) as any);
+      await renderApp();
+      await addEntry('Dreams');
+      await press('stub-add-set-title');
+      await press('stub-add-save');
+      expect(screen.getByText('add-saving:true')).toBeTruthy();
+      expect(gesture()).toBe(false);
+      await directGoBack();
+      expect(alertCount()).toBe(0);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await act(async () => resolve({ id: '1', createdAt: 'c' }));
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('is off while the open entry is being deleted, and goBack is ignored', async () => {
+      let release: () => void = () => {};
+      mockLibrary.onRemove = () => new Promise<void>((r) => (release = r));
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-dream');
+      expect(gesture()).toBe(true);
+      await press('stub-add-delete');
+      await alertDelete();
+      expect(gesture()).toBe(false);
+      await directGoBack();
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await act(async () => release());
+      await flush();
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('for an edit: on while unchanged, off once changed', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-dream');
+      expect(gesture()).toBe(true);
+      await press('stub-add-set-title');
+      expect(gesture()).toBe(false);
+    });
+
+    it('a clean launch page is swipeable and the swipe counts as No dream', async () => {
+      putSettings(true);
+      mockLibrary.dreams = [oldDream];
+      await renderApp();
+      expect(gesture()).toBe(true);
+      await directGoBack();
+      await flush();
+      expect(routeNames()).toEqual(['Main']);
+      expectToday();
+      expect(screen.getByText('No dream today')).toBeTruthy();
+    });
+
+    // Every state: the swipe is on exactly when Back leaves at once with no prompt.
+    it.each([
+      ['an empty new page', async () => {}],
+      ['a new page with a title', async () => press('stub-add-set-title')],
+      [
+        'an unchanged edit',
+        async () => {
+          await press('stub-add-back');
+          await openDreamLog();
+          await press('stub-open-dream');
+        },
+      ],
+      [
+        'a changed edit',
+        async () => {
+          await press('stub-add-back');
+          await openDreamLog();
+          await press('stub-open-dream');
+          await press('stub-add-set-title');
+        },
+      ],
+      [
+        'a stored draft',
+        async () => {
+          await press('stub-add-back');
+          await openDreamLog();
+          await press('stub-open-draft');
+        },
+      ],
+    ] as const)('agrees with backFromAdd for %s', async (_name, setup) => {
+      await renderApp();
+      await addEntry('Dreams');
+      await setup();
+      const swipeOn = gesture();
+      jest.mocked(Alert.alert).mockClear();
+      await directGoBack();
+      const leftSilently = alertCount() === 0 && routeNames().length === 1;
+      expect(swipeOn).toBe(leftSilently);
+    });
+  });
+
+  describe('exits', () => {
+    it('save pops to Today', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      await press('stub-add-set-title');
+      await press('stub-add-save');
+      expect(routeNames()).toEqual(['Main']);
+      expectToday();
+    });
+
+    it('delete from the page pops to where it was opened, without the discard prompt', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-dream');
+      await press('stub-add-set-title');
+      await press('stub-add-delete');
+      await alertDelete();
+      await flush();
+      expect(routeNames()).toEqual(['Main']);
+      expect(screen.getByText('log-screen')).toBeTruthy();
+      expect(Alert.alert).not.toHaveBeenCalledWith(
+        'Discard changes?',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('No dream on the launch page writes the marker and pops to Today', async () => {
+      putSettings(true);
+      mockLibrary.dreams = [oldDream];
+      await renderApp();
+      await press('stub-add-back');
+      await flush();
+      expect(routeNames()).toEqual(['Main']);
+      expectToday();
+      expect(__fs.read(`${DOC}/no-dream.json`)).toContain(todayKeyNow());
+    });
+
+    it('the launch page with content prompts on back and is NOT No dream', async () => {
+      putSettings(true);
+      mockLibrary.dreams = [oldDream];
+      await renderApp();
+      await press('stub-add-set-body');
+      expect(gesture()).toBe(false);
+      await directGoBack();
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(__fs.read(`${DOC}/no-dream.json`)).toBeUndefined();
+      await choose('Discard');
+      expect(routeNames()).toEqual(['Main']);
+      expect(screen.queryByText('No dream today')).toBeNull();
+    });
+  });
+
+  describe('origin preserved by the stack', () => {
+    it('a log with its query: save and back return to the same log state', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-set-query');
+      await newEntryIn('Dreams');
+      await press('stub-add-set-title');
+      await press('stub-add-save');
+      expect(routeNames()).toEqual(['Main']);
+      expect(screen.getByText('log-screen')).toBeTruthy();
+      expect(screen.getByText('query:hall')).toBeTruthy();
+      await newEntryIn('Dreams');
+      await press('stub-add-back');
+      expect(screen.getByText('query:hall')).toBeTruthy();
+    });
+
+    it('Settings returns to Settings after Back and after Save', async () => {
+      await renderApp();
+      await pressLabel('Open Settings');
+      await newEntryIn('Dreams');
+      await press('stub-add-back');
+      expect(screen.getByRole('header', { name: 'Settings' })).toBeTruthy();
+      await newEntryIn('Dreams');
+      await press('stub-add-set-title');
+      await press('stub-add-save');
+      expect(screen.getByRole('header', { name: 'Settings' })).toBeTruthy();
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('Search keeps its query after an entry opened from it is left', async () => {
+      await renderApp();
+      await pressLabel('Open Journals');
+      await press('stub-journals-search');
+      await press('stub-search-set-query');
+      await press('stub-search-open');
+      await press('stub-add-back');
+      expect(screen.getByText('search-screen')).toBeTruthy();
+      expect(screen.getByText('search-query:hall')).toBeTruthy();
+    });
   });
 });

@@ -10,6 +10,8 @@ import {
   LEAVE_ENTRY_TITLE,
   backTarget,
   discardChangesMessage,
+  leavesWithoutPrompt,
+  type LeaveInput,
 } from './sessionNavigation';
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
@@ -69,5 +71,41 @@ describe('backTarget', () => {
     expect(backTarget({ screen: 'log', journalId: 'dreams', entryDeleting: true })).toEqual({
       to: 'today',
     });
+  });
+});
+
+describe('leavesWithoutPrompt', () => {
+  const idle: LeaveInput = {
+    origin: 'new',
+    hasContent: false,
+    hasEdits: false,
+    pendingAudioRemoval: false,
+    recording: false,
+    saving: false,
+    deleting: false,
+  };
+  it.each([
+    ['an empty new page', {}, true],
+    ['an empty launch page (a new entry)', { origin: 'new' }, true],
+    ['a new page with something typed or recorded', { hasContent: true }, false],
+    ['a new page with only a closed stored recording', { pendingAudioRemoval: true }, false],
+    ['a draft with content', { origin: 'draft', hasContent: true }, false],
+    ['a draft with nothing left on it', { origin: 'draft' }, true],
+    [
+      'a draft with a closed stored recording only',
+      { origin: 'draft', pendingAudioRemoval: true },
+      false,
+    ],
+    ['an unchanged edit', { origin: 'edit', hasContent: true }, true],
+    ['a changed edit', { origin: 'edit', hasContent: true, hasEdits: true }, false],
+    ['a changed edit, whatever its content', { origin: 'edit', hasEdits: true }, false],
+    ['a running recorder on an empty page', { recording: true }, false],
+    ['a running recorder on an unchanged edit', { origin: 'edit', recording: true }, false],
+    ['a save in flight on an empty page', { saving: true }, false],
+    ['a save in flight on an unchanged edit', { origin: 'edit', saving: true }, false],
+    ['a delete in flight', { origin: 'edit', deleting: true }, false],
+    ['a delete in flight on an empty page', { deleting: true }, false],
+  ] as [string, Partial<LeaveInput>, boolean][])('%s -> %s', (_name, patch, expected) => {
+    expect(leavesWithoutPrompt({ ...idle, ...patch })).toBe(expected);
   });
 });

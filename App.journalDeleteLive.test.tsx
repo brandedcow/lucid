@@ -207,6 +207,7 @@ describe('App journal delete live guards', () => {
       body: '',
       tags: [],
       tagDraft: '',
+      recordings: [],
     };
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
@@ -228,6 +229,7 @@ describe('App journal delete live guards', () => {
       body: '',
       tags: [],
       tagDraft: '',
+      recordings: [],
     };
     await press('journals-back');
     await fireEvent.press(screen.getByLabelText('Open Journals'));
@@ -253,6 +255,7 @@ describe('App journal delete live guards', () => {
       body: '',
       tags: [],
       tagDraft: '',
+      recordings: [],
     };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
@@ -287,6 +290,7 @@ describe('App journal delete live guards', () => {
       body: '',
       tags: [],
       tagDraft: '',
+      recordings: [],
     };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
@@ -343,6 +347,7 @@ describe('App journal delete live guards', () => {
         body: '',
         tags: [],
         tagDraft: '',
+        recordings: [],
       };
       await renderApp();
       await fireEvent.press(screen.getByLabelText('Open Journals'));

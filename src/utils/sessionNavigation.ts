@@ -17,11 +17,33 @@ export const LEAVE_ENTRY_SAVE_DRAFT = 'Save draft';
 export const LEAVE_ENTRY_DISCARD = 'Discard';
 export const LEAVE_ENTRY_KEEP = 'Keep writing';
 
+export type LeaveInput = {
+  /** How the open session began: a new entry, a stored draft, or an edit of a stored entry. */
+  origin: 'new' | 'draft' | 'edit';
+  /** Something is typed, recorded or attached (`entryHasContent`). */
+  hasContent: boolean;
+  /** An edit differs from what was opened (`entryHasEdits`). */
+  hasEdits: boolean;
+  /** A stored recording was closed and not yet removed (`hasPendingAudioRemoval`). */
+  pendingAudioRemoval: boolean;
+  /** The page's recorder is starting or running. */
+  recording: boolean;
+  /** A save is in flight. */
+  saving: boolean;
+  /** The open entry is being deleted. */
+  deleting: boolean;
+};
+
 /**
- * Where the add-entry page (a new entry, a draft or a stored entry) returns to after a save, a
- * discard or a leave.
+ * True when Back on the add-entry page would leave at once, with no prompt, no recording discard
+ * confirm and no ignored press: the iOS swipe-back is only on then. Mirrors the branches of App's
+ * `backFromAdd`; keep the two in step.
  */
-export type FlowReturn = 'today' | 'log' | 'search' | 'settings';
+export function leavesWithoutPrompt(input: LeaveInput): boolean {
+  if (input.recording || input.saving || input.deleting) return false;
+  if (input.origin === 'edit') return !input.hasEdits;
+  return !input.hasContent && !input.pendingAudioRemoval;
+}
 
 export type BackInput = {
   screen: 'add' | 'log' | 'search' | 'today' | 'settings';

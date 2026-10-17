@@ -28,6 +28,20 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(),
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
+// The container's ref as the provider created it, to read the Add route's options and pop it the
+// way a swipe or system back does.
+const mockNav: { current: any } = { current: null };
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    createNavigationContainerRef: () => {
+      const ref = actual.createNavigationContainerRef();
+      mockNav.current = ref;
+      return ref;
+    },
+  };
+});
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0.6, durationMs: 0 };
 jest.mock('./src/hooks/useDreamRecorder', () => ({
   useDreamRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
@@ -229,6 +243,27 @@ describe('App voice entry', () => {
       await choose('Keep recording');
       expect(byLabel('Stop recording')).toBeTruthy();
       expect(mockRec.stop).not.toHaveBeenCalled();
+    });
+
+    it('turns the swipe off, and a swipe or system pop asks to discard; Discard stops it and pops', async () => {
+      await openNewGratitude();
+      expect(mockNav.current.getCurrentOptions().gestureEnabled).toBe(true);
+      await press(byLabel('Record voice note'));
+      await press(byLabel('Start recording'));
+      expect(mockNav.current.getCurrentOptions().gestureEnabled).toBe(false);
+      await act(async () => mockNav.current.goBack());
+      expect(Alert.alert).toHaveBeenLastCalledWith(
+        'Discard this recording?',
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual([
+        'Main',
+        'Add',
+      ]);
+      await choose('Discard');
+      expect(mockRec.stop).toHaveBeenCalledTimes(1);
+      expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main']);
     });
 
     it('Android back asks too; Discard stops, deletes the cache file and leaves an empty page', async () => {

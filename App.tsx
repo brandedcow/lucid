@@ -3,26 +3,16 @@ import { type ComponentProps } from 'react';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppFlowProvider, useAppFlow, type Screen } from './src/app/AppFlowProvider';
+import { AppFlowProvider, useAppFlow } from './src/app/AppFlowProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { entryJournalLocked } from './src/hooks/useEntrySession';
 import { AddEntryMenu } from './src/components/AddEntryMenu';
-import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
+import { AddRoute } from './src/navigation/AddRoute';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { colors } from './src/theme';
-import { capitalizeFirst } from './src/utils/capitalizeFirst';
-import { splitEmotions } from './src/utils/emotions';
-import { type FlowReturn } from './src/utils/sessionNavigation';
-
-// Where saving or leaving the add page returns to, for the screen the shared "+" button was used on.
-// Today has its own value; anything else (there is no other screen with a "+") uses Today too.
-function flowReturnFor(screen: Screen): FlowReturn {
-  return screen === 'log' || screen === 'search' || screen === 'settings' ? screen : 'today';
-}
 
 // The one "+" button and Add entry sheet of the app. It must sit inside SafeAreaProvider to read the
 // bottom inset, so it is its own component.
@@ -31,24 +21,22 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
   return <AddEntryMenu {...props} bottomInset={insets.bottom} />;
 }
 
-// Temporary screen switch; replace with real navigation once that is decided.
+// Temporary screen switch for Today, the logs, Search and Settings (they become routes later). The
+// add page is its own route over this one; this keeps showing the screen it was opened from.
 function MainRoute() {
   const {
     current,
+    screen,
     setScreen,
     journals,
     journalFor,
     journalRegistry,
-    entry,
     settings,
-    transcription,
     library,
     dayMarker,
     todayKey,
     view,
     searchView,
-    entryRecordingRef,
-    entryLeaveRef,
     journalsOpen,
     setJournalsOpen,
     namingJournal,
@@ -61,17 +49,12 @@ function MainRoute() {
     live,
     visibleRecords,
     visibleJournals,
-    knownTags,
     logEntries,
     counts,
     logJournal,
-    entryDate,
     journalsLocked,
     showLog,
-    saveEntryAndLeave,
-    backFromAdd,
     deleteDreamFor,
-    requestDeleteOpenEntry,
     canRenameJournal,
     requestRenameJournal,
     requestDeleteJournal,
@@ -82,67 +65,32 @@ function MainRoute() {
     openEntryById,
   } = useAppFlow();
 
-  if (current === null) {
-    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
-  }
+  if (screen === null) return null;
 
   return (
     <>
-      {current === 'add' && entry.session && (
-        <AddEntryWithVoice
-          journal={journalFor(entry.session.journalId)}
-          journals={visibleJournals}
-          onJournalChange={entry.setJournal}
-          journalLocked={entryJournalLocked(entry.session)}
-          title={entry.session.title}
-          onTitleChange={entry.setTitle}
-          body={entry.session.body}
-          onBodyChange={entry.setBody}
-          bodyBaseFrom={entry.session.materializedFrom}
-          entryCreatedAt={entry.session.createdAt}
-          knownTags={knownTags}
-          date={entryDate}
-          saving={entry.saving}
-          autoFocus={entry.session.origin === 'new'}
-          onSave={() => void saveEntryAndLeave('saved')}
-          onBack={() => void performBack()}
-          recordings={entry.session.recordings}
-          transcription={transcription}
-          onRecorded={entry.attachRecording}
-          onRemoveRecording={entry.removeRecording}
-          onRestoreRecording={entry.restoreRecording}
-          onRecordingChange={(recording) => {
-            entryRecordingRef.current = recording;
-          }}
-          leaveRef={entryLeaveRef}
-          onRecordingDiscarded={backFromAdd}
-          emotions={splitEmotions(entry.session.emotion).map(capitalizeFirst)}
-          onDelete={entry.session.id ? requestDeleteOpenEntry : undefined}
-          deleteDisabled={deletingDream !== null || deletingJournalId !== null}
-        />
-      )}
-      {current === 'log' && (
+      {screen === 'log' && (
         <DreamLogScreen
           journal={logJournal}
           onBack={() => void performBack()}
           dreams={logEntries}
           indexStatus={library.indexStatus}
           view={view}
-          onOpenDream={(id) => openEntryById(id, 'log')}
-          onOpenDraft={(draft) => openDraft(draft, 'log')}
+          onOpenDream={(id) => openEntryById(id)}
+          onOpenDraft={(draft) => openDraft(draft)}
           onDeleteDream={(d) => void deleteDreamFor(d)}
           deletingId={deletingDream?.id ?? null}
         />
       )}
-      {current === 'today' && (
+      {screen === 'today' && (
         <TodayScreen
           journals={visibleJournals}
           dreams={visibleRecords}
           todayKey={todayKey}
           skippedToday={dayMarker.noDreamDate === todayKey}
           unreadable={library.indexStatus === 'unreadable'}
-          onOpenEntry={(d) => openEntryForEdit(d, 'today')}
-          onOpenDraft={(draft) => openDraft(draft, 'today')}
+          onOpenEntry={(d) => openEntryForEdit(d)}
+          onOpenDraft={(draft) => openDraft(draft)}
           onDeleteDream={(d) => void deleteDreamFor(d)}
           deletingId={deletingDream?.id ?? null}
           onOpenJournals={() => {
@@ -174,7 +122,7 @@ function MainRoute() {
           }}
         />
       )}
-      {current === 'settings' && (
+      {screen === 'settings' && (
         <SettingsScreen
           autoOpenDreamCapture={settings.autoOpenDreamCapture}
           onChangeAutoOpenDreamCapture={settings.setAutoOpenDreamCapture}
@@ -183,14 +131,14 @@ function MainRoute() {
           onBack={() => void performBack()}
         />
       )}
-      {current === 'search' && (
+      {screen === 'search' && (
         <SearchScreen
           journals={visibleJournals}
           records={visibleRecords}
           indexStatus={library.indexStatus}
           view={searchView}
           onBack={() => void performBack()}
-          onOpenDream={(id) => openEntryById(id, 'search')}
+          onOpenDream={(id) => openEntryById(id)}
         />
       )}
       <NewJournalSheet
@@ -228,7 +176,7 @@ function MainRoute() {
       />
       <SharedAddEntry
         journals={visibleJournals}
-        onPick={(id) => startCapture(id, flowReturnFor(current))}
+        onPick={(id) => startCapture(id)}
         onNewJournal={() => {
           setRenamingJournalId(null);
           setNamingJournal(true);
@@ -241,12 +189,29 @@ function MainRoute() {
   );
 }
 
+// Mounts the navigator once the launch decision is made, so a launch into the add page starts with
+// it on top of Today. Until then nothing is drawn but the background.
+function AppNavigator() {
+  const { screen, navigationRef, syncAddOpen, current } = useAppFlow();
+  if (screen === null) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  return (
+    <RootNavigator
+      main={MainRoute}
+      add={AddRoute}
+      navigationRef={navigationRef}
+      startInAdd={current === 'add'}
+      onReady={syncAddOpen}
+      onStateChange={syncAddOpen}
+    />
+  );
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppFlowProvider>
-          <RootNavigator main={MainRoute} />
+          <AppNavigator />
         </AppFlowProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
