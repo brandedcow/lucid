@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AddEntryMenu, FAB_SIZE } from '../components/AddEntryMenu';
+import { fabListClearance } from '../components/AddEntryMenu';
 import { SwipeEntryRow, useSingleOpenRow } from '../components/SwipeEntryRow';
 import { BookIcon, GearIcon } from '../components/TodayIcons';
 import { colors, fonts, spacing } from '../theme';
@@ -44,8 +44,6 @@ export const TODAY_COPY = {
  * - `onDeleteDream(dream)`: Delete was used on a row (swipe or screen-reader action) and confirmed
  *   here, with the row's own journal wording. The parent deletes.
  * - `deletingId`: the entry being deleted; its row is dimmed and swiping is off everywhere.
- * - `onNewEntry(journalId)`: a journal was picked in the "+" menu (bottom right); the parent starts its capture.
- * - `onNewJournal()`: "New journal" was tapped in the "+" menu (the sheet has closed); the parent asks for a name.
  * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right).
  */
 type Props = {
@@ -58,8 +56,6 @@ type Props = {
   onOpenDraft: (dream: Entry) => void;
   onDeleteDream: (dream: Entry) => void;
   deletingId?: string | null;
-  onNewEntry: (journalId: JournalId) => void;
-  onNewJournal: () => void;
   onOpenJournals: () => void;
   onOpenSettings: () => void;
 };
@@ -76,8 +72,6 @@ export function TodayScreen({
   onOpenDraft,
   onDeleteDream,
   deletingId = null,
-  onNewEntry,
-  onNewJournal,
   onOpenJournals,
   onOpenSettings,
 }: Props) {
@@ -188,10 +182,7 @@ export function TodayScreen({
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         ListFooterComponent={<View testID="today-end-rule" style={styles.endRule} />}
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: insets.bottom + spacing.md + FAB_SIZE + spacing.lg },
-        ]}
+        contentContainerStyle={[styles.list, { paddingBottom: fabListClearance(insets.bottom) }]}
         onScrollBeginDrag={closeOpenRow}
       />
     );
@@ -242,14 +233,6 @@ export function TodayScreen({
 
         <View style={styles.body}>{body}</View>
       </SafeAreaView>
-
-      <AddEntryMenu
-        journals={journals}
-        onPick={onNewEntry}
-        onNewJournal={onNewJournal}
-        disabled={deletingId != null}
-        bottomInset={insets.bottom}
-      />
     </View>
   );
 }

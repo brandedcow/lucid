@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MicIcon } from '../components/MicIcon';
+import { fabListClearance } from '../components/AddEntryMenu';
 import { SearchIcon } from '../components/SearchIcon';
 import { SwipeEntryRow, useSingleOpenRow } from '../components/SwipeEntryRow';
 import { IndexStatus } from '../hooks/useDreamLibrary';
@@ -37,12 +37,11 @@ import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
  *   owned by the parent so it survives leaving the log.
  * - `onOpenDream(id)`: a finished dream was tapped.
  * - `onOpenDraft(dream)`: a draft was tapped.
- * - `onNewDream()`: the "New dream" button was tapped.
  * - `onDeleteDream(dream)`: the user used the Delete action revealed by swiping a row, draft or finished (or
  *   the VoiceOver/TalkBack "Delete" action) and chose Delete in the confirmation shown here. The
  *   parent deletes. Keep (or dismissing the dialog) closes the row and deletes nothing.
  * - `journal`: optional, defaults to Dreams. Sets the header and all wording (empty state, search,
- *   New button, delete confirmation and labels, untitled).
+ *   delete confirmation and labels, untitled).
  * - `onBack`: optional. When given, a back arrow (top left, "Back") is shown in the title row and
  *   calls it (App goes to the Journals home). Hidden while the search field is open.
  * - `deletingId`: the dream being deleted. Its row is dimmed and cannot be opened, and swiping is
@@ -54,14 +53,11 @@ type Props = {
   view: LogView;
   onOpenDream: (id: string) => void;
   onOpenDraft: (dream: Dream) => void;
-  onNewDream: () => void;
   onDeleteDream: (dream: Dream) => void;
   deletingId?: string | null;
   journal?: Journal;
   onBack?: () => void;
 };
-
-const FAB_CLEARANCE = 120;
 
 export function DreamLogScreen({
   dreams,
@@ -69,7 +65,6 @@ export function DreamLogScreen({
   view,
   onOpenDream,
   onOpenDraft,
-  onNewDream,
   onDeleteDream,
   deletingId = null,
   journal = BUILT_IN_JOURNALS[0],
@@ -213,7 +208,7 @@ export function DreamLogScreen({
         data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: fabListClearance(insets.bottom) }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onScroll={onScroll}
@@ -346,23 +341,6 @@ export function DreamLogScreen({
       )}
 
       <View style={styles.body}>{body}</View>
-
-      {!searching && (
-        <View
-          pointerEvents="box-none"
-          style={[styles.fabWrap, { bottom: insets.bottom + spacing.md }]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={copy.newButton}
-            onPress={onNewDream}
-            style={styles.fab}
-          >
-            <MicIcon color={colors.accentDark} size={20} />
-            <Text style={styles.fabLabel}>{copy.newButton}</Text>
-          </Pressable>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -462,7 +440,7 @@ const styles = StyleSheet.create({
   tagChipText: { color: colors.muted, fontSize: 14 },
   tagChipTextSelected: { color: colors.emotionChipText },
   body: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: FAB_CLEARANCE, flexGrow: 1 },
+  list: { paddingHorizontal: spacing.lg, flexGrow: 1 },
   month: {
     color: colors.muted,
     fontSize: 12,
@@ -485,15 +463,4 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   clearLabel: { color: colors.accent, fontSize: 16 },
-  fabWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
-  fab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    height: 52,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 26,
-    backgroundColor: colors.accent,
-  },
-  fabLabel: { color: colors.accentDark, fontSize: 17, fontWeight: '700' },
 });

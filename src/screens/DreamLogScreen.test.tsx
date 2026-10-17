@@ -71,7 +71,6 @@ async function setup({
   const handlers = {
     onOpenDream: jest.fn(),
     onOpenDraft: jest.fn(),
-    onNewDream: jest.fn(),
     onDeleteDream: jest.fn(),
   };
   const { onDeleteDream, ...rest } = handlers;
@@ -334,10 +333,18 @@ describe('DreamLogScreen search', () => {
 });
 
 describe('DreamLogScreen buttons and states', () => {
-  it('calls onNewDream from the New dream button', async () => {
-    const { onNewDream } = await setup();
-    await fireEvent.press(screen.getByLabelText('New dream'));
-    expect(onNewDream).toHaveBeenCalled();
+  it('has no New dream button of its own (App renders the shared "+" button)', async () => {
+    await setup();
+    expect(screen.queryByLabelText('New dream')).toBeNull();
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
+  });
+
+  it('pads the list clear of the shared button using the bottom inset', async () => {
+    await setup();
+    const style = StyleSheet.flatten(
+      screen.getByTestId('dream-log-list').props.contentContainerStyle,
+    );
+    expect(style.paddingBottom).toBe(130); // 34 inset + 16 + 56 (FAB) + 24;
   });
 
   it('renders no list while loading but keeps the header', async () => {
@@ -351,7 +358,6 @@ describe('DreamLogScreen buttons and states', () => {
     await setup({ dreams: [] });
     expect(screen.getByText('No dreams yet.')).toBeTruthy();
     expect(screen.getByText('Tap New dream to record one.')).toBeTruthy();
-    expect(screen.getByLabelText('New dream')).toBeTruthy();
   });
 
   it('shows the unreadable message', async () => {
@@ -359,7 +365,6 @@ describe('DreamLogScreen buttons and states', () => {
     expect(
       screen.getByText('Your saved dreams could not be read. Your recordings are safe.'),
     ).toBeTruthy();
-    expect(screen.getByLabelText('New dream')).toBeTruthy();
   });
 });
 
@@ -550,7 +555,6 @@ describe('DreamLogScreen delete', () => {
     expect(onOpenDream).toHaveBeenCalledWith('b');
     await fireEvent.press(screen.getByText('Untitled dream'));
     expect(onOpenDraft).toHaveBeenCalled();
-    await fireEvent.press(screen.getByLabelText('New dream'));
   });
 
   it('keeps search and tag filters working while a delete is in flight', async () => {
@@ -571,12 +575,10 @@ describe('DreamLogScreen for the Life journal', () => {
     dream({ id: 'l2', title: '', transcript: 'Walked home.', journalId: 'life' }),
   ];
 
-  it('uses the Life header, search labels and New entry button', async () => {
+  it('uses the Life header and search labels', async () => {
     await setup({ dreams: ENTRIES, journal: LIFE });
     expect(screen.getByRole('header', { name: 'Life' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Search entries' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'New entry' })).toBeTruthy();
-    expect(screen.getByText('New entry')).toBeTruthy();
     expect(screen.queryByText(/dream/i)).toBeNull();
     expect(screen.queryByLabelText(/dream/i, HIDDEN)).toBeNull();
   });

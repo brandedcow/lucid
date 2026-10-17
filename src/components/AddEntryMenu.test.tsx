@@ -1,6 +1,6 @@
 import { AccessibilityInfo, BackHandler, Keyboard, Platform, StyleSheet, Text } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { AddEntryMenu, FAB_SIZE } from './AddEntryMenu';
+import { AddEntryMenu, FAB_SIZE, fabListClearance } from './AddEntryMenu';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { BUILT_IN_JOURNALS, journalCopy } from '../utils/journals';
 
@@ -34,6 +34,13 @@ const renderMenu = (props: Partial<React.ComponentProps<typeof AddEntryMenu>> = 
   render(<AddEntryMenu journals={BUILT_IN_JOURNALS} onPick={jest.fn()} {...props} />);
 
 describe('AddEntryMenu', () => {
+  it('fabListClearance is the inset plus the button offset (16), size (56) and a gap (24)', () => {
+    expect(FAB_SIZE).toBe(56);
+    expect(fabListClearance(0)).toBe(96);
+    expect(fabListClearance(34)).toBe(130);
+    expect(fabListClearance(34) - fabListClearance(0)).toBe(34);
+  });
+
   it('starts closed with a labeled, collapsed button; tap opens', async () => {
     await renderMenu();
     expect(
@@ -135,6 +142,28 @@ describe('AddEntryMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
     await view.rerender(<AddEntryMenu {...props} />);
     expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('hidden draws nothing, closes the menu for good and does not reopen when shown again', async () => {
+    const props = { journals: BUILT_IN_JOURNALS, onPick: jest.fn() };
+    const view = await render(<AddEntryMenu {...props} />);
+    await open();
+    await view.rerender(<AddEntryMenu {...props} hidden />);
+    expect(screen.queryByLabelText('Add entry', { hidden: true })).toBeNull();
+    expect(screen.queryByRole('menuitem')).toBeNull();
+    await view.rerender(<AddEntryMenu {...props} />);
+    expect(screen.queryByRole('menuitem')).toBeNull();
+    expect(fab()).toBeTruthy();
+  });
+
+  it('the button is hidden while a keyboard is visible and the sheet is closed', async () => {
+    const { emit } = fakeKeyboard();
+    await renderMenu();
+    expect(fab()).toBeTruthy();
+    await emit('keyboardWillShow', 300);
+    expect(screen.queryByLabelText('Add entry', { hidden: true })).toBeNull();
+    await emit('keyboardWillHide');
+    expect(fab()).toBeTruthy();
   });
 
   it('renders custom journals and a footer', async () => {

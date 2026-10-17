@@ -1,8 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, BackHandler, Keyboard, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDayMarker } from './src/hooks/useDayMarker';
 import {
@@ -17,6 +17,7 @@ import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
 import { useRecordingTranscription } from './src/hooks/useRecordingTranscription';
 import { useToday } from './src/hooks/useToday';
+import { AddEntryMenu } from './src/components/AddEntryMenu';
 import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
@@ -77,7 +78,20 @@ function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
   return 'Please try again.';
 }
 
+// Where saving or leaving the add page returns to, for the screen the shared "+" button was used on.
+// Journals home has no value of its own and uses Today (as its "+" always did).
+function flowReturnFor(screen: Screen): FlowReturn {
+  return screen === 'log' || screen === 'search' || screen === 'settings' ? screen : 'today';
+}
+
 const JOURNAL_UNREADABLE_MESSAGE = 'Your saved entries could not be read, so nothing was deleted.';
+
+// The one "+" button and Add entry sheet of the app. It must sit inside SafeAreaProvider to read the
+// bottom inset, so it is its own component.
+function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
+  const insets = useSafeAreaInsets();
+  return <AddEntryMenu {...props} bottomInset={insets.bottom} />;
+}
 
 // Temporary screen switch; replace with real navigation once that is decided.
 export default function App() {
@@ -294,8 +308,9 @@ export default function App() {
     prevScreen.current = screen;
   }, [screen]);
 
-  // The name sheet belongs to Today and Journals home: leaving them (a new-day jump to the launch page) closes it.
-  if (namingJournal && current !== 'today' && current !== 'journals') setNamingJournal(false);
+  // The name sheet opens from the shared "+" menu, so it can show over any screen but the add page: a
+  // jump to the add page (the new-day launch page) closes it.
+  if (namingJournal && current === 'add') setNamingJournal(false);
 
   // The Rename sheet belongs to Journals home: leaving it closes the sheet. It also closes if its
   // journal is gone from the registry or is being deleted.
@@ -334,18 +349,22 @@ export default function App() {
     setScreen('today');
   };
 
-  // Where a flow ends: Today or the Search results (their view state is kept) when it started
-  // there, otherwise the log of the entry's journal.
-  const leaveFlow = (id: JournalId) => {
-    if (flowReturn === 'today') setScreen('today');
-    else if (flowReturn === 'search') setScreen('search');
-    else showLog(id);
+  // Where a flow ends: the screen it started from. Today, Search and Settings keep their state; the
+  // log is shown again WITHOUT `showLog`, so `journalId` (still the log the user came from, whatever
+  // journal the entry is in) and the log's filter, search and scroll are kept. If that journal was
+  // deleted meanwhile, Today.
+  const leaveFlow = () => {
+    if (flowReturn === 'log') {
+      setScreen(visibleJournals.some((j) => j.id === journalId) ? 'log' : 'today');
+    } else {
+      setScreen(flowReturn);
+    }
   };
 
-  // After a save: Today or the log of the journal the entry belongs to.
-  const leaveAfterSave = (id: JournalId) => {
+  // After a save: the screen the flow started from.
+  const leaveAfterSave = () => {
     entry.clear();
-    leaveFlow(id);
+    leaveFlow();
   };
 
   // The add-entry page's check: saves a finished entry, refreshes the library, then leaves. An
@@ -356,14 +375,14 @@ export default function App() {
     const isEdit = current.origin === 'edit';
     if (isEdit && status === 'draft') return;
     if (isEdit && !entryHasEdits(current)) {
-      leaveAfterSave(current.journalId);
+      leaveAfterSave();
       return;
     }
     finishing.current = true;
     try {
       if (!(await entry.save(status))) return;
       await library.refresh();
-      leaveAfterSave(current.journalId);
+      leaveAfterSave();
     } finally {
       finishing.current = false;
     }
@@ -385,7 +404,7 @@ export default function App() {
     if (current.origin === 'edit') {
       const leaveEdit = () => {
         entry.clear();
-        leaveFlow(current.journalId);
+        leaveFlow();
       };
       if (!entryHasEdits(current)) {
         leaveEdit();
@@ -404,7 +423,7 @@ export default function App() {
     const leave = (asNoDream: boolean) => {
       entry.clear();
       if (asNoDream) handleNoDream();
-      else leaveFlow(current.journalId);
+      else leaveFlow();
     };
     // A closed stored recording is an unsaved change even when nothing else is on the page.
     if (!entryHasContent(current) && !hasPendingAudioRemoval(current)) {
@@ -432,7 +451,7 @@ export default function App() {
       await library.remove(target.id);
       if (fromEntry) {
         entry.clear();
-        leaveFlow(journalOf(target));
+        leaveFlow();
       }
     } catch (e) {
       const copy = journalCopy(journalFor(journalOf(target)));
@@ -731,7 +750,6 @@ export default function App() {
             view={view}
             onOpenDream={(id) => openEntryById(id, 'log')}
             onOpenDraft={(draft) => openDraft(draft, 'log')}
-            onNewDream={() => startCapture(journalId, 'log')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.id ?? null}
           />
@@ -747,12 +765,6 @@ export default function App() {
             onDeleteJournal={requestDeleteJournal}
             onRenameJournal={requestRenameJournal}
             deletingId={deletingJournalId}
-            onNewEntry={(id) => startCapture(id, 'today')}
-            onNewJournal={() => {
-              setRenamingJournalId(null);
-              setNamingJournal(true);
-            }}
-            nameSheetOpen={namingJournal || renamingJournal !== undefined}
           />
         )}
         {current === 'today' && (
@@ -766,11 +778,6 @@ export default function App() {
             onOpenDraft={(draft) => openDraft(draft, 'today')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.id ?? null}
-            onNewEntry={(id) => startCapture(id, 'today')}
-            onNewJournal={() => {
-              setRenamingJournalId(null);
-              setNamingJournal(true);
-            }}
             onOpenJournals={() => setScreen('journals')}
             onOpenSettings={() => setScreen('settings')}
           />
@@ -795,7 +802,7 @@ export default function App() {
           />
         )}
         <NewJournalSheet
-          visible={namingJournal && (current === 'today' || current === 'journals')}
+          visible={namingJournal && current !== 'add'}
           onClose={() => setNamingJournal(false)}
           existing={journals}
           onSubmit={async (name) => {
@@ -826,6 +833,17 @@ export default function App() {
             if (!stored || name === stored.name) return;
             await journalRegistry.rename(id, name);
           }}
+        />
+        <SharedAddEntry
+          journals={visibleJournals}
+          onPick={(id) => startCapture(id, flowReturnFor(current))}
+          onNewJournal={() => {
+            setRenamingJournalId(null);
+            setNamingJournal(true);
+          }}
+          // As before: Journals home locks for a journal delete, every other screen for an entry delete.
+          disabled={current === 'journals' ? deletingJournalId !== null : deletingDream !== null}
+          hidden={current === 'add' || namingJournal || renamingJournal !== undefined}
         />
         <StatusBar style="light" />
       </SafeAreaProvider>

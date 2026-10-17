@@ -10,7 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fabListClearance } from '../components/AddEntryMenu';
 import { EntryRow } from '../components/EntryRow';
 import { SearchIcon } from '../components/SearchIcon';
 import { IndexStatus } from '../hooks/useDreamLibrary';
@@ -62,6 +63,7 @@ type Props = {
 const NO_DRAFT = () => {};
 
 export function SearchScreen({ journals, records, indexStatus, view, onBack, onOpenDream }: Props) {
+  const insets = useSafeAreaInsets();
   const { tags, query, offsetRef } = view;
   const listRef = useRef<FlatList<LogItem>>(null);
   const restored = useRef(false);
@@ -143,7 +145,7 @@ export function SearchScreen({ journals, records, indexStatus, view, onBack, onO
         data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: fabListClearance(insets.bottom) }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onScroll={onScroll}
@@ -345,7 +347,7 @@ const styles = StyleSheet.create({
   tagChipText: { color: colors.muted, fontSize: 14 },
   tagChipTextSelected: { color: colors.emotionChipText },
   body: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, flexGrow: 1 },
+  list: { paddingHorizontal: spacing.lg, flexGrow: 1 },
   month: {
     color: colors.muted,
     fontSize: 12,

@@ -122,7 +122,6 @@ jest.mock('./src/screens/DreamLogScreen', () => {
       view,
       onOpenDream,
       onOpenDraft,
-      onNewDream,
       onDeleteDream,
       deletingId,
     }: any) => (
@@ -163,9 +162,6 @@ jest.mock('./src/screens/DreamLogScreen', () => {
         </Pressable>
         <Pressable onPress={() => onOpenDream('42')}>
           <Text>stub-open-draft-as-dream</Text>
-        </Pressable>
-        <Pressable onPress={onNewDream}>
-          <Text>stub-new-dream</Text>
         </Pressable>
         <Pressable onPress={view.openSearch}>
           <Text>stub-open-search</Text>
@@ -324,6 +320,11 @@ const addEntry = async (journal: 'Dreams' | 'Life') => {
   await fireEvent.press(screen.getByRole('menuitem', { name: new RegExp(`^${journal},`) }));
 };
 const pressLabel = (label: string) => fireEvent.press(screen.getByLabelText(label));
+/** The shared "+" button: opens the sheet and picks that journal (as the old per-log button did). */
+async function newEntryIn(journalName: string) {
+  await pressLabel('Add entry');
+  await fireEvent.press(screen.getByRole('menuitem', { name: new RegExp(`^${journalName},`) }));
+}
 /** From Today: Journals home, then the Dream log. */
 async function openDreamLog() {
   await pressLabel('Open Journals');
@@ -659,7 +660,7 @@ describe('App Dream log and entry', () => {
     await goToLog();
     await press('stub-open-search');
     await press('stub-set-query');
-    await press('stub-new-dream');
+    await newEntryIn('Dreams');
     expect(screen.getByText('add-screen')).toBeTruthy();
     // The back arrow of a page opened from the log returns to the log.
     await press('stub-add-back');
@@ -1147,7 +1148,7 @@ describe('App journals navigation', () => {
     await goToLog();
     await press('stub-log-back');
     await press('stub-open-life');
-    await press('stub-new-dream');
+    await newEntryIn('Life');
   };
 
   it('a new Life entry opens the add-entry page from the Life log, with a back arrow and no No dream', async () => {
@@ -1692,12 +1693,12 @@ describe('App add-entry page opened from Today and the log', () => {
   it('a Dream page from the Dream log returns to the log', async () => {
     await renderApp();
     await openDreamLog();
-    await press('stub-new-dream');
+    await newEntryIn('Dreams');
     expect(screen.getByText('add-journal:dreams')).toBeTruthy();
     await press('stub-add-back');
     expect(screen.getByText('log-screen')).toBeTruthy();
 
-    await press('stub-new-dream');
+    await newEntryIn('Dreams');
     expect(await hardwareBack()).toBe(true);
     expect(screen.getByText('log-screen')).toBeTruthy();
   });
@@ -1705,7 +1706,7 @@ describe('App add-entry page opened from Today and the log', () => {
   it('saving a Dream from the Dream log returns to the log', async () => {
     await renderApp();
     await openDreamLog();
-    await press('stub-new-dream');
+    await newEntryIn('Dreams');
     await press('stub-add-set-title');
     await press('stub-add-save');
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
@@ -1747,7 +1748,7 @@ describe('App add-entry page opened from Today and the log', () => {
     await renderApp();
     await pressLabel('Open Journals');
     await press('stub-open-life');
-    await press('stub-new-dream');
+    await newEntryIn('Life');
     expect(screen.getByText('add-journal:life')).toBeTruthy();
     await press('stub-add-back');
     expect(screen.getByText('log-journal:life')).toBeTruthy();
@@ -2255,7 +2256,7 @@ describe('App leaving the launch page', () => {
     it('Discard from the leave prompt returns to the Dream log', async () => {
       await renderApp();
       await openDreamLog();
-      await press('stub-new-dream');
+      await newEntryIn('Dreams');
       await press('stub-add-set-body');
       await press('stub-add-back');
       await press_('Discard');
@@ -2325,7 +2326,7 @@ describe('App custom journals', () => {
     await renderApp();
     await pressLabel('Open Journals');
     await press('stub-open-j_g1');
-    await press('stub-new-dream');
+    await newEntryIn('Gratitude');
     expect(screen.getByText('add-journal:j_g1')).toBeTruthy();
     await press('stub-add-set-body');
     await press('stub-add-save');
@@ -2432,7 +2433,7 @@ describe('App new journal', () => {
     expect(screen.queryByLabelText('Journal name')).toBeNull();
     expect(__fs.read(`${DOC}/journals.json`)).toContain('Gratitude');
     // The new entry button of that log captures into the new journal.
-    await press('stub-new-dream');
+    await newEntryIn('Gratitude');
     expect(screen.getByText(`add-journal:${id}`)).toBeTruthy();
   });
 
@@ -2553,7 +2554,7 @@ describe('App delete from the add-entry page', () => {
     await renderApp();
     expect(screen.getByText('add-has-delete:false')).toBeTruthy();
     await goToLog();
-    await press('stub-new-dream');
+    await newEntryIn('Dreams');
     expect(screen.getByText('add-has-delete:false')).toBeTruthy();
     await press('stub-add-back');
     await press('stub-open-dream');

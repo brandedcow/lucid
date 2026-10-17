@@ -144,13 +144,6 @@ describe('App Add entry button on Journals home', () => {
     expect(screen.getByRole('button', { name: 'New journal' })).toBeTruthy();
   });
 
-  it('is not shown on other screens it was not added to (the log)', async () => {
-    await renderApp();
-    await openJournals();
-    await fireEvent.press(screen.getByLabelText('Gratitude, 1 entry'));
-    expect(screen.queryByLabelText('Add entry')).toBeNull();
-  });
-
   it('picking a journal opens the add-entry page; Back returns to Today', async () => {
     await renderApp();
     await openJournals();

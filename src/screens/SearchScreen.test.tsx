@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { FlatList } from 'react-native';
+import { FlatList, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogView, useLogView } from '../hooks/useLogView';
 import { Dream } from '../types/dream';
@@ -94,6 +94,14 @@ afterAll(() => jest.useRealTimers());
 afterEach(() => jest.restoreAllMocks());
 
 describe('SearchScreen results', () => {
+  it('pads the results clear of the shared "+" button using the bottom inset', async () => {
+    await setup();
+    const style = StyleSheet.flatten(
+      screen.getByTestId('search-results-list').props.contentContainerStyle,
+    );
+    expect(style.paddingBottom).toBe(130); // 34 inset + 16 + 56 (FAB) + 24;
+  });
+
   it('shows finished entries of Dreams, Life and legacy records, mixed, newest first, by month', async () => {
     await setup();
     const labels = rowLabels();

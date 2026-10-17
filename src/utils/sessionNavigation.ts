@@ -21,7 +21,7 @@ export const LEAVE_ENTRY_KEEP = 'Keep writing';
  * Where the add-entry page (a new entry, a draft or a stored entry) returns to after a save, a
  * discard or a leave.
  */
-export type FlowReturn = 'today' | 'log' | 'search';
+export type FlowReturn = 'today' | 'log' | 'search' | 'settings';
 
 export type BackInput = {
   screen: 'add' | 'log' | 'journals' | 'search' | 'today' | 'settings';

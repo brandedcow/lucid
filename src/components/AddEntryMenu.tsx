@@ -20,13 +20,23 @@ import { PlusIcon } from './TodayIcons';
 export const FAB_SIZE = 56;
 
 /**
+ * Bottom padding every scrolling list needs so its last row can scroll clear of the + button:
+ * the button's own offset from the bottom (inset + spacing.md), its size, and a gap above it.
+ */
+export function fabListClearance(bottomInset: number): number {
+  return bottomInset + spacing.md + FAB_SIZE + spacing.lg;
+}
+
+/**
  * A floating "+" button (bottom right) that opens a bottom sheet of journals; picking one calls onPick.
  *
- * Render it as the LAST child of a full-screen container: it covers that container (so the backdrop
+ * App renders it once, as the LAST child of the app shell: it covers the shell (so the backdrop
  * catches taps anywhere) but its layer is box-none, so taps beside the button reach the screen. The
  * sheet is an in-screen overlay, not a Modal, so an Alert opened right after picking still shows on iOS.
  *
- * - bottomInset: the safe-area bottom inset, supplied by the screen.
+ * - bottomInset: the safe-area bottom inset, supplied by the caller.
+ * - hidden: nothing is drawn and the sheet closes for good, at once (as with disabled). The button
+ *   is also hidden by itself while a keyboard is visible and the sheet is closed.
  * - disabled: the button is disabled and the sheet closes for good, at once (it does not reopen when
  *   re-enabled).
  * - onNewJournal: when set, a "New journal" row sits below the journal rows (set apart by a rule);
@@ -44,6 +54,7 @@ type Props = {
   onPick: (journalId: JournalId) => void;
   onNewJournal?: () => void;
   disabled?: boolean;
+  hidden?: boolean;
   bottomInset?: number;
   footer?: ReactNode;
 };
@@ -57,6 +68,7 @@ export function AddEntryMenu({
   onPick,
   onNewJournal,
   disabled = false,
+  hidden = false,
   bottomInset = 0,
   footer,
 }: Props) {
@@ -67,8 +79,9 @@ export function AddEntryMenu({
   const [progress] = useState(() => new Animated.Value(0));
   const reduceMotion = useRef(false);
   const keyboard = useKeyboardInset();
-  const isOpen = open && !disabled;
-  const visible = mounted && !disabled;
+  const off = disabled || hidden;
+  const isOpen = open && !off;
+  const visible = mounted && !off;
 
   useEffect(() => {
     let alive = true;
@@ -104,16 +117,16 @@ export function AddEntryMenu({
     animateTo(0, () => setMounted(false));
   }, [animateTo]);
 
-  // Disabled closes at once, with no exit animation.
-  if (disabled && (open || mounted)) {
+  // Disabled or hidden closes at once, with no exit animation.
+  if (off && (open || mounted)) {
     setOpen(false);
     setMounted(false);
   }
   useEffect(() => {
-    if (!disabled) return;
+    if (!off) return;
     progress.stopAnimation();
     progress.setValue(0);
-  }, [disabled, progress]);
+  }, [off, progress]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -152,18 +165,22 @@ export function AddEntryMenu({
     outputRange: [sheetHeight || FALLBACK_SHEET_HEIGHT, 0],
   });
 
+  if (hidden) return null;
+
   return (
     <View pointerEvents="box-none" style={styles.layer}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Add entry"
-        accessibilityState={{ expanded: isOpen, disabled }}
-        disabled={disabled}
-        onPress={() => (isOpen ? close() : openMenu())}
-        style={[styles.fab, { bottom: fabBottom }]}
-      >
-        <PlusIcon color={colors.accentDark} />
-      </Pressable>
+      {(!keyboard.visible || visible) && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Add entry"
+          accessibilityState={{ expanded: isOpen, disabled }}
+          disabled={disabled}
+          onPress={() => (isOpen ? close() : openMenu())}
+          style={[styles.fab, { bottom: fabBottom }]}
+        >
+          <PlusIcon color={colors.accentDark} />
+        </Pressable>
+      )}
       {visible && (
         <View accessibilityViewIsModal style={styles.layer}>
           <Animated.View style={[styles.layer, { opacity: progress }]}>

@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Entry } from '../types/dream';
-import { FAB_SIZE } from '../components/AddEntryMenu';
 import { colors } from '../theme';
 import { LIFE_JOURNAL } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
@@ -64,8 +63,6 @@ function ui(o: Opts, h: Record<string, jest.Mock>) {
         onOpenEntry={h.onOpenEntry}
         onOpenDraft={h.onOpenDraft}
         onDeleteDream={h.onDeleteDream}
-        onNewEntry={h.onNewEntry}
-        onNewJournal={h.onNewJournal}
         onOpenJournals={h.onOpenJournals}
         onOpenSettings={h.onOpenSettings}
       />
@@ -78,8 +75,6 @@ async function setup(o: Opts = {}) {
     onOpenEntry: jest.fn(),
     onOpenDraft: jest.fn(),
     onDeleteDream: jest.fn(),
-    onNewEntry: jest.fn(),
-    onNewJournal: jest.fn(),
     onOpenJournals: jest.fn(),
     onOpenSettings: jest.fn(),
   };
@@ -196,48 +191,17 @@ describe('TodayScreen', () => {
     expect(h.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('has one "Add entry" button and no old bottom buttons', async () => {
+  it('has no "Add entry" button of its own (App renders the shared one) and no old bottom buttons', async () => {
     await setup();
-    expect(screen.getAllByLabelText('Add entry')).toHaveLength(1);
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
     expect(screen.queryByText('New dream')).toBeNull();
     expect(screen.queryByText('New Life entry')).toBeNull();
-  });
-
-  it('the menu lists Dreams then Life and picking calls onNewEntry with the journal id', async () => {
-    const { onNewEntry } = await setup();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    const items = screen.getAllByRole('menuitem');
-    expect(items.map((i) => i.props.accessibilityLabel.split(',')[0])).toEqual(['Dreams', 'Life']);
-    await fireEvent.press(items[1]);
-    expect(onNewEntry).toHaveBeenCalledWith('life');
-    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull()); // sheet slides out first
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    await fireEvent.press(screen.getAllByRole('menuitem')[0]);
-    expect(onNewEntry).toHaveBeenLastCalledWith('dreams');
-    expect(onNewEntry).toHaveBeenCalledTimes(2);
-  });
-
-  it('the menu has a "New journal" row below the journals that closes it and calls onNewJournal', async () => {
-    const { onNewJournal, onNewEntry } = await setup();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
-    expect(onNewJournal).toHaveBeenCalledTimes(1);
-    expect(onNewEntry).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull());
-  });
-
-  it('closes the menu when a delete starts', async () => {
-    const { rerender } = await setup();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
-    await rerender({ deletingId: 'life' });
-    expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
   it('pads the list clear of the "+" button using the bottom inset', async () => {
     await setup();
     const style = StyleSheet.flatten(screen.getByTestId('today-list').props.contentContainerStyle);
-    expect(style.paddingBottom).toBe(34 + 16 + FAB_SIZE + 24);
+    expect(style.paddingBottom).toBe(130); // 34 inset + 16 + 56 (FAB) + 24;
   });
 
   it('renders flat rows with the full body and no horizontal padding on the list', async () => {

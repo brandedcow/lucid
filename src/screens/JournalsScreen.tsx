@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AddEntryMenu, FAB_SIZE } from '../components/AddEntryMenu';
+import { fabListClearance } from '../components/AddEntryMenu';
 import { SearchIcon } from '../components/SearchIcon';
 import { SwipeActionRow, SwipeAction, useSingleOpenRow } from '../components/SwipeActionRow';
 import { colors, fonts, spacing } from '../theme';
@@ -31,12 +31,6 @@ import { isBuiltInJournal, Journal, kindCopy } from '../utils/journals';
  * - `deletingId`: the journal being deleted. Its card is dimmed, inert and reads "Deleting...";
  *   every card's swipe is locked until it ends.
  *
- * - `onNewEntry(journalId)` / `onNewJournal()`: optional. When `onNewEntry` is given, the same "+" button and
- *   Add entry sheet as on Today show at the bottom right (hidden while `deletingId` is set); picking a journal
- *   calls `onNewEntry`, "New journal" (sheet closed) calls `onNewJournal`.
- *
- * - `nameSheetOpen`: a name sheet (new or rename) is open; the "+" button is not shown.
- *
  * - `onBack()`: optional. When given, a back arrow ("Back to Today") shows at the top left.
  */
 type Props = {
@@ -49,9 +43,6 @@ type Props = {
   onDeleteJournal?: (id: JournalId) => void;
   onRenameJournal?: (id: JournalId) => void;
   deletingId?: JournalId | null;
-  onNewEntry?: (id: JournalId) => void;
-  onNewJournal?: () => void;
-  nameSheetOpen?: boolean;
 };
 
 /** "12 dreams", "1 dream", "No dreams yet"; "5 entries", "1 entry", "No entries yet". */
@@ -72,9 +63,6 @@ export function JournalsScreen({
   onDeleteJournal,
   onRenameJournal,
   deletingId = null,
-  onNewEntry,
-  onNewJournal,
-  nameSheetOpen = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const showCounts = counts !== null && !unreadable;
@@ -112,10 +100,7 @@ export function JournalsScreen({
 
         <ScrollView
           testID="journals-list"
-          contentContainerStyle={[
-            styles.list,
-            onNewEntry && { paddingBottom: insets.bottom + spacing.md + FAB_SIZE + spacing.lg },
-          ]}
+          contentContainerStyle={[styles.list, { paddingBottom: fabListClearance(insets.bottom) }]}
           onScrollBeginDrag={closeOpenRow}
         >
           {journals.map((journal) => {
@@ -203,15 +188,6 @@ export function JournalsScreen({
           })}
         </ScrollView>
       </SafeAreaView>
-      {onNewEntry && !nameSheetOpen && (
-        <AddEntryMenu
-          journals={journals.filter((j) => j.id !== deletingId)}
-          onPick={onNewEntry}
-          onNewJournal={onNewJournal}
-          disabled={deletingId != null}
-          bottomInset={insets.bottom}
-        />
-      )}
     </View>
   );
 }
