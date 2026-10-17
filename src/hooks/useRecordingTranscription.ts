@@ -15,7 +15,7 @@ import {
   mapSpeechError,
   permissionDeniedMessage,
   type RecognitionMode,
-  systemLocaleTag,
+  systemLocaleIdentifier,
   watchdogMs,
 } from '../utils/transcribeSupport';
 import { stopAllPlayback } from './useRecordingPlayback';
@@ -110,7 +110,7 @@ export function useRecordingTranscription({
       version: Platform.Version,
       api: ExpoSpeechRecognitionModule,
       deviceTag: deviceLocaleTag(),
-      systemLocale: systemLocaleTag(),
+      systemLocale: systemLocaleIdentifier(Platform.OS),
     };
     const none = { supported: false, locale: null } as const;
     const onDevice = await evaluateSupport(args);

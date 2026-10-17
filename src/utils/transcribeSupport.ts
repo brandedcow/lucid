@@ -1,4 +1,4 @@
-import { I18nManager } from 'react-native';
+import { I18nManager, Settings } from 'react-native';
 import { AudioEncodingAndroid } from 'expo-speech-recognition';
 import type { AudioSourceOptions, ExpoSpeechRecognitionOptions } from 'expo-speech-recognition';
 
@@ -88,10 +88,22 @@ export function deviceLocaleTag(): string | null {
   }
 }
 
-/** The platform's current system locale identifier (iOS: the NSLocale the default recognizer uses). */
-export function systemLocaleTag(): string | null {
+/**
+ * THE source of the system locale identifier; nothing else may feed `evaluateSupport` or
+ * `evaluateOnlineSupport`. iOS: `Settings.get('AppleLocale')` (NSUserDefaults, the region-format
+ * locale = `Locale.current` = what `SFSpeechRecognizer()` uses). It is NOT `AppleLanguages`, `Intl`
+ * or `I18nManager` (its `localeIdentifier` does not exist on iOS), and there is no fallback: a
+ * missing or non-string value is null (ineligible). Android: `I18nManager`'s `localeIdentifier`.
+ * `Settings` is only touched on iOS (it is not implemented on Android). Null on any throw.
+ */
+export function systemLocaleIdentifier(os: string): string | null {
   try {
-    const id = I18nManager.getConstants().localeIdentifier;
+    const id =
+      os === 'ios'
+        ? Settings.get('AppleLocale')
+        : os === 'android'
+          ? I18nManager.getConstants().localeIdentifier
+          : null;
     return typeof id === 'string' && id !== '' ? id : null;
   } catch {
     return null;
@@ -123,7 +135,7 @@ export async function evaluateSupport(opts: {
   api: SpeechSupportApi;
   /** Android: the device language tag (Intl). */
   deviceTag?: string | null;
-  /** iOS: the system locale identifier (I18nManager). */
+  /** The system locale identifier, from `systemLocaleIdentifier` only (iOS: AppleLocale). */
   systemLocale?: string | null;
 }): Promise<SupportResult> {
   const none: SupportResult = { supported: false, locale: null };

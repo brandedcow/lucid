@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, AlertButton, BackHandler, I18nManager, Platform } from 'react-native';
+import { Alert, AlertButton, BackHandler, Platform, Settings } from 'react-native';
 import App from './App';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
@@ -114,12 +114,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   fakeSpeech.reset();
   fakeSpeech.enable();
-  // iPhone: the system locale is the only recognition locale.
-  jest.spyOn(I18nManager, 'getConstants').mockReturnValue({
-    isRTL: false,
-    doLeftAndRightSwapInRTL: true,
-    localeIdentifier: 'en_US',
-  });
+  // iPhone: the system locale (Settings 'AppleLocale') is the only recognition locale.
+  jest
+    .spyOn(Settings, 'get')
+    .mockImplementation((key: string) => (key === 'AppleLocale' ? 'en_US' : undefined));
   __fs.reset();
   handlers = [];
   mockRec.start.mockResolvedValue(true);

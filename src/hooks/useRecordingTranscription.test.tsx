@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { AppState, I18nManager, Platform } from 'react-native';
+import { AppState, I18nManager, Platform, Settings } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 import { UNKNOWN_DURATION_WATCHDOG_MS, watchdogMs } from '../utils/transcribeSupport';
 import { fakeSpeech } from '../test/fakeSpeechRecognition';
@@ -20,7 +20,12 @@ const latest = { hook: null as unknown as RecordingTranscriptionHook };
 let results: [string, string][] = [];
 let recording = false;
 let onlineSetting = false;
-let systemLocale: string | null = 'en_US';
+// iOS: what Settings.get('AppleLocale') returns (the only iOS locale source). Any type, to test bad values.
+let systemLocale: unknown = 'en_US';
+let appleLanguages: unknown = undefined;
+// Android: I18nManager.getConstants().localeIdentifier (undefined on iOS in reality).
+let i18nLocale: string | undefined = 'en_US';
+let settingsGets: string[] = [];
 let appStateHandlers: ((s: string) => void)[] = [];
 let mountedHook: Awaited<ReturnType<typeof render>>;
 
@@ -52,6 +57,22 @@ const setLocale = (locale: string) =>
   spy(jest.spyOn(Intl, 'DateTimeFormat')).mockImplementation(
     () => ({ resolvedOptions: () => ({ locale }) }) as unknown as Intl.DateTimeFormat,
   );
+const fakeLocaleSources = () => {
+  spy(jest.spyOn(I18nManager, 'getConstants')).mockImplementation(
+    () =>
+      ({
+        isRTL: false,
+        doLeftAndRightSwapInRTL: true,
+        localeIdentifier: i18nLocale,
+      }) as ReturnType<typeof I18nManager.getConstants>,
+  );
+  spy(jest.spyOn(Settings, 'get')).mockImplementation((key: string) => {
+    settingsGets.push(key);
+    if (key === 'AppleLocale') return systemLocale;
+    if (key === 'AppleLanguages') return appleLanguages;
+    return undefined;
+  });
+};
 // A real macrotask (captured before any fake timers), so every pending promise chain settles.
 const realSetTimeout = setTimeout;
 const flush = () => new Promise<void>((resolve) => realSetTimeout(resolve, 0));
@@ -90,14 +111,10 @@ beforeEach(() => {
   setVersion(34);
   setLocale('en-US');
   systemLocale = 'en_US';
-  spy(jest.spyOn(I18nManager, 'getConstants')).mockImplementation(
-    () =>
-      ({
-        isRTL: false,
-        doLeftAndRightSwapInRTL: true,
-        localeIdentifier: systemLocale,
-      }) as ReturnType<typeof I18nManager.getConstants>,
-  );
+  appleLanguages = undefined;
+  i18nLocale = 'en_US';
+  settingsGets = [];
+  fakeLocaleSources();
   spy(jest.spyOn(AppState, 'addEventListener')).mockImplementation((_e, h) => {
     appStateHandlers.push(h as (s: string) => void);
     return {
@@ -838,6 +855,94 @@ describe('iOS locale policy: only the checked system locale can reach the recogn
     });
     expect(fakeSpeech.starts).toHaveLength(0);
   });
+
+  // Revision 7: on a real iPhone I18nManager has no localeIdentifier; AppleLocale is the one source.
+  it('I18nManager has no localeIdentifier (the real iPhone): AppleLocale en_US is supported', async () => {
+    setOs('ios');
+    i18nLocale = undefined;
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.supported).toBe(true);
+    await begin('a');
+    expect(fakeSpeech.starts[0].lang).toBe('en-US');
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['empty', ''],
+    ['a number', 42],
+    ['an array', ['en_US']],
+  ])('AppleLocale %s: hidden, nothing starts', async (_n, value) => {
+    setOs('ios');
+    systemLocale = value;
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+  });
+
+  it('AppleLanguages present but AppleLocale missing: hidden (AppleLanguages is never used)', async () => {
+    setOs('ios');
+    systemLocale = undefined;
+    appleLanguages = ['en-US'];
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(settingsGets).not.toContain('AppleLanguages');
+    expect(new Set(settingsGets)).toEqual(new Set(['AppleLocale']));
+  });
+
+  it.each(['en_US@rg=gbzzzz', 'en_US@calendar=gregorian', 'en-US-u-rg-gbzzzz'])(
+    'AppleLocale %s (override or -u- extension): hidden',
+    async (value) => {
+      setOs('ios');
+      systemLocale = value;
+      fakeSpeech.enable(ALL);
+      await mount();
+      expect(latest.hook.supported).toBe(false);
+      await begin('a');
+      expect(fakeSpeech.starts).toHaveLength(0);
+    },
+  );
+
+  it('AppleLocale not in the supported list: hidden, no en-US fallback', async () => {
+    setOs('ios');
+    systemLocale = 'sv_SE';
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+  });
+
+  it('Intl disagreeing with AppleLocale still uses AppleLocale', async () => {
+    setOs('ios');
+    setLocale('en-GB');
+    systemLocale = 'de_DE';
+    fakeSpeech.enable(ALL);
+    await mount();
+    await begin('a');
+    expect(fakeSpeech.starts[0].lang).toBe('de-DE');
+  });
+
+  it('Android never calls Settings.get and still reads I18nManager (language pick stays Intl)', async () => {
+    setOs('android');
+    systemLocale = 'zz_ZZ';
+    i18nLocale = 'de_DE';
+    setLocale('de-DE');
+    fakeSpeech.enable(['en-US', 'de-DE']);
+    onlineSetting = true;
+    await mount();
+    await begin('a');
+    expect(fakeSpeech.starts[0].lang).toBe('de-DE');
+    expect(jest.mocked(I18nManager.getConstants)).toHaveBeenCalled();
+    expect(settingsGets).toEqual([]);
+  });
 });
 
 describe('opt-in online transcription (Revision 6)', () => {
@@ -902,6 +1007,18 @@ describe('opt-in online transcription (Revision 6)', () => {
     // The audio source is passed through as on-device (the uri exactly).
     expect(fakeSpeech.starts[0].audioSource).toEqual({ uri: NEW_URI });
     expect(fakeSpeech.permissionRequests).toEqual(['requestSpeechRecognizerPermissionsAsync']);
+  });
+
+  it('online route reads AppleLocale even when I18nManager has no localeIdentifier', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    i18nLocale = undefined;
+    systemLocale = 'fr_FR';
+    await mount();
+    expect(latest.hook.route).toBe('online');
+    await begin('a');
+    expect(fakeSpeech.starts[0].lang).toBe('fr-FR');
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(false);
   });
 
   it('online locale: system language only, no en-US or other-region fallback', async () => {
@@ -1126,14 +1243,7 @@ describe('opt-in online transcription (Revision 6)', () => {
                 }
                 await mountedHook.unmount();
                 while (restorers.length) restorers.pop()?.();
-                spy(jest.spyOn(I18nManager, 'getConstants')).mockImplementation(
-                  () =>
-                    ({
-                      isRTL: false,
-                      doLeftAndRightSwapInRTL: true,
-                      localeIdentifier: systemLocale,
-                    }) as ReturnType<typeof I18nManager.getConstants>,
-                );
+                fakeLocaleSources();
                 spy(jest.spyOn(AppState, 'addEventListener')).mockImplementation((_e, h) => {
                   appStateHandlers.push(h as (s: string) => void);
                   return { remove: () => {} };

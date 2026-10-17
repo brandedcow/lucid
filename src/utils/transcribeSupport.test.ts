@@ -1,3 +1,4 @@
+import { I18nManager, Settings } from 'react-native';
 import {
   ANDROID_FILE_SOURCE,
   buildAudioSource,
@@ -12,6 +13,7 @@ import {
   permissionDeniedMessage,
   mapSpeechError,
   pickLocale,
+  systemLocaleIdentifier,
   type SpeechSupportApi,
 } from './transcribeSupport';
 
@@ -353,5 +355,65 @@ describe('mapSpeechError network by mode', () => {
     for (const e of ['service-not-allowed', 'busy', 'language-not-supported', 'not-allowed', 'x']) {
       expect(mapSpeechError({ error: e }, true)).toEqual(mapSpeechError({ error: e }, false));
     }
+  });
+});
+
+describe('systemLocaleIdentifier (the single locale source)', () => {
+  const i18n = (id: unknown) =>
+    jest.spyOn(I18nManager, 'getConstants').mockReturnValue({
+      isRTL: false,
+      doLeftAndRightSwapInRTL: true,
+      localeIdentifier: id,
+    } as unknown as ReturnType<typeof I18nManager.getConstants>);
+  const settings = (impl: (key: string) => unknown) =>
+    jest.spyOn(Settings, 'get').mockImplementation(impl);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('iOS reads Settings AppleLocale only, never I18nManager', () => {
+    const get = settings((k) => (k === 'AppleLocale' ? 'en_US' : 'other'));
+    const c = i18n('de_DE');
+    expect(systemLocaleIdentifier('ios')).toBe('en_US');
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('AppleLocale');
+    expect(c).not.toHaveBeenCalled();
+  });
+
+  it('iOS: missing, empty or non-string AppleLocale is null (no AppleLanguages fallback)', () => {
+    for (const v of [undefined, null, '', 7, ['en_US']]) {
+      const get = settings((k) => (k === 'AppleLocale' ? v : ['en-US']));
+      expect(systemLocaleIdentifier('ios')).toBeNull();
+      expect(get.mock.calls.every(([k]) => k === 'AppleLocale')).toBe(true);
+      get.mockRestore();
+    }
+  });
+
+  it('iOS: a throwing Settings.get is null', () => {
+    settings(() => {
+      throw new Error('boom');
+    });
+    expect(systemLocaleIdentifier('ios')).toBeNull();
+  });
+
+  it('Android reads I18nManager and never touches Settings', () => {
+    const get = settings(() => 'en_US');
+    i18n('de_DE');
+    expect(systemLocaleIdentifier('android')).toBe('de_DE');
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('Android: a missing or non-string identifier is null', () => {
+    for (const v of [undefined, '', 3]) {
+      const c = i18n(v);
+      expect(systemLocaleIdentifier('android')).toBeNull();
+      c.mockRestore();
+    }
+  });
+
+  it('any other platform is null and touches nothing', () => {
+    const get = settings(() => 'en_US');
+    const c = i18n('en_US');
+    expect(systemLocaleIdentifier('web')).toBeNull();
+    expect(get).not.toHaveBeenCalled();
+    expect(c).not.toHaveBeenCalled();
   });
 });
