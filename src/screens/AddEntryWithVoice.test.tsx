@@ -1691,3 +1691,115 @@ describe('transcripts in the expanded view', () => {
     expect(screen.getByText('late words')).toBeTruthy();
   });
 });
+
+describe('automatic transcription after a recording', () => {
+  // A real-looking start: the note is busy until the test ends the run.
+  const ends = new Map<string, () => void>();
+  const useRunningStart = () => {
+    ends.clear();
+    fakeT!.start.mockImplementation(
+      (id) =>
+        new Promise<void>((resolve) => {
+          fakeT!.setState(id, { status: 'running' });
+          ends.set(id, resolve);
+        }),
+    );
+  };
+  const noteId = (i: number) => sessionApi!.session!.recordings[i].id;
+  const record = async (uri: string, durationMs = 3000) => {
+    mockRec.stop.mockResolvedValueOnce({ uri, durationMs });
+    await startRecording();
+    await stopRecording();
+  };
+  const endRun = async (id: string) => {
+    await act(async () => {
+      fakeT!.setState(id, { status: 'ready' });
+      ends.get(id)?.();
+    });
+    // The page re-renders with whatever the session holds.
+    await act(async () => sessionApi!.setRecordingTranscript(id, 'text'));
+  };
+
+  it('starts a new recording once, on-device, with auto: true', async () => {
+    fakeT = createFakeTranscription();
+    useRunningStart();
+    await renderPage();
+    await record(CACHE);
+    expect(fakeT.start).toHaveBeenCalledTimes(1);
+    expect(fakeT.start).toHaveBeenCalledWith(noteId(0), CACHE, 3000, { auto: true });
+  });
+
+  it('does not start stored notes at mount', async () => {
+    fakeT = createFakeTranscription();
+    useRunningStart();
+    await renderPage({
+      open: {
+        dream: {
+          ...stored,
+          audioFileName: undefined,
+          waveform: undefined,
+          recordings: [{ fileName: '7.m4a', durationMs: 1000 }],
+        },
+        as: 'edit',
+      },
+    });
+    expect(fakeT.start).not.toHaveBeenCalled();
+  });
+
+  it('runs two quick recordings one after another', async () => {
+    fakeT = createFakeTranscription();
+    useRunningStart();
+    await renderPage();
+    await record(CACHE);
+    await record(CACHE2);
+    expect(fakeT.start).toHaveBeenCalledTimes(1);
+    await endRun(noteId(0));
+    expect(fakeT.start).toHaveBeenCalledTimes(2);
+    expect(fakeT.start).toHaveBeenLastCalledWith(noteId(1), CACHE2, 3000, { auto: true });
+  });
+
+  it('does not start when the note is discarded (no recording is attached)', async () => {
+    fakeT = createFakeTranscription();
+    useRunningStart();
+    await renderPage();
+    await startRecording();
+    await act(async () => leaveRef.current?.());
+    expect(fakeT.start).not.toHaveBeenCalled();
+  });
+
+  it('never starts on the online route or when unsupported', async () => {
+    fakeT = createFakeTranscription();
+    fakeT.setRoute('online');
+    await renderPage();
+    await record(CACHE);
+    expect(fakeT.start).not.toHaveBeenCalled();
+  });
+
+  it('opening the recording panel cancels the run; it restarts after the next recording stops', async () => {
+    fakeT = createFakeTranscription();
+    useRunningStart();
+    await renderPage();
+    await record(CACHE);
+    const first = noteId(0);
+    expect(fakeT.start).toHaveBeenCalledTimes(1);
+    fakeT.cancelAll.mockClear();
+    await openPanel();
+    expect(fakeT.cancelAll).toHaveBeenCalledTimes(1);
+    // The recognizer hook ends the cancelled run.
+    await act(async () => {
+      fakeT!.setState(first, { status: 'none' });
+      ends.get(first)?.();
+    });
+    expect(fakeT.start).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByLabelText('Start recording'));
+    await act(async () => {});
+    expect(fakeT.start).toHaveBeenCalledTimes(1);
+    mockRec.stop.mockResolvedValueOnce({ uri: CACHE2, durationMs: 2000 });
+    await stopRecording();
+    // The cancelled note goes first again.
+    expect(fakeT.start).toHaveBeenCalledTimes(2);
+    expect(fakeT.start).toHaveBeenLastCalledWith(first, CACHE, 3000, { auto: true });
+    await endRun(first);
+    expect(fakeT.start).toHaveBeenLastCalledWith(noteId(1), CACHE2, 2000, { auto: true });
+  });
+});

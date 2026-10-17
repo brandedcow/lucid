@@ -8,6 +8,8 @@ import { RecordingTranscription, RecordingTranscriptionState } from '../services
 export type FakeTranscription = RecordingTranscription & {
   start: jest.Mock<Promise<void>, [string, string, number?, { auto?: boolean }?]>;
   cancel: jest.Mock<void, [string]>;
+  /** The App hook's cancel-everything (the page calls it when the recording panel opens). */
+  cancelAll: jest.Mock<void, []>;
   setSupported(supported: boolean): void;
   /** Sets the route the sheet shows (null = cannot transcribe). Does not change `supported`. */
   setRoute(route: 'on-device' | 'online' | null): void;
@@ -29,6 +31,7 @@ export function createFakeTranscription(
     stateOf: (id) => states.get(id) ?? { status: 'none' },
     start: jest.fn<Promise<void>, [string, string, number?, { auto?: boolean }?]>(async () => {}),
     cancel: jest.fn<void, [string]>(),
+    cancelAll: jest.fn<void, []>(),
     setSupported(value) {
       fake.supported = value;
       if (!value) fake.route = null;

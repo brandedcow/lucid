@@ -18,7 +18,8 @@ import {
 import { appendTranscript } from '../utils/transcriptAppend';
 import { suggestTags } from '../utils/tagSuggestions';
 import { BUILT_IN_JOURNALS, Journal, journalCopy } from '../utils/journals';
-import { RecordingTranscription, UNSUPPORTED_TRANSCRIPTION } from '../services/transcription';
+import { UNSUPPORTED_TRANSCRIPTION } from '../services/transcription';
+import { AutoTranscribeSource, useAutoTranscribe } from '../hooks/useAutoTranscribe';
 import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
 
 /**
@@ -77,6 +78,10 @@ import { AddEntryScreen, AddEntryScreenProps } from './AddEntryScreen';
  *   to entry" appends it to the body as ONE undo step (typing flushed first, cursor at the end, the
  *   keyboard stays closed) and closes the view.
  *
+ * New recordings are transcribed automatically after the stop, one at a time, on-device only and
+ * never with a prompt (useAutoTranscribe); opening the recording panel cancels a run and it resumes
+ * after the recording.
+ *
  * Toolbar: undo / redo (body text and closing a voice note card, one shared stack, each step naming its
  * recording; not title or
  * journal), mic, # (inserts "#" at the body's cursor, or at the end when none is known; the tag is
@@ -107,7 +112,7 @@ export type AddEntryWithVoiceProps = Omit<
   bodyBaseFrom?: string;
   knownTags?: readonly string[];
   entryCreatedAt?: string;
-  transcription?: RecordingTranscription;
+  transcription?: AutoTranscribeSource;
 };
 
 const NO_TAGS: readonly string[] = [];
@@ -148,6 +153,8 @@ export function AddEntryWithVoice({
     setRecordingState(value);
     notify.current?.(value);
   };
+
+  useAutoTranscribe(recordings, transcription, recording);
 
   const history = useEntryHistory({
     body,
