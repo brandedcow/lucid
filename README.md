@@ -1,6 +1,6 @@
 # Lucid
 
-A voice-first dream journal for mobile. React Native (Expo, TypeScript). Dreams are recorded by voice, reviewed (title, emotion, tags), and stored on the device.
+A voice-first dream journal for mobile. React Native (Expo, TypeScript). Dreams can be recorded by voice (several recordings per entry), written up with a title, text and inline #tags, and stored on the device.
 
 Start here:
 
@@ -31,16 +31,16 @@ npm run format       # apply Prettier
 ## Structure
 
 ```
-App.tsx              entry; switches between the capture, read-it-back, review, Dream log and Dream entry screens
+App.tsx              entry; switches between Today, the journals, the Dream log, Add entry, Search and Settings screens
 src/
-  screens/           CaptureScreen (+ capture/IdleView, ListeningView), ReadItBackScreen, ReviewScreen, DreamLogScreen, DreamDetailScreen
-  components/        MicIcon, Waveform, RecordingPlayer, TagInput, EmotionInput, DreamChips
-  hooks/             useDreamRecorder, useLiveTranscription, useDreamSession, useDreamLibrary, useLogView
-  services/          dreamStorage (local audio files + dreams.json)
-  utils/             format, tags, emotions, capitalizeFirst, fadeTail, dreamLog, paragraphs, sessionNavigation
+  screens/           TodayScreen, AddEntryScreen, AddEntryWithVoice, DreamLogScreen, JournalsScreen, SearchScreen, SettingsScreen
+  components/        RecordingPanel, VoiceNoteCarousel, VoiceAttachmentCard, VoiceNoteSheet, JournalPicker, TaggedBodyInput, TagSuggestionBar, EntryToolbar, EmotionInput, DreamChips, EntryRow, and others
+  hooks/             useDreamRecorder, useEntrySession, useEntryHistory, useRecordingPlayback, useKeyboardInset, useDreamLibrary, useJournals, useToday, useLogView, useSettings
+  services/          dreamStorage (local audio files + dreams.json), journalStorage, settingsStorage, dayMarker
+  utils/             format, tags, inlineTags, tagSuggestions, emotions, capitalizeFirst, dreamLog, paragraphs, sessionNavigation, journals, today, waveform
   types/             dream (Dream, DreamDetails), entry (EntryType)
   theme/             colors, spacing, fonts
-  test/              fakeFileSystem (in-memory expo-file-system for Jest)
+  test/              fakeFileSystem (in-memory expo-file-system for Jest), fakeKeyboard (mocked Keyboard events)
 docs/                product.md, status.md, ios-dev-build.md, spike-live-transcription.md
 assets/              app icon, adaptive icon and splash images (moon mark; sources in assets/icon-source/)
 ```

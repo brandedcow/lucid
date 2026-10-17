@@ -1,37 +1,56 @@
 import { useEffect, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme';
+import { colors, iconCircle, spacing } from '../theme';
 
 /**
- * A "..." button with an Edit / Delete menu.
+ * A "..." button with a Delete menu.
  *
  * Render it as the LAST child of a full-screen container whose top bar has `paddingTop:
  * spacing.sm` and `paddingHorizontal: spacing.lg`: it covers that container (so the backdrop
  * catches taps anywhere) and puts the button at the top-right of the bar. The menu is an
  * in-screen overlay, not a Modal, so an Alert opened right after picking an item still shows on iOS.
  *
- * - onDelete is optional; without it the menu shows only Edit.
+ * - items: extra menu items shown before Delete (`label` is the accessibility label, `text` the
+ *   visible text, default the label). The menu closes before an item's onPress runs.
+ * - onDelete is optional; the menu shows only the items it is given (the add-entry page gives only
+ *   onDelete).
+ * - top / right: where the button sits (a circle of `iconCircle`, the same size as the add-entry
+ *   check; the add-entry page puts it left of its check). The card follows the button.
  * - disabled: items are disabled and the menu closes (the screen is busy deleting).
- * - deleteDisabled: only the Delete item is disabled and dimmed (default false); Edit and the
- *   button stay usable.
+ * - deleteDisabled: only the Delete item is disabled and dimmed (default false); the button stays
+ *   usable.
  */
+export type OverflowMenuItem = {
+  key: string;
+  label: string;
+  text?: string;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
 type Props = {
-  onEdit: () => void;
+  items?: readonly OverflowMenuItem[];
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
-  /** Wording for the item labels; defaults to the Dream wording ("Edit dream" / "Delete dream"). */
-  editLabel?: string;
+  /** Wording for the item label; defaults to the Dream wording ("Delete dream"). */
   deleteLabel?: string;
+  /** The visible text of the Delete item; defaults to "Delete". */
+  deleteText?: string;
+  /** Offsets of the button from the container's top and right edge. */
+  top?: number;
+  right?: number;
 };
 
 export function OverflowMenu({
-  onEdit,
+  items,
   onDelete,
   disabled = false,
   deleteDisabled = false,
-  editLabel = 'Edit dream',
   deleteLabel = 'Delete dream',
+  deleteText = 'Delete',
+  top = BAR_TOP,
+  right = BAR_RIGHT,
 }: Props) {
   const [open, setOpen] = useState(false);
   const visible = open && !disabled;
@@ -61,7 +80,8 @@ export function OverflowMenu({
         accessibilityState={{ expanded: visible, disabled }}
         disabled={disabled}
         onPress={() => setOpen((o) => !o)}
-        style={styles.button}
+        hitSlop={8}
+        style={[styles.button, disabled && styles.dimmed, { top, right }]}
       >
         <View style={styles.dots}>
           <View style={styles.dot} />
@@ -77,17 +97,25 @@ export function OverflowMenu({
             onPress={() => setOpen(false)}
             style={styles.backdrop}
           />
-          <View style={styles.card}>
-            <Pressable
-              accessibilityRole="menuitem"
-              accessibilityLabel={editLabel}
-              accessibilityState={{ disabled }}
-              disabled={disabled}
-              onPress={() => pick(onEdit)}
-              style={styles.item}
-            >
-              <Text style={styles.itemText}>Edit</Text>
-            </Pressable>
+          <View
+            testID="overflow-menu-card"
+            style={[styles.card, { top: top + iconCircle + spacing.xs, right }]}
+          >
+            {items?.map((item) => (
+              <Pressable
+                key={item.key}
+                accessibilityRole="menuitem"
+                accessibilityLabel={item.label}
+                accessibilityState={{ disabled: disabled || !!item.disabled }}
+                disabled={disabled || item.disabled}
+                onPress={() => pick(item.onPress)}
+                style={styles.item}
+              >
+                <Text style={[styles.itemText, item.disabled && styles.dimmed]}>
+                  {item.text ?? item.label}
+                </Text>
+              </Pressable>
+            ))}
             {onDelete && (
               <Pressable
                 accessibilityRole="menuitem"
@@ -98,7 +126,7 @@ export function OverflowMenu({
                 style={styles.item}
               >
                 <Text style={[styles.itemText, styles.delete, deleteDisabled && styles.dimmed]}>
-                  Delete
+                  {deleteText}
                 </Text>
               </Pressable>
             )}
@@ -119,16 +147,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: BAR_TOP,
     right: BAR_RIGHT,
-    width: 44,
-    height: 44,
+    width: iconCircle,
+    height: iconCircle,
+    borderRadius: iconCircle / 2,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
-    alignItems: 'flex-end',
+    alignItems: 'center',
   },
-  dots: { gap: 4, alignItems: 'center', paddingRight: 8 },
+  dots: { gap: 4, alignItems: 'center' },
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.text },
   card: {
     position: 'absolute',
-    top: BAR_TOP + 44,
+    top: BAR_TOP + iconCircle + spacing.xs,
     right: BAR_RIGHT,
     minWidth: 160,
     paddingVertical: spacing.xs,

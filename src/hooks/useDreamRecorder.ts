@@ -11,7 +11,7 @@ const MIN_DB = -60;
 
 export type FinishedRecording = { uri: string; durationMs: number };
 
-/** Thin wrapper over expo-audio for the capture flow: start, pause/resume, stop. */
+/** Thin wrapper over expo-audio for the add-entry page's voice recording: start, pause/resume, stop. */
 export function useDreamRecorder() {
   const recorder = useAudioRecorder(OPTIONS);
   const state = useAudioRecorderState(recorder, 100);

@@ -5,23 +5,26 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDayMarker } from './src/hooks/useDayMarker';
-import { useDreamSession } from './src/hooks/useDreamSession';
+import {
+  entryHasContent,
+  entryHasEdits,
+  hasPendingAudioRemoval,
+  entryJournalLocked,
+  useEntrySession,
+} from './src/hooks/useEntrySession';
 import { useJournals } from './src/hooks/useJournals';
 import { useLogView } from './src/hooks/useLogView';
 import { useSettings } from './src/hooks/useSettings';
+import { useRecordingTranscription } from './src/hooks/useRecordingTranscription';
 import { useToday } from './src/hooks/useToday';
-import { CaptureScreen } from './src/screens/CaptureScreen';
-import { DreamDetailScreen } from './src/screens/DreamDetailScreen';
+import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
 import { JournalsScreen } from './src/screens/JournalsScreen';
-import { ReadItBackScreen } from './src/screens/ReadItBackScreen';
-import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import {
-  discardRecording,
   getIndexStatus,
   isIndexUnreadableError,
   isSafetyCopyBlockedError,
@@ -30,8 +33,11 @@ import {
 import { hasAudio, type Dream } from './src/types/dream';
 import { DREAMS_JOURNAL, type JournalId } from './src/types/entry';
 import { colors } from './src/theme';
-import { confirmDeleteJournal } from './src/utils/confirmDelete';
+import { confirmDeleteDream, confirmDeleteJournal } from './src/utils/confirmDelete';
+import { capitalizeFirst } from './src/utils/capitalizeFirst';
+import { splitEmotions } from './src/utils/emotions';
 import { formatToday } from './src/utils/format';
+import { tagsByUse } from './src/utils/tags';
 import {
   entriesFor,
   isBuiltInJournal,
@@ -39,7 +45,6 @@ import {
   journalCopy,
   journalOf,
   kindOf,
-  titleRequired,
   type Journal,
   type JournalCopy,
 } from './src/utils/journals';
@@ -48,30 +53,20 @@ import {
   DISCARD_CHANGES_DISCARD,
   DISCARD_CHANGES_KEEP,
   DISCARD_CHANGES_TITLE,
+  LEAVE_ENTRY_DISCARD,
+  LEAVE_ENTRY_KEEP,
+  LEAVE_ENTRY_MESSAGE,
+  LEAVE_ENTRY_SAVE_DRAFT,
+  LEAVE_ENTRY_TITLE,
   backTarget,
   discardChangesMessage,
-  hasEdits,
   type FlowReturn,
-  readItBackBack,
-  reviewBack,
 } from './src/utils/sessionNavigation';
 import { dayStatus, launchScreen } from './src/utils/today';
 
-type Screen =
-  | 'capture'
-  | 'readItBack'
-  | 'review'
-  | 'log'
-  | 'detail'
-  | 'journals'
-  | 'search'
-  | 'today'
-  | 'settings';
+type Screen = 'add' | 'log' | 'journals' | 'search' | 'today' | 'settings';
 
-/** Where the entry screen was opened from, and so where its Back and a delete return to. */
-type DetailFrom = 'log' | 'search' | 'today';
-
-// How long the launch waits for stored data before opening Dream capture anyway: speed on waking
+// How long the launch waits for stored data before opening the Dreams page anyway: speed on waking
 // outranks the launch rule.
 const LAUNCH_CAP_MS = 1000;
 
@@ -90,23 +85,16 @@ export default function App() {
   const [screen, setScreen] = useState<Screen | null>(null);
   // The journal whose log is open (or was last open): Dreams or Life.
   const [journalId, setJournalId] = useState<JournalId>(DREAMS_JOURNAL);
-  // The journal a new entry is being captured for (Dreams from launch and the Dream log).
-  const [captureJournal, setCaptureJournal] = useState<JournalId>(DREAMS_JOURNAL);
-  // True for the capture opened by the launch rule: it offers "No dream", and leaving it counts
-  // as No dream.
-  const [captureLaunch, setCaptureLaunch] = useState(false);
-  // Where a capture (and a draft opened for Read it back and Review) returns to after a save.
+  // True for the add-entry page opened by the launch rule (Dreams, new): backing out of it while
+  // it is empty counts as No dream.
+  const [launchPage, setLaunchPage] = useState(false);
+  // Where the add-entry page (new entries, drafts and stored entries) returns to after a save, a
+  // discard or a leave: Today, the open journal's log, or the Search results.
   const [flowReturn, setFlowReturn] = useState<FlowReturn>('log');
-  // True while the capture is recording, so Back asks to discard instead of leaving mid-recording.
-  const [captureBusy, setCaptureBusy] = useState(false);
-  // Set by CaptureScreen to its discard confirmation, so Android back can ask while recording.
-  const captureLeaveRef = useRef<(() => void) | null>(null);
-  // Where the open entry came from: a journal log or the Search results.
-  const [detailFrom, setDetailFrom] = useState<DetailFrom>('log');
-  // True only while Read it back was opened with Edit on Review, so its back arrow returns there.
-  const [fromReview, setFromReview] = useState(false);
-  // The finished dream shown on the detail screen.
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // The add-entry page's recorder: true while it starts or runs (readable synchronously), and the
+  // page's discard confirmation for back to open.
+  const entryRecordingRef = useRef(false);
+  const entryLeaveRef = useRef<(() => void) | null>(null);
   // True while the "New journal" name sheet is open over Today or Journals home.
   const [namingJournal, setNamingJournal] = useState(false);
   // The custom journal whose name is being edited in the Rename sheet over Journals home. Never
@@ -116,11 +104,28 @@ export default function App() {
   const journalRegistry = useJournals();
   const { journals } = journalRegistry;
   const journalFor = (id: JournalId): Journal => journalOrDefault(journals, id);
-  const dream = useDreamSession(journals);
-  const { session } = dream;
+  // The entry on the add-entry page (new entries, drafts and edits).
+  const entry = useEntrySession(journals);
+  const settings = useSettings();
+  // Transcription of voice notes: on the phone, or online only if the user opted in (Settings).
+  // Lives here, above the page, so closing the sheet does not cancel a run; results go straight to
+  // the session recording.
+  const transcription = useRecordingTranscription({
+    onResult: entry.setRecordingTranscript,
+    onlineAllowed: settings.onlineTranscription,
+    isRecording: () => entryRecordingRef.current,
+  });
+  const { cancelAll: cancelTranscription, busyId: transcribingId } = transcription;
+  const sessionRecordings = entry.session?.recordings;
+  // The page was left (no session) or the session changed to another entry: stop the run.
+  useEffect(() => {
+    if (transcribingId === null) return;
+    if (!sessionRecordings || !sessionRecordings.some((r) => r.id === transcribingId)) {
+      cancelTranscription();
+    }
+  }, [sessionRecordings, transcribingId, cancelTranscription]);
   const library = useDreamLibrary();
   const dayMarker = useDayMarker();
-  const settings = useSettings();
   const { todayKey, resumeNewDayToken } = useToday();
   // Created here so the filter, search and scroll position survive leaving the Dream log.
   const view = useLogView();
@@ -128,13 +133,8 @@ export default function App() {
   const searchView = useLogView();
   // True from the start of a save until its refresh finishes, so a second tap or back cannot race it.
   const finishing = useRef(false);
-  // The dream being deleted, held from the confirmed delete until it ends, and whether the delete
-  // was started from its entry. `library.remove` drops the dream from the list at once, and an
-  // entry's delete must not make the entry vanish while it is in flight. A delete started from the
-  // Dream log (`fromDetail` false) never touches the entry screen.
-  const [deletingDream, setDeletingDream] = useState<{ dream: Dream; fromDetail: boolean } | null>(
-    null,
-  );
+  // The dream being deleted from a list, held from the confirmed delete until it ends.
+  const [deletingDream, setDeletingDream] = useState<Dream | null>(null);
   // The custom journal being deleted (state, for the UI), from the confirmed delete until it ends.
   // Its entries are hidden everywhere but the Journals card count; nothing stored is changed.
   const [deletingJournalId, setDeletingJournalId] = useState<JournalId | null>(null);
@@ -142,36 +142,39 @@ export default function App() {
   const journalDialogOpen = useRef(false);
   // True while a journal delete runs, readable synchronously (rename is refused then).
   const deletingJournalRef = useRef(false);
+  // True while the delete of the entry open on the add-entry page runs (readable synchronously):
+  // Back and the check are ignored then.
+  const entryDeleting = useRef(false);
+  // True while the "Delete this entry?" dialog from the add-entry page's menu is up.
+  const entryDialogOpen = useRef(false);
   // True while any delete (an entry's or a journal's) runs, readable synchronously: a second delete
   // is ignored.
   const deleting = useRef(false);
-  // True while a delete started from the entry runs: blocks back and Edit there. A delete started
-  // from the Dream log blocks nothing, like Notes.
-  const detailDeleting = useRef(false);
-  // The latest screen and open entry, for the async delete to read after its await.
-  const nav = useRef({ screen, detailId, detailFrom, journalId });
+  // The latest open log, for `showLog` to compare against.
+  const nav = useRef({ journalId });
   useEffect(() => {
-    nav.current = { screen, detailId, detailFrom, journalId };
+    nav.current = { journalId };
   });
   // The latest stored records and journals, for a journal delete confirmed after a dialog.
   const live = useRef({
     records: library.dreams,
     indexStatus: library.indexStatus,
     custom: journalRegistry.custom,
-    sessionJournal: session?.journalId ?? null,
+    sessionJournal: entry.session?.journalId ?? null,
   });
   useEffect(() => {
     live.current = {
       records: library.dreams,
       indexStatus: library.indexStatus,
       custom: journalRegistry.custom,
-      sessionJournal: session?.journalId ?? null,
+      sessionJournal: entry.session?.journalId ?? null,
     };
   });
 
-  // Launch: once the library, the No dream marker, the settings and the journals are read, the launch rule picks
-  // Dream capture or Today. If they are not ready in time, Dream capture opens and the late data
-  // never moves the user.
+  // Launch: once the library, the No dream marker, the settings and the journals are read, the launch
+  // rule picks the Dreams add-entry page or Today. If they are not ready in time, the Dreams page
+  // opens and the late data never moves the user.
+  const startEntry = entry.startNew;
   const ready =
     library.dreams !== null && dayMarker.loaded && settings.loaded && journalRegistry.loaded;
   // True once the launch is decided (by the rule or by the cap), so only one of them acts.
@@ -182,29 +185,37 @@ export default function App() {
     const status = dayStatus(library.dreams ?? [], dayMarker.noDreamDate, todayKey);
     const target = launchScreen({ ...status, autoOpen: settings.autoOpenDreamCapture });
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (target === 'capture') {
-      setCaptureLaunch(true);
+    if (target === 'add') {
+      startEntry(DREAMS_JOURNAL);
+      setLaunchPage(true);
       setFlowReturn('today');
     }
     setScreen(target);
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [ready, library.dreams, dayMarker.noDreamDate, todayKey, settings.autoOpenDreamCapture]);
+  }, [
+    ready,
+    library.dreams,
+    dayMarker.noDreamDate,
+    todayKey,
+    settings.autoOpenDreamCapture,
+    startEntry,
+  ]);
   useEffect(() => {
     if (screen !== null) return;
     const timer = setTimeout(() => {
       if (launchResolved.current) return;
       launchResolved.current = true;
-      setCaptureJournal(DREAMS_JOURNAL);
-      setCaptureLaunch(true);
+      startEntry(DREAMS_JOURNAL);
+      setLaunchPage(true);
       setFlowReturn('today');
-      setScreen('capture');
+      setScreen('add');
     }, LAUNCH_CAP_MS);
     return () => clearTimeout(timer);
-  }, [screen]);
+  }, [screen, startEntry]);
 
   // Resume after a new day: `resumeNewDayToken` increases once each time the app returns to the
   // foreground on a different day than it left on (never on a foreground midnight rollover, and
-  // not twice on the same new day). If nothing is done yet, jump to the launch Dream capture (when
+  // not twice on the same new day). If nothing is done yet, jump to the launch Dreams page (when
   // auto-open is on and the user is not mid-flow).
   // Everything the resume rule reads, as of the latest render (never stale).
   const resumeInputs = useRef({
@@ -213,7 +224,7 @@ export default function App() {
     dreams: library.dreams,
     noDreamDate: dayMarker.noDreamDate,
     autoOpen: settings.autoOpenDreamCapture,
-    sessionOpen: session !== null,
+    sessionOpen: entry.session !== null,
     deleteRunning: deletingDream !== null,
   });
   useEffect(() => {
@@ -223,7 +234,7 @@ export default function App() {
       dreams: library.dreams,
       noDreamDate: dayMarker.noDreamDate,
       autoOpen: settings.autoOpenDreamCapture,
-      sessionOpen: session !== null,
+      sessionOpen: entry.session !== null,
       deleteRunning: deletingDream !== null,
     };
   });
@@ -233,18 +244,15 @@ export default function App() {
     // Not launched yet (the launch rule decides), data not loaded, or the user is mid-flow.
     if (r.screen === null || !r.ready || r.dreams === null) return;
     if (r.sessionOpen || r.deleteRunning || deleting.current) return;
-    if (r.screen === 'capture' || r.screen === 'readItBack' || r.screen === 'review') return;
+    if (r.screen === 'add') return;
     const status = dayStatus(r.dreams, r.noDreamDate, todayKey);
-    if (launchScreen({ ...status, autoOpen: r.autoOpen }) !== 'capture') return;
-    setCaptureJournal(DREAMS_JOURNAL);
-    setCaptureLaunch(true);
+    if (launchScreen({ ...status, autoOpen: r.autoOpen }) !== 'add') return;
+    startEntry(DREAMS_JOURNAL);
+    setLaunchPage(true);
     setFlowReturn('today');
-    setFromReview(false);
-    setScreen('capture');
+    setScreen('add');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the token only; the rest is read fresh
   }, [resumeNewDayToken]);
-
-  const detailDeletingDream = deletingDream?.fromDetail ? deletingDream.dream : null;
 
   // While a custom journal is deleted its entries and its row in the Add entry sheet are hidden
   // (nothing stored is changed). Today, Search, the logs and the entry screen read these; only the
@@ -256,38 +264,30 @@ export default function App() {
         : library.dreams,
     [library.dreams, deletingJournalId],
   );
+  // Existing tags for the add-entry page's suggestion bar.
+  const knownTags = useMemo(() => tagsByUse(library.dreams), [library.dreams]);
   const visibleJournals = useMemo(
     () => (deletingJournalId ? journals.filter((j) => j.id !== deletingJournalId) : journals),
     [journals, deletingJournalId],
   );
 
-  // A screen showing the journal that is being deleted (its log, or one of its entries) goes back
-  // to Journals home instead of showing something that no longer exists.
+  // A screen showing the journal that is being deleted (its log, or one of its entries open on the
+  // add-entry page) goes back to Journals home instead of showing something that no longer exists.
+  const sessionId = entry.session?.id;
   if (
     deletingJournalId &&
     ((screen === 'log' && journalId === deletingJournalId) ||
-      (screen === 'detail' &&
-        detailId !== null &&
-        library.dreams?.some((d) => d.id === detailId && journalOf(d) === deletingJournalId)))
+      (screen === 'add' &&
+        sessionId !== undefined &&
+        library.dreams?.some((d) => d.id === sessionId && journalOf(d) === deletingJournalId)))
   ) {
-    setDetailId(null);
+    if (screen === 'add') entry.clear();
     setScreen('journals');
   }
 
-  // The detail screen needs a finished dream; otherwise the log shows.
-  const detailDream =
-    (detailId ? visibleRecords?.find((d) => d.id === detailId) : undefined) ??
-    (detailDeletingDream && detailDeletingDream.id === detailId ? detailDeletingDream : undefined);
-  const current: Screen | null =
-    screen === 'detail' && (!detailDream || detailDream.status === 'draft')
-      ? detailFrom === 'search'
-        ? 'search'
-        : detailFrom === 'today'
-          ? 'today'
-          : 'log'
-      : screen;
+  const current: Screen | null = screen;
 
-  // The name sheet belongs to Today and Journals home: leaving them (a new-day jump to capture) closes it.
+  // The name sheet belongs to Today and Journals home: leaving them (a new-day jump to the launch page) closes it.
   if (namingJournal && current !== 'today' && current !== 'journals') setNamingJournal(false);
 
   // The Rename sheet belongs to Journals home: leaving it closes the sheet. It also closes if its
@@ -320,122 +320,149 @@ export default function App() {
     setScreen('log');
   };
 
-  const leaveToCapture = () => {
-    if (session) setCaptureJournal(session.journalId);
-    dream.clear();
-    setFromReview(false);
-    setScreen('capture');
-  };
-
   // No dream: in memory first, so Today shows it at once; the file write follows and a failed
-  // write never blocks leaving. Shared by the No dream button, Back on an idle launch capture and
-  // a discarded recording on it.
+  // write never blocks leaving. Used by Back on an empty launch page (and a discarded recording on it).
   const handleNoDream = () => {
     dayMarker.markNoDream(todayKey);
-    setCaptureBusy(false);
     setScreen('today');
   };
 
-  const confirmDiscard = () => {
-    const copy = journalCopy(journalFor(session?.journalId ?? DREAMS_JOURNAL));
-    Alert.alert(copy.discardTitle, copy.discardBody, [
-      { text: 'Keep', style: 'cancel' },
-      {
-        text: 'Discard',
-        style: 'destructive',
-        onPress: () => {
-          // Only the cache file of a new recording; anything in dreams/ is never touched here.
-          if (session?.audio && !session.audio.persisted) discardRecording(session.audio.uri);
-          leaveToCapture();
-        },
-      },
-    ]);
-  };
-
-  const backFromReadItBack = () => {
-    if (!session) return;
-    const target = readItBackBack(session, fromReview);
-    if (target === 'review') {
-      setFromReview(false);
-      setScreen('review');
-    } else if (target === 'confirmDiscard') confirmDiscard();
-    else if (target === 'capture') leaveToCapture();
-    else {
-      dream.clear();
-      leaveFlow(session.journalId);
-    }
-  };
-
-  // Where a flow ends: Today when it started there, otherwise the log of the entry's journal.
+  // Where a flow ends: Today or the Search results (their view state is kept) when it started
+  // there, otherwise the log of the entry's journal.
   const leaveFlow = (id: JournalId) => {
     if (flowReturn === 'today') setScreen('today');
+    else if (flowReturn === 'search') setScreen('search');
     else showLog(id);
   };
 
   // After a save: Today or the log of the journal the entry belongs to.
   const leaveAfterSave = (id: JournalId) => {
-    dream.clear();
-    setFromReview(false);
+    entry.clear();
     leaveFlow(id);
   };
 
-  const showDetail = (id: string | null) => {
-    dream.clear();
-    setFromReview(false);
-    setDetailId(id);
-    setScreen('detail');
-  };
-
-  // Saves, then refreshes the library, and only then leaves, so the log and detail never show
-  // stale data. On a failed save the Alert is shown and the session stays. An edit never saves
-  // a draft, and with no changes it writes nothing.
-  const saveAndLeave = async (status: 'draft' | 'saved') => {
-    if (finishing.current || !session) return;
-    const isEdit = session.origin === 'edit';
-    // Only a journal that requires titles blocks an untitled edit; an untitled Life entry saves.
-    const needsTitle = titleRequired(kindOf(journals, session.journalId));
-    if (isEdit && (status === 'draft' || (needsTitle && session.title.trim().length === 0))) return;
-    const id = session.id ?? detailId;
-    if (isEdit && !hasEdits(session)) {
-      showDetail(id);
+  // The add-entry page's check: saves a finished entry, refreshes the library, then leaves. An
+  // edit never saves a draft, and with no changes it writes nothing.
+  const saveEntryAndLeave = async (status: 'draft' | 'saved') => {
+    const current = entry.session;
+    if (finishing.current || entryDeleting.current || !current) return;
+    const isEdit = current.origin === 'edit';
+    if (isEdit && status === 'draft') return;
+    if (isEdit && !entryHasEdits(current)) {
+      leaveAfterSave(current.journalId);
       return;
     }
     finishing.current = true;
     try {
-      if (!(await dream.save(status))) return;
+      if (!(await entry.save(status))) return;
       await library.refresh();
-      if (isEdit) showDetail(id);
-      else leaveAfterSave(session.journalId);
+      leaveAfterSave(current.journalId);
     } finally {
       finishing.current = false;
     }
   };
 
-  // Deletes from the entry or from a Dream log row (the caller has already confirmed). Leaves for
-  // the log only if the entry of that same dream is open when the delete ends.
+  // Back on the add-entry page. An edit asks to discard only when it changed; a new entry or draft
+  // asks Save draft / Discard / Keep writing only when something is typed. An empty new page on the
+  // launch Dreams page counts as No dream. Nothing is stored until a choice is made.
+  const backFromAdd = () => {
+    const current = entry.session;
+    if (!current || finishing.current || entry.isSaving()) return;
+    if (entryDeleting.current) return;
+    // A running recording always asks first. Discard stops it, deletes its cache file and comes
+    // back here, so what else is on the page gets its usual prompt.
+    if (entryRecordingRef.current) {
+      entryLeaveRef.current?.();
+      return;
+    }
+    if (current.origin === 'edit') {
+      const leaveEdit = () => {
+        entry.clear();
+        leaveFlow(current.journalId);
+      };
+      if (!entryHasEdits(current)) {
+        leaveEdit();
+        return;
+      }
+      Alert.alert(
+        DISCARD_CHANGES_TITLE,
+        discardChangesMessage(kindOf(journals, current.journalId)),
+        [
+          { text: DISCARD_CHANGES_KEEP, style: 'cancel' },
+          { text: DISCARD_CHANGES_DISCARD, style: 'destructive', onPress: leaveEdit },
+        ],
+      );
+      return;
+    }
+    const leave = (asNoDream: boolean) => {
+      entry.clear();
+      if (asNoDream) handleNoDream();
+      else leaveFlow(current.journalId);
+    };
+    // A closed stored recording is an unsaved change even when nothing else is on the page.
+    if (!entryHasContent(current) && !hasPendingAudioRemoval(current)) {
+      leave(current.origin === 'new' && launchPage && current.journalId === DREAMS_JOURNAL);
+      return;
+    }
+    Alert.alert(LEAVE_ENTRY_TITLE, LEAVE_ENTRY_MESSAGE, [
+      { text: LEAVE_ENTRY_SAVE_DRAFT, onPress: () => void saveEntryAndLeave('draft') },
+      { text: LEAVE_ENTRY_DISCARD, style: 'destructive', onPress: () => leave(false) },
+      { text: LEAVE_ENTRY_KEEP, style: 'cancel' },
+    ]);
+  };
+
+  // Deletes an entry (the caller has already confirmed). From a list row nothing navigates: the
+  // lists keep their own view state. If the add-entry page holds this very entry, a successful
+  // delete closes the page (edits are lost on purpose, the confirm said so) and leaves to where it
+  // was opened, without the discard prompt; a failure leaves the page and its edits as they were.
   const deleteDreamFor = async (target: Dream) => {
     if (deleting.current) return;
-    const fromDetail = nav.current.screen === 'detail' && nav.current.detailId === target.id;
     deleting.current = true;
-    detailDeleting.current = fromDetail;
-    setDeletingDream({ dream: target, fromDetail });
+    const fromEntry = current === 'add' && sessionId !== undefined && sessionId === target.id;
+    entryDeleting.current = fromEntry;
+    setDeletingDream(target);
     try {
       await library.remove(target.id);
-      if (nav.current.screen === 'detail' && nav.current.detailId === target.id) {
-        // The log or search keeps its filter, search and scroll: only the entry is left.
-        setDetailId(null);
-        if (nav.current.detailFrom === 'search') setScreen('search');
-        else if (nav.current.detailFrom === 'today') setScreen('today');
-        else showLog(journalOf(target));
+      if (fromEntry) {
+        entry.clear();
+        leaveFlow(journalOf(target));
       }
     } catch (e) {
       const copy = journalCopy(journalFor(journalOf(target)));
       Alert.alert(copy.deleteFailureTitle, deleteFailureMessage(e, copy));
     } finally {
       deleting.current = false;
-      detailDeleting.current = false;
+      entryDeleting.current = false;
       setDeletingDream(null);
     }
+  };
+
+  // The "..." menu's Delete on the add-entry page (a stored entry or draft only): the shared
+  // confirmation, then the same delete as the lists. Ignored while another delete runs, a save is in
+  // flight or a recording is open.
+  const requestDeleteOpenEntry = () => {
+    const open = entry.session;
+    if (!open?.id || current !== 'add') return;
+    const stored = library.dreams?.find((d) => d.id === open.id);
+    if (!stored) return;
+    if (
+      deleting.current ||
+      finishing.current ||
+      entry.isSaving() ||
+      entryRecordingRef.current ||
+      entryDialogOpen.current
+    ) {
+      return;
+    }
+    entryDialogOpen.current = true;
+    confirmDeleteDream({
+      hasAudio: hasAudio(stored),
+      kind: kindOf(journals, journalOf(stored)),
+      onClose: () => {
+        entryDialogOpen.current = false;
+      },
+      onConfirm: () => void deleteDreamFor(stored),
+    });
   };
 
   // Whether a custom journal may be renamed right now: only a journal in the registry's custom list,
@@ -554,76 +581,19 @@ export default function App() {
     if (failure) Alert.alert(failure.title, failure.message);
   };
 
-  const backFromEdit = () => {
-    if (!session) return;
-    const id = session.id ?? detailId;
-    if (!hasEdits(session)) {
-      showDetail(id);
-      return;
-    }
-    Alert.alert(DISCARD_CHANGES_TITLE, discardChangesMessage(kindOf(journals, session.journalId)), [
-      { text: DISCARD_CHANGES_KEEP, style: 'cancel' },
-      { text: DISCARD_CHANGES_DISCARD, style: 'destructive', onPress: () => showDetail(id) },
-    ]);
-  };
-
-  const backFromReview = () => {
-    if (!session || finishing.current) return;
-    const result = reviewBack(session, dream.isSaving());
-    switch (result) {
-      case 'blocked':
-        break;
-      case 'draftToList':
-        void saveAndLeave('draft');
-        break;
-      case 'readItBack':
-        setFromReview(false);
-        setScreen('readItBack');
-        break;
-      case 'editBack':
-        backFromEdit();
-        break;
-      default: {
-        const _exhaustive: never = result;
-        return _exhaustive;
-      }
-    }
-  };
-
-  // A reopened draft or edited dream shows when it was first stored; a new dream shows today.
-  const dreamDate = formatToday(session?.createdAt ? new Date(session.createdAt) : new Date());
-
   // Back, for the on-screen arrows and Android hardware back alike. Returns false when the back
-  // should leave the app (the launch capture and Today), true when it was handled.
+  // should leave the app (only Today), true when it was handled.
   const performBack = (): boolean => {
     if (current === null) return false;
     const target = backTarget({
       screen: current,
-      journalId:
-        current === 'capture'
-          ? captureJournal
-          : current === 'detail' && detailDream
-            ? journalOf(detailDream)
-            : journalId,
+      journalId,
       searchOpen: view.searching,
-      captureBusy,
-      detailFrom,
-      detailDeleting: detailDeleting.current,
-      flowReturn,
-      captureLaunch,
+      entryDeleting: entryDeleting.current,
     });
     switch (target.to) {
       case 'exit':
         return false;
-      case 'none':
-        return true;
-      case 'noDream':
-        handleNoDream();
-        return true;
-      case 'confirmLeave':
-        // Android back only asks while a recording runs (captureBusy); App leaves via onLeave.
-        captureLeaveRef.current?.();
-        return true;
       case 'closeSearch':
         // Same transition as leaving the search field: the log view state is kept.
         view.closeSearch();
@@ -636,16 +606,12 @@ export default function App() {
         if (current === 'search') searchView.clearFilters();
         setScreen('journals');
         return true;
-      case 'search':
-        setScreen('search');
-        return true;
-      case 'log':
-        showLog(target.journalId);
+      case 'none':
+        // The open entry is being deleted: Back is handled and does nothing.
         return true;
       case 'chain':
-        if (!session) return false;
-        if (current === 'readItBack') backFromReadItBack();
-        else backFromReview();
+        // The add-entry page keeps its own rules (backFromAdd).
+        backFromAdd();
         return true;
       default: {
         const _exhaustive: never = target;
@@ -665,41 +631,49 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // After CaptureScreen discarded a recording to leave: the launch capture counts as No dream,
-  // any other capture returns to its Today or log with no marker. Not performBack: captureBusy is
-  // still true then and it would ask again. Does nothing if the screen has already changed.
-  const leaveCapture = () => {
-    if (nav.current.screen !== 'capture') return;
-    setCaptureBusy(false);
-    const target = backTarget({
-      screen: 'capture',
-      journalId: captureJournal,
-      captureBusy: false,
-      flowReturn,
-      captureLaunch,
-    });
-    if (target.to === 'noDream') handleNoDream();
-    else if (target.to === 'today') setScreen('today');
-    else if (target.to === 'log') showLog(target.journalId);
-  };
-
-  const captureJournalInfo = journalFor(captureJournal);
   const logJournal = journalFor(journalId);
 
-  // Starts a Dream or Life capture from Today or a log; only the launch capture is `captureLaunch`.
+  // Starts a new entry on the add-entry page from Today or a log; only the launch page is
+  // `launchPage`.
   const startCapture = (id: JournalId, from: FlowReturn) => {
-    setCaptureJournal(id);
-    setCaptureLaunch(false);
+    setLaunchPage(false);
     setFlowReturn(from);
-    setScreen('capture');
+    entry.startNew(id);
+    setScreen('add');
   };
 
+  // Reopens a stored draft on the add-entry page.
   const openDraft = (draft: Dream, from: FlowReturn) => {
-    dream.openDraft(draft);
-    setFromReview(false);
+    entry.openDraft(draft);
     setFlowReturn(from);
-    setScreen('review');
+    setScreen('add');
   };
+
+  // Opens a stored entry on the add-entry page (the entry IS that page: there is no read-only
+  // screen). A finished entry is an edit session (never saved as a draft); a stored draft stays a
+  // draft. Back, save, discard and delete return to `from`.
+  const openEntryForEdit = (dream: Dream, from: FlowReturn) => {
+    if (dream.status === 'draft') {
+      openDraft(dream, from);
+      return;
+    }
+    setLaunchPage(false);
+    entry.openEntry(dream);
+    setFlowReturn(from);
+    setScreen('add');
+  };
+
+  // The entry with this id as currently listed (hidden entries of a journal being deleted are
+  // already filtered out); a stale id opens nothing.
+  const openEntryById = (id: string, from: FlowReturn) => {
+    const dream = visibleRecords?.find((d) => d.id === id);
+    if (dream) openEntryForEdit(dream, from);
+  };
+
+  // A stored record's date on the add-entry page; a new entry shows today.
+  const entryDate = formatToday(
+    entry.session?.createdAt ? new Date(entry.session.createdAt) : new Date(),
+  );
 
   if (current === null) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
@@ -708,78 +682,37 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        {current === 'capture' && (
-          <CaptureScreen
-            journal={captureJournalInfo}
+        {current === 'add' && entry.session && (
+          <AddEntryWithVoice
+            journal={journalFor(entry.session.journalId)}
+            journals={visibleJournals}
+            onJournalChange={entry.setJournal}
+            journalLocked={entryJournalLocked(entry.session)}
+            title={entry.session.title}
+            onTitleChange={entry.setTitle}
+            body={entry.session.body}
+            onBodyChange={entry.setBody}
+            bodyBaseFrom={entry.session.materializedFrom}
+            entryCreatedAt={entry.session.createdAt}
+            knownTags={knownTags}
+            date={entryDate}
+            saving={entry.saving}
+            autoFocus={entry.session.origin === 'new'}
+            onSave={() => void saveEntryAndLeave('saved')}
             onBack={() => void performBack()}
-            onLeave={leaveCapture}
-            leaveRef={captureLeaveRef}
-            backLabel={
-              captureLaunch && captureJournal === DREAMS_JOURNAL ? 'No dream, go to Today' : 'Back'
-            }
-            onActiveChange={setCaptureBusy}
-            onRecorded={(recording, text) => {
-              dream.startFromRecording(recording, text, captureJournal);
-              setFromReview(false);
-              setScreen('readItBack');
+            recordings={entry.session.recordings}
+            transcription={transcription}
+            onRecorded={entry.attachRecording}
+            onRemoveRecording={entry.removeRecording}
+            onRestoreRecording={entry.restoreRecording}
+            onRecordingChange={(recording) => {
+              entryRecordingRef.current = recording;
             }}
-            onWrite={() => {
-              dream.startWriting('', captureJournal);
-              setFromReview(false);
-              setScreen('readItBack');
-            }}
-            onTypeInstead={(text) => {
-              dream.startWriting(text, captureJournal);
-              setFromReview(false);
-              setScreen('readItBack');
-            }}
-            onNoDream={
-              captureLaunch && captureJournal === DREAMS_JOURNAL ? handleNoDream : undefined
-            }
-          />
-        )}
-        {current === 'readItBack' && session && (
-          <ReadItBackScreen
-            journal={journalFor(session.journalId)}
-            text={session.transcript}
-            onChangeText={dream.setTranscript}
-            audio={session.audio}
-            autoFocus={session.origin === 'write'}
-            onContinue={() => {
-              dream.markPassedThroughReadItBack();
-              setFromReview(false);
-              setScreen('review');
-            }}
-            onBack={backFromReadItBack}
-            date={dreamDate}
-          />
-        )}
-        {current === 'review' && session && (
-          <ReviewScreen
-            journal={journalFor(session.journalId)}
-            transcript={session.transcript}
-            audio={session.audio}
-            durationMs={session.audio?.durationMs ?? 0}
-            title={session.title}
-            onTitleChange={dream.setTitle}
-            emotion={session.emotion}
-            onEmotionChange={dream.setEmotion}
-            emotionDraft={session.emotionDraft}
-            onEmotionDraftChange={dream.setEmotionDraft}
-            tags={session.tags}
-            onTagsChange={dream.setTags}
-            tagDraft={session.tagDraft}
-            onTagDraftChange={dream.setTagDraft}
-            saving={dream.saving}
-            date={dreamDate}
-            onEditTranscript={() => {
-              setFromReview(true);
-              setScreen('readItBack');
-            }}
-            onDone={() => void saveAndLeave('saved')}
-            showFinishLater={session.origin !== 'edit'}
-            onFinishLater={() => void saveAndLeave('draft')}
-            onBack={backFromReview}
+            leaveRef={entryLeaveRef}
+            onRecordingDiscarded={backFromAdd}
+            emotions={splitEmotions(entry.session.emotion).map(capitalizeFirst)}
+            onDelete={entry.session.id ? requestDeleteOpenEntry : undefined}
+            deleteDisabled={deletingDream !== null || deletingJournalId !== null}
           />
         )}
         {current === 'log' && (
@@ -789,34 +722,11 @@ export default function App() {
             dreams={logEntries}
             indexStatus={library.indexStatus}
             view={view}
-            onOpenDream={(id) => {
-              setDetailId(id);
-              setDetailFrom('log');
-              setScreen('detail');
-            }}
+            onOpenDream={(id) => openEntryById(id, 'log')}
             onOpenDraft={(draft) => openDraft(draft, 'log')}
             onNewDream={() => startCapture(journalId, 'log')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
-            deletingId={deletingDream?.dream.id ?? null}
-          />
-        )}
-        {current === 'detail' && detailDream && (
-          <DreamDetailScreen
-            dream={detailDream}
-            journal={journalFor(journalOf(detailDream))}
-            onBack={() => void performBack()}
-            onEdit={() => {
-              if (detailDeleting.current) return;
-              dream.openDream(detailDream);
-              setFromReview(false);
-              setScreen('review');
-            }}
-            onDelete={async () => {
-              if (deleting.current) throw new Error('delete in progress');
-              await deleteDreamFor(detailDream);
-            }}
-            deleteBlocked={deletingDream !== null}
-            deleting={detailDeletingDream !== null && detailDeletingDream.id === detailDream.id}
+            deletingId={deletingDream?.id ?? null}
           />
         )}
         {current === 'journals' && (
@@ -845,14 +755,10 @@ export default function App() {
             todayKey={todayKey}
             skippedToday={dayMarker.noDreamDate === todayKey}
             unreadable={library.indexStatus === 'unreadable'}
-            onOpenEntry={(d) => {
-              setDetailId(d.id);
-              setDetailFrom('today');
-              setScreen('detail');
-            }}
+            onOpenEntry={(d) => openEntryForEdit(d, 'today')}
             onOpenDraft={(draft) => openDraft(draft, 'today')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
-            deletingId={deletingDream?.dream.id ?? null}
+            deletingId={deletingDream?.id ?? null}
             onNewEntry={(id) => startCapture(id, 'today')}
             onNewJournal={() => {
               setRenamingJournalId(null);
@@ -866,6 +772,8 @@ export default function App() {
           <SettingsScreen
             autoOpenDreamCapture={settings.autoOpenDreamCapture}
             onChangeAutoOpenDreamCapture={settings.setAutoOpenDreamCapture}
+            onlineTranscription={settings.onlineTranscription}
+            onChangeOnlineTranscription={settings.setOnlineTranscription}
             onBack={() => void performBack()}
           />
         )}
@@ -876,11 +784,7 @@ export default function App() {
             indexStatus={library.indexStatus}
             view={searchView}
             onBack={() => void performBack()}
-            onOpenDream={(id) => {
-              setDetailId(id);
-              setDetailFrom('search');
-              setScreen('detail');
-            }}
+            onOpenDream={(id) => openEntryById(id, 'search')}
           />
         )}
         <NewJournalSheet

@@ -10,7 +10,9 @@ import { DEFAULT_SETTINGS, readSettings, writeSettings } from '../services/setti
 export function useSettings() {
   const [loaded, setLoaded] = useState(false);
   const [autoOpenDreamCapture, setAuto] = useState(DEFAULT_SETTINGS.autoOpenDreamCapture);
+  const [onlineTranscription, setOnline] = useState(DEFAULT_SETTINGS.onlineTranscription);
   const changed = useRef(false);
+  const changedOnline = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -19,6 +21,7 @@ export function useSettings() {
       .then((settings) => {
         if (!mounted.current) return;
         if (!changed.current) setAuto(settings.autoOpenDreamCapture);
+        if (!changedOnline.current) setOnline(settings.onlineTranscription);
         setLoaded(true);
       })
       .catch(() => {
@@ -35,5 +38,17 @@ export function useSettings() {
     writeSettings({ autoOpenDreamCapture: value }).catch(() => {});
   }, []);
 
-  return { loaded, autoOpenDreamCapture, setAutoOpenDreamCapture };
+  const setOnlineTranscription = useCallback((value: boolean) => {
+    changedOnline.current = true;
+    setOnline(value);
+    writeSettings({ onlineTranscription: value }).catch(() => {});
+  }, []);
+
+  return {
+    loaded,
+    autoOpenDreamCapture,
+    setAutoOpenDreamCapture,
+    onlineTranscription,
+    setOnlineTranscription,
+  };
 }

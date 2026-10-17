@@ -41,12 +41,10 @@ jest.mock('expo-audio', () => ({
   useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() }),
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
+  RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
 // The recording flow is not under test here and needs native modules.
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
-jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
-jest.mock('./src/screens/ReviewScreen', () => ({ ReviewScreen: () => null }));
 
 // What the world looked like at the moment the registry entry was removed, and how often it was.
 let mockRemoveJournalCalls: { id: string; entriesLeft: string[] }[] = [];

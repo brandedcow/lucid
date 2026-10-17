@@ -180,7 +180,7 @@ describe('launchScreen', () => {
   for (const dreamToday of bools) {
     for (const skippedToday of bools) {
       for (const autoOpen of bools) {
-        const expected = autoOpen && !dreamToday && !skippedToday ? 'capture' : 'today';
+        const expected = autoOpen && !dreamToday && !skippedToday ? 'add' : 'today';
         it(`dreamToday=${dreamToday} skippedToday=${skippedToday} autoOpen=${autoOpen} -> ${expected}`, () => {
           expect(launchScreen({ dreamToday, skippedToday, autoOpen })).toBe(expected);
         });
@@ -188,10 +188,8 @@ describe('launchScreen', () => {
     }
   }
 
-  it('opens capture only for the one open-and-undone combination', () => {
-    expect(launchScreen({ dreamToday: false, skippedToday: false, autoOpen: true })).toBe(
-      'capture',
-    );
+  it('opens the Dreams add-entry page only for the one open-and-undone combination', () => {
+    expect(launchScreen({ dreamToday: false, skippedToday: false, autoOpen: true })).toBe('add');
   });
 });
 

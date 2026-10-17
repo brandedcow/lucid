@@ -25,15 +25,14 @@ jest.mock('expo-audio', () => ({
   useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() }),
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
+  RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
-jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
-jest.mock('./src/screens/ReviewScreen', () => {
+jest.mock('./src/screens/AddEntryScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    ReviewScreen: ({ onDone }: any) => (
-      <Pressable onPress={onDone}>
+    AddEntryScreen: ({ onSave }: any) => (
+      <Pressable onPress={onSave}>
         <Text>stub-done</Text>
       </Pressable>
     ),
@@ -62,12 +61,13 @@ jest.mock('./src/screens/JournalsScreen', () => {
     },
   };
 });
-let mockSession: any = null;
+let mockEntrySession: any = null;
 let mockSaveGate: Promise<unknown> | null = null;
-jest.mock('./src/hooks/useDreamSession', () => ({
-  useDreamSession: () =>
+jest.mock('./src/hooks/useEntrySession', () => ({
+  ...jest.requireActual('./src/hooks/useEntrySession'),
+  useEntrySession: () =>
     new Proxy(
-      { session: mockSession, save: () => mockSaveGate, isSaving: () => false },
+      { session: mockEntrySession, save: () => mockSaveGate, isSaving: () => false },
       { get: (t: any, k) => (k in t ? t[k] : jest.fn()) },
     ),
 }));
@@ -189,7 +189,7 @@ beforeEach(() => {
   mockGate = null;
   mockAfterDelete = null;
   mockAsk = null;
-  mockSession = null;
+  mockEntrySession = null;
   mockSaveGate = null;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation(() => ({ remove: () => {} }));
@@ -199,7 +199,15 @@ afterEach(() => jest.restoreAllMocks());
 
 describe('App journal delete live guards', () => {
   it('refuses to ask while a session is open for that journal', async () => {
-    mockSession = { journalId: 'j_g1', origin: 'write', title: '', tags: [] };
+    mockEntrySession = {
+      emotion: '',
+      journalId: 'j_g1',
+      origin: 'new',
+      title: '',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await ask('j_g1');
@@ -212,7 +220,15 @@ describe('App journal delete live guards', () => {
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await ask('j_g1');
     expect(Alert.alert).toHaveBeenCalledTimes(1);
-    mockSession = { journalId: 'j_g1', origin: 'write', title: '', tags: [] };
+    mockEntrySession = {
+      emotion: '',
+      journalId: 'j_g1',
+      origin: 'new',
+      title: '',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     await press('journals-back');
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await pressAlert('Delete');
@@ -221,7 +237,7 @@ describe('App journal delete live guards', () => {
   });
 
   it('refuses while a save is in flight', async () => {
-    // A draft on Today opens Review; Done starts a save that stays pending.
+    // A draft on Today opens the add-entry page; the check starts a save that stays pending.
     __fs.put(
       `${DOC}/dreams.json`,
       JSON.stringify([...RECORDS, rec('dr', 'Unfinished', { status: 'draft' })]),
@@ -229,7 +245,15 @@ describe('App journal delete live guards', () => {
     await renderApp();
     await fireEvent.press(screen.getByLabelText('Open Journals'));
     await press('journals-back');
-    mockSession = { journalId: 'dreams', origin: 'draft', title: 'x', tags: [] };
+    mockEntrySession = {
+      emotion: '',
+      journalId: 'dreams',
+      origin: 'draft',
+      title: 'x',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);
@@ -255,7 +279,15 @@ describe('App journal delete live guards', () => {
     expect(Alert.alert).toHaveBeenCalledTimes(1);
     const buttons = lastButtons();
     await press('journals-back');
-    mockSession = { journalId: 'dreams', origin: 'draft', title: 'x', tags: [] };
+    mockEntrySession = {
+      emotion: '',
+      journalId: 'dreams',
+      origin: 'draft',
+      title: 'x',
+      body: '',
+      tags: [],
+      tagDraft: '',
+    };
     let finish!: () => void;
     mockSaveGate = new Promise((resolve) => {
       finish = () => resolve(false);
@@ -299,10 +331,24 @@ describe('App journal delete live guards', () => {
     });
 
     it('sends its open entry back to Journals home without crashing', async () => {
+      // A stored entry of the journal open on the add-entry page. The session's journal is left
+      // out of sync on purpose: the real session would make the delete refuse to start, and this
+      // checks the second line of defence.
+      mockEntrySession = {
+        emotion: '',
+        id: 'g1',
+        journalId: 'dreams',
+        origin: 'edit',
+        title: 'Thankful for tea',
+        body: '',
+        tags: [],
+        tagDraft: '',
+      };
       await renderApp();
       await fireEvent.press(screen.getByLabelText('Open Journals'));
       await press('open-j_g1');
       await fireEvent.press(screen.getByText('Thankful for tea'));
+      expect(screen.getByText('stub-done')).toBeTruthy();
       await startFrom();
       expect(screen.getByText('journals-screen')).toBeTruthy();
       await act(async () => open());

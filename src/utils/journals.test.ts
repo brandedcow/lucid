@@ -78,9 +78,6 @@ describe('journalCopy dream values are the strings in use today', () => {
   const c = journalCopy(BUILT_IN_JOURNALS[0]);
   it('match the literals', () => {
     expect(c).toMatchObject({
-      captureHeadline: 'What happened in my dream?',
-      tips: ['Stay still', 'Work backwards', 'Record the emotion', 'Think in the present tense'],
-      skipLabel: 'No dream',
       saveButton: 'Save dream',
       newButton: 'New dream',
       logHeader: 'Dreams',
@@ -89,8 +86,6 @@ describe('journalCopy dream values are the strings in use today', () => {
       emptyBody: 'Tap New dream to record one.',
       noMatchTitle: 'No dreams match',
       unreadableLog: 'Your saved dreams could not be read. Your recordings are safe.',
-      discardTitle: 'Discard this dream?',
-      discardBody: 'Your recording and text will be deleted.',
       discardChangesMessage: 'Your changes to this dream will be lost.',
       deleteTitle: 'Delete this dream?',
       deleteBodyWithAudio:
@@ -106,8 +101,6 @@ describe('journalCopy dream values are the strings in use today', () => {
         'Your saved dreams could not be read, so this dream was not saved. Your recording is still here.',
       datePrefix: 'Dream · ',
       dateFallback: 'Dream',
-      titlePlaceholder: 'Name this dream',
-      readItBackTextLabel: 'Dream text',
       untitled: 'Untitled dream',
       editLabel: 'Edit dream',
       deleteLabel: 'Delete dream',
@@ -135,13 +128,9 @@ describe('journalCopy life values', () => {
   const c = journalCopy(BUILT_IN_JOURNALS[1]);
   it('match the approved wording', () => {
     expect(c).toMatchObject({
-      captureHeadline: 'What happened today?',
-      tips: ['Start anywhere', 'Say it as it comes', 'Note how you felt', 'Keep it short or long'],
-      skipLabel: null,
       saveButton: 'Save entry',
       newButton: 'New entry',
       logHeader: 'Life',
-      discardTitle: 'Discard this entry?',
       deleteTitle: 'Delete this entry?',
       deleteBodyWithAudio:
         "The recording and text will be permanently deleted. This can't be undone.",
@@ -149,7 +138,6 @@ describe('journalCopy life values', () => {
       deleteFailureTitle: 'Could not delete entry',
       datePrefix: 'Life · ',
       dateFallback: 'Life',
-      titlePlaceholder: 'Title (optional)',
       untitled: 'Untitled entry',
     });
   });
@@ -229,14 +217,12 @@ describe('a custom journal', () => {
       deleteTitle: 'Delete this entry?',
     });
   });
-  it('has no Dream wording in any string, and no skip control', () => {
+  it('has no Dream wording in any string', () => {
     const c = journalCopy(gratitude);
     for (const value of Object.values(c)) {
       const text = typeof value === 'function' ? value('x') : [value].flat().join(' ');
       expect(text ?? '').not.toMatch(/dream/i);
     }
-    expect(c.skipLabel).toBeNull();
-    expect(c.titlePlaceholder).toBe('Title (optional)');
   });
   it('uses its name as the entry noun', () => {
     expect(entryNoun(gratitude)).toBe('Gratitude');

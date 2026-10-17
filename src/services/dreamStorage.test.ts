@@ -7,7 +7,6 @@ import {
   isIndexUnreadableError,
   listDreams,
   listEmotions,
-  listTags,
   resetCorruptCopyGuard,
   saveDream,
 } from './dreamStorage';
@@ -129,21 +128,6 @@ describe('listDreams', () => {
     expect(dream).toEqual(stored);
     expect(isDraft(dream)).toBe(false);
     expect(hasAudio(dream)).toBe(true);
-  });
-});
-
-describe('listTags', () => {
-  it('orders tags by use, then alphabetically', async () => {
-    const saveAt = async (title: string, tags: string[], at: string) => {
-      __fs.put(RECORDING, 'audio-bytes');
-      jest.setSystemTime(new Date(at));
-      await save(RECORDING, 1000, { title, tags });
-    };
-    await saveAt('One', ['water', 'falling'], '2026-10-01T00:00:00Z');
-    await saveAt('Two', ['water', 'house'], '2026-10-02T00:00:00Z');
-    await saveAt('Three', ['water'], '2026-10-03T00:00:00Z');
-
-    expect(await listTags()).toEqual(['water', 'falling', 'house']);
   });
 });
 
@@ -370,7 +354,6 @@ describe('a corrupt index', () => {
   it('never copies when only displaying', async () => {
     __fs.put(INDEX, '{not json');
     expect(await listDreams()).toEqual([]);
-    expect(await listTags()).toEqual([]);
     expect(await listEmotions()).toEqual([]);
 
     expect(__fs.copies()).toEqual([]);

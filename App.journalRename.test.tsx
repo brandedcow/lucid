@@ -24,10 +24,8 @@ jest.mock('expo-audio', () => ({
   useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() }),
   useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   setAudioModeAsync: jest.fn(),
+  RecordingPresets: { HIGH_QUALITY: {} },
 }));
-jest.mock('./src/screens/CaptureScreen', () => ({ CaptureScreen: () => null }));
-jest.mock('./src/screens/ReadItBackScreen', () => ({ ReadItBackScreen: () => null }));
-jest.mock('./src/screens/ReviewScreen', () => ({ ReviewScreen: () => null }));
 
 // Records the props App gives Journals home, so a test can call the handlers directly (with ids
 // the UI never offers).

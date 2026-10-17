@@ -6,7 +6,7 @@ Lucid uses native modules (`expo-audio`, `expo-speech-recognition`, `expo-splash
 
 - A free Expo account (https://expo.dev/signup).
 - A paid Apple Developer Program account. Installing an internal (ad hoc) build on a real iPhone needs one. A free Apple ID is not enough.
-- An iPhone. Live text needs iOS 17 or later; older iPhones can install the app but have no live text (a quiet note says so).
+- An iPhone. Live transcription while recording has been removed; recordings are saved as audio only. Transcribing a recording after it is made is not built yet (pending), so no particular iOS version is needed for that.
 - Developer Mode on the iPhone: Settings > Privacy & Security > Developer Mode, turn it on and restart. If the switch is missing, install the app (step 5) and look again. Expo docs: https://docs.expo.dev/guides/ios-developer-mode/
 - A clean, committed branch (see "What gets built"). The `expo-dev-client`, `expo-asset` and `expo@~57.0.27` dependencies must be committed before the first iOS build.
 
@@ -56,4 +56,6 @@ JavaScript changes after the build do not need a new build: Metro serves them to
   Afterwards the Android app opens the dev-client launcher, where you pick the Lucid entry from Metro.
 
 - The Android rebuild also picks up the expo 57.0.27 and `expo-asset` bump. The steps are the same, and `npx expo prebuild --platform android --clean` is recommended.
+- `expo-sharing` (share a voice note) is a new native package: rebuild the development client after it lands (iOS EAS build; Android `npx expo prebuild --platform android --clean`, then `npm run android`). No `app.json` change is needed.
+- `expo-clipboard` (copy a transcript) is also a new native module: the same development-client rebuild covers it (rebuild once after both land). No `app.json` change is needed.
 - `npm audit` reports about 60 findings in dev and build tooling (jest, Metro, the Expo CLI, config plugins). They are not shipped in the app and are deferred until the next SDK upgrade. Never use `npm audit fix --force`.
