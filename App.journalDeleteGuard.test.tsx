@@ -4,23 +4,24 @@ import App from './App';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
 
-// Safety tests for the App's journal delete handler. Journals home is replaced by a stub that can
-// call onDeleteJournal with ANY id (the real screen never offers Delete on Dreams or Life), so the
+// Safety tests for the App's journal delete handler. The Journals drawer is replaced by a stub that can
+// call onDeleteJournal with ANY id (the real drawer never offers Delete on Dreams or Life), so the
 // handler's own guards are what is tested. Real hooks and storage on the in-memory file system.
-jest.mock('./src/screens/JournalsScreen', () => {
+jest.mock('./src/components/JournalsDrawer', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    JournalsScreen: ({ onDeleteJournal, deletingId }: any) => (
-      <>
-        <Text>journals-screen</Text>
-        <Text>{`deleting:${deletingId}`}</Text>
-        {['dreams', 'life', 'j_unknown', 'j_g1', 'J_G1', '', '__proto__'].map((id) => (
-          <Pressable key={id} onPress={() => onDeleteJournal(id)}>
-            <Text>{`ask-${id}`}</Text>
-          </Pressable>
-        ))}
-      </>
-    ),
+    JournalsDrawer: ({ open, onDeleteJournal, deletingId }: any) =>
+      open ? (
+        <>
+          <Text>journals-drawer</Text>
+          <Text>{`deleting:${deletingId}`}</Text>
+          {['dreams', 'life', 'j_unknown', 'j_g1', 'J_G1', '', '__proto__'].map((id) => (
+            <Pressable key={id} onPress={() => onDeleteJournal(id)}>
+              <Text>{`ask-${id}`}</Text>
+            </Pressable>
+          ))}
+        </>
+      ) : null,
   };
 });
 jest.mock('expo-file-system', () => jest.requireActual('./src/test/fakeFileSystem'));

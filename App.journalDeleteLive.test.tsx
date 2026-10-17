@@ -38,26 +38,26 @@ jest.mock('./src/screens/AddEntryScreen', () => {
     ),
   };
 });
-// The newest "ask to delete" the Journals screen was given. It only reads refs, so it still works
-// after the screen is gone: that is how a delete is started while another screen is showing.
+// The newest "ask to delete" the Journals drawer was given. It only reads refs, so it still works
+// after the drawer is closed: that is how a delete is started while another screen is showing.
 let mockAsk: ((id: string) => void) | null = null;
-jest.mock('./src/screens/JournalsScreen', () => {
+jest.mock('./src/components/JournalsDrawer', () => {
   const { Pressable, Text } = require('react-native');
   return {
-    JournalsScreen: ({ onDeleteJournal, onOpenJournal, onBack, deletingId }: any) => {
+    JournalsDrawer: ({ open, onClose, onDeleteJournal, onOpenJournal, deletingId }: any) => {
       mockAsk = onDeleteJournal;
-      return (
+      return open ? (
         <>
-          <Text>journals-screen</Text>
+          <Text>journals-drawer</Text>
           <Text>{`deleting:${deletingId}`}</Text>
           <Pressable onPress={() => onOpenJournal('j_g1')}>
             <Text>open-j_g1</Text>
           </Pressable>
-          <Pressable onPress={onBack}>
+          <Pressable onPress={onClose}>
             <Text>journals-back</Text>
           </Pressable>
         </>
-      );
+      ) : null;
     },
   };
 });
@@ -315,22 +315,22 @@ describe('App journal delete live guards', () => {
       await pressAlert('Delete');
     };
 
-    it('sends its open log back to Journals home', async () => {
+    it('sends its open log back to Today with the drawer open', async () => {
       await renderApp();
       await fireEvent.press(screen.getByLabelText('Open Journals'));
       await press('open-j_g1');
       expect(screen.getByText('Thankful for tea')).toBeTruthy();
       await startFrom();
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(screen.getByText('deleting:j_g1')).toBeTruthy();
       expect(screen.queryByText('Thankful for tea')).toBeNull();
       await act(async () => open());
       await waitFor(() => expect(mockRemoveJournalCalls).toHaveLength(1));
       await settle();
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expect(screen.getByText('journals-drawer')).toBeTruthy();
     });
 
-    it('sends its open entry back to Journals home without crashing', async () => {
+    it('sends its open entry back to Today with the drawer open, without crashing', async () => {
       // A stored entry of the journal open on the add-entry page. The session's journal is left
       // out of sync on purpose: the real session would make the delete refuse to start, and this
       // checks the second line of defence.
@@ -350,11 +350,11 @@ describe('App journal delete live guards', () => {
       await fireEvent.press(screen.getByText('Thankful for tea'));
       expect(screen.getByText('stub-done')).toBeTruthy();
       await startFrom();
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expect(screen.getByText('journals-drawer')).toBeTruthy();
       await act(async () => open());
       await waitFor(() => expect(mockRemoveJournalCalls).toHaveLength(1));
       await settle();
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(storedIds()).toEqual(['d1', 'd2', 'l1', 't1']);
     });
   });

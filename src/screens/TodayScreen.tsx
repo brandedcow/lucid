@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  FlatList,
+  type GestureResponderEvent,
+  PanResponder,
+  type PanResponderGestureState,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fabListClearance } from '../components/AddEntryMenu';
+import { JournalsDrawer } from '../components/JournalsDrawer';
 import { SwipeEntryRow, useSingleOpenRow } from '../components/SwipeEntryRow';
 import { BookIcon, GearIcon } from '../components/TodayIcons';
 import { colors, fonts, spacing } from '../theme';
@@ -44,7 +54,12 @@ export const TODAY_COPY = {
  * - `onDeleteDream(dream)`: Delete was used on a row (swipe or screen-reader action) and confirmed
  *   here, with the row's own journal wording. The parent deletes.
  * - `deletingId`: the entry being deleted; its row is dimmed and swiping is off everywhere.
- * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right).
+ * - `onOpenJournals()` / `onOpenSettings()`: the header icons (book left, gear right). A swipe from
+ *   the left edge of the page also calls `onOpenJournals`.
+ * - `journalsOpen` / `onCloseJournals()`: whether the Journals drawer is open (App owns it) and how it
+ *   closes. The drawer is rendered here, over the page, from `drawer`.
+ * - `journalsDisabled`: opening the drawer (button and edge swipe) does nothing, e.g. while a delete runs.
+ * - `drawer`: the drawer's content props (its `open` and `onClose` come from the two props above).
  */
 type Props = {
   journals: readonly Journal[];
@@ -58,7 +73,26 @@ type Props = {
   deletingId?: string | null;
   onOpenJournals: () => void;
   onOpenSettings: () => void;
+  journalsOpen?: boolean;
+  onCloseJournals?: () => void;
+  journalsDisabled?: boolean;
+  drawer?: Omit<ComponentProps<typeof JournalsDrawer>, 'open' | 'onClose'>;
 };
+
+/** A drag counts as the edge swipe only when it starts this close to the left edge of the screen. */
+export const EDGE_SWIPE_ZONE = 20;
+/** How far right the edge drag must travel before it opens the drawer. */
+export const EDGE_SWIPE_DISTANCE = 40;
+
+/** Whether a moving touch is the left-edge swipe: started in the edge zone and mostly horizontal. */
+export function startsEdgeSwipe(g: Pick<PanResponderGestureState, 'x0' | 'dx' | 'dy'>): boolean {
+  return g.x0 <= EDGE_SWIPE_ZONE && g.dx > 10 && g.dx > Math.abs(g.dy) * 2;
+}
+
+/** Whether a finished edge swipe went far enough to open the drawer. */
+export function opensDrawer(g: Pick<PanResponderGestureState, 'dx'>): boolean {
+  return g.dx >= EDGE_SWIPE_DISTANCE;
+}
 
 type Item = { type: 'skip' } | { type: 'entry'; dream: Entry };
 
@@ -74,8 +108,31 @@ export function TodayScreen({
   deletingId = null,
   onOpenJournals,
   onOpenSettings,
+  journalsOpen = false,
+  onCloseJournals,
+  journalsDisabled = false,
+  drawer,
 }: Props) {
   const insets = useSafeAreaInsets();
+  // The edge swipe reads the latest values through a ref, so the responder is created once.
+  const edge = useRef({ open: onOpenJournals, off: journalsDisabled || journalsOpen });
+  useEffect(() => {
+    edge.current = { open: onOpenJournals, off: journalsDisabled || journalsOpen };
+  });
+  // The handlers only read `edge` when a touch happens, never while rendering.
+  const edgeResponder = useMemo(
+    () =>
+      // eslint-disable-next-line react-hooks/refs
+      PanResponder.create({
+        // Capture, so a swipe that starts at the very edge is not taken by a row underneath.
+        onMoveShouldSetPanResponderCapture: (_e: GestureResponderEvent, g) =>
+          !edge.current.off && startsEdgeSwipe(g),
+        onPanResponderRelease: (_e, g) => {
+          if (!edge.current.off && opensDrawer(g)) edge.current.open();
+        },
+      }),
+    [],
+  );
   const rows = useMemo(
     () => entriesToday(journals, dreams ?? [], todayKey),
     [journals, dreams, todayKey],
@@ -204,12 +261,18 @@ export function TodayScreen({
   }
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+    <View style={styles.container} testID="today-screen" {...edgeResponder.panHandlers}>
+      <SafeAreaView
+        style={styles.safe}
+        edges={['top', 'left', 'right']}
+        importantForAccessibility={journalsOpen ? 'no-hide-descendants' : 'auto'}
+      >
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={TODAY_COPY.openJournals}
+            accessibilityState={journalsDisabled ? { disabled: true } : undefined}
+            disabled={journalsDisabled}
             onPress={onOpenJournals}
             style={styles.iconButton}
           >
@@ -233,6 +296,9 @@ export function TodayScreen({
 
         <View style={styles.body}>{body}</View>
       </SafeAreaView>
+      {drawer && (
+        <JournalsDrawer {...drawer} open={journalsOpen} onClose={onCloseJournals ?? (() => {})} />
+      )}
     </View>
   );
 }

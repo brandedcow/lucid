@@ -92,7 +92,6 @@ const hardwareBack = async () => {
 async function openNewGratitude() {
   await render(<App />);
   await settle();
-  await press(byLabel('Open Journals'));
   await press(byLabel('Add entry'));
   await press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
   expect(byLabel('Journal: Gratitude')).toBeTruthy();

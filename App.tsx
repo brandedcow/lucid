@@ -21,7 +21,6 @@ import { AddEntryMenu } from './src/components/AddEntryMenu';
 import { AddEntryWithVoice } from './src/screens/AddEntryWithVoice';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
-import { JournalsScreen } from './src/screens/JournalsScreen';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
@@ -65,7 +64,7 @@ import {
 } from './src/utils/sessionNavigation';
 import { dayStatus, launchScreen } from './src/utils/today';
 
-type Screen = 'add' | 'log' | 'journals' | 'search' | 'today' | 'settings';
+type Screen = 'add' | 'log' | 'search' | 'today' | 'settings';
 
 // How long the launch waits for stored data before opening the Dreams page anyway: speed on waking
 // outranks the launch rule.
@@ -79,7 +78,7 @@ function deleteFailureMessage(e: unknown, copy: JournalCopy): string {
 }
 
 // Where saving or leaving the add page returns to, for the screen the shared "+" button was used on.
-// Journals home has no value of its own and uses Today (as its "+" always did).
+// Today has its own value; anything else (there is no other screen with a "+") uses Today too.
 function flowReturnFor(screen: Screen): FlowReturn {
   return screen === 'log' || screen === 'search' || screen === 'settings' ? screen : 'today';
 }
@@ -109,9 +108,12 @@ export default function App() {
   // page's discard confirmation for back to open.
   const entryRecordingRef = useRef(false);
   const entryLeaveRef = useRef<(() => void) | null>(null);
-  // True while the "New journal" name sheet is open over Today or Journals home.
+  // True while the Journals drawer (a panel over Today, opened by its book icon or a left-edge swipe)
+  // is open. It only ever shows on Today: leaving Today closes it.
+  const [journalsOpen, setJournalsOpen] = useState(false);
+  // True while the "New journal" name sheet is open (over Today, with or without the drawer).
   const [namingJournal, setNamingJournal] = useState(false);
-  // The custom journal whose name is being edited in the Rename sheet over Journals home. Never
+  // The custom journal whose name is being edited in the Rename sheet over the Journals drawer. Never
   // open together with the "New journal" sheet.
   const [renamingJournalId, setRenamingJournalId] = useState<JournalId | null>(null);
   // The journal registry: the built-in journals, then the user's own.
@@ -285,8 +287,12 @@ export default function App() {
     [journals, deletingJournalId],
   );
 
+  // The drawer is never left open behind another screen.
+  if (journalsOpen && screen !== 'today') setJournalsOpen(false);
+
   // A screen showing the journal that is being deleted (its log, or one of its entries open on the
-  // add-entry page) goes back to Journals home instead of showing something that no longer exists.
+  // add-entry page) goes back to Today with the Journals drawer open (where the delete shows) instead
+  // of showing something that no longer exists.
   const sessionId = entry.session?.id;
   if (
     deletingJournalId &&
@@ -296,7 +302,8 @@ export default function App() {
         library.dreams?.some((d) => d.id === sessionId && journalOf(d) === deletingJournalId)))
   ) {
     if (screen === 'add') entry.clear();
-    setScreen('journals');
+    setScreen('today');
+    setJournalsOpen(true);
   }
 
   const current: Screen | null = screen;
@@ -312,14 +319,17 @@ export default function App() {
   // jump to the add page (the new-day launch page) closes it.
   if (namingJournal && current === 'add') setNamingJournal(false);
 
-  // The Rename sheet belongs to Journals home: leaving it closes the sheet. It also closes if its
+  // The Rename sheet belongs to the Journals drawer: closing the drawer or leaving Today closes the sheet. It also closes if its
   // journal is gone from the registry or is being deleted.
   const renamingJournal = renamingJournalId
     ? journalRegistry.custom.find((j) => j.id === renamingJournalId)
     : undefined;
   if (
     renamingJournalId &&
-    (current !== 'journals' || !renamingJournal || deletingJournalId === renamingJournalId)
+    (current !== 'today' ||
+      !journalsOpen ||
+      !renamingJournal ||
+      deletingJournalId === renamingJournalId)
   ) {
     setRenamingJournalId(null);
   }
@@ -499,7 +509,7 @@ export default function App() {
     !deletingJournalRef.current &&
     !journalDialogOpen.current;
 
-  // Opens the Rename sheet for a custom journal (from its Journals home card only).
+  // Opens the Rename sheet for a custom journal (from its card in the Journals drawer only).
   const requestRenameJournal = (id: JournalId) => {
     if (!canRenameJournal(id)) return;
     setNamingJournal(false);
@@ -625,12 +635,9 @@ export default function App() {
         view.closeSearch();
         return true;
       case 'today':
-        setScreen('today');
-        return true;
-      case 'journals':
         // Leaving Search starts it fresh next time.
         if (current === 'search') searchView.clearFilters();
-        setScreen('journals');
+        setScreen('today');
         return true;
       case 'none':
         // The open entry is being deleted: Back is handled and does nothing.
@@ -701,6 +708,10 @@ export default function App() {
     entry.session?.createdAt ? new Date(entry.session.createdAt) : new Date(),
   );
 
+  // Opening the drawer is off while a journal or an entry delete runs (the add flow is a different
+  // screen, where Today and its drawer are not shown).
+  const journalsLocked = deletingJournalId !== null || deletingDream !== null;
+
   if (current === null) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
@@ -754,19 +765,6 @@ export default function App() {
             deletingId={deletingDream?.id ?? null}
           />
         )}
-        {current === 'journals' && (
-          <JournalsScreen
-            journals={journals}
-            counts={counts}
-            unreadable={library.indexStatus === 'unreadable'}
-            onOpenJournal={showLog}
-            onSearch={() => setScreen('search')}
-            onBack={() => void performBack()}
-            onDeleteJournal={requestDeleteJournal}
-            onRenameJournal={requestRenameJournal}
-            deletingId={deletingJournalId}
-          />
-        )}
         {current === 'today' && (
           <TodayScreen
             journals={visibleJournals}
@@ -778,8 +776,33 @@ export default function App() {
             onOpenDraft={(draft) => openDraft(draft, 'today')}
             onDeleteDream={(d) => void deleteDreamFor(d)}
             deletingId={deletingDream?.id ?? null}
-            onOpenJournals={() => setScreen('journals')}
+            onOpenJournals={() => {
+              if (!journalsLocked) setJournalsOpen(true);
+            }}
             onOpenSettings={() => setScreen('settings')}
+            journalsOpen={journalsOpen}
+            onCloseJournals={() => setJournalsOpen(false)}
+            journalsDisabled={journalsLocked}
+            drawer={{
+              journals,
+              counts,
+              unreadable: library.indexStatus === 'unreadable',
+              onOpenJournal: (id) => {
+                setJournalsOpen(false);
+                showLog(id);
+              },
+              onSearch: () => {
+                setJournalsOpen(false);
+                setScreen('search');
+              },
+              onNewJournal: () => {
+                setRenamingJournalId(null);
+                setNamingJournal(true);
+              },
+              onDeleteJournal: requestDeleteJournal,
+              onRenameJournal: requestRenameJournal,
+              deletingId: deletingJournalId,
+            }}
           />
         )}
         {current === 'settings' && (
@@ -814,7 +837,7 @@ export default function App() {
           }}
         />
         <NewJournalSheet
-          visible={renamingJournal !== undefined && current === 'journals'}
+          visible={renamingJournal !== undefined && current === 'today' && journalsOpen}
           onClose={() => setRenamingJournalId(null)}
           existing={journals}
           excludeId={renamingJournal?.id}
@@ -841,9 +864,10 @@ export default function App() {
             setRenamingJournalId(null);
             setNamingJournal(true);
           }}
-          // As before: Journals home locks for a journal delete, every other screen for an entry delete.
-          disabled={current === 'journals' ? deletingJournalId !== null : deletingDream !== null}
-          hidden={current === 'add' || namingJournal || renamingJournal !== undefined}
+          disabled={deletingDream !== null}
+          hidden={
+            current === 'add' || journalsOpen || namingJournal || renamingJournal !== undefined
+          }
         />
         <StatusBar style="light" />
       </SafeAreaProvider>

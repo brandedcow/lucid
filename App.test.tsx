@@ -173,38 +173,61 @@ jest.mock('./src/screens/DreamLogScreen', () => {
     ),
   };
 });
-jest.mock('./src/screens/JournalsScreen', () => {
-  const { Pressable, Text } = require('react-native');
+jest.mock('./src/components/JournalsDrawer', () => {
+  const { useEffect } = require('react');
+  const { BackHandler, Pressable, Text } = require('react-native');
   return {
-    JournalsScreen: ({ journals, counts, unreadable, onOpenJournal, onSearch, onBack }: any) => (
-      <>
-        <Text>journals-screen</Text>
-        <Text>{`journal-cards:${journals.map((j: any) => j.name).join(',')}`}</Text>
-        {journals
-          .filter((j: any) => j.id !== 'dreams' && j.id !== 'life')
-          .map((j: any) => (
-            <Pressable key={j.id} onPress={() => onOpenJournal(j.id)}>
-              <Text>{`stub-open-${j.id}`}</Text>
-            </Pressable>
-          ))}
-        {onBack && (
-          <Pressable onPress={onBack}>
-            <Text>stub-journals-back</Text>
+    JournalsDrawer: ({
+      open,
+      onClose,
+      journals,
+      counts,
+      unreadable,
+      onOpenJournal,
+      onSearch,
+      onNewJournal,
+    }: any) => {
+      // Like the real drawer: while open, Back closes it first.
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      useEffect(() => {
+        if (!open) return;
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+          onClose();
+          return true;
+        });
+        return () => sub.remove();
+      }, [open, onClose]);
+      return open ? (
+        <>
+          <Text>journals-drawer</Text>
+          <Text>{`journal-cards:${journals.map((j: any) => j.name).join(',')}`}</Text>
+          {journals
+            .filter((j: any) => j.id !== 'dreams' && j.id !== 'life')
+            .map((j: any) => (
+              <Pressable key={j.id} onPress={() => onOpenJournal(j.id)}>
+                <Text>{`stub-open-${j.id}`}</Text>
+              </Pressable>
+            ))}
+          <Pressable onPress={onClose}>
+            <Text>stub-drawer-close</Text>
           </Pressable>
-        )}
-        <Text>{`counts:${counts ? JSON.stringify(counts) : 'null'}`}</Text>
-        <Text>{`unreadable:${unreadable}`}</Text>
-        <Pressable onPress={() => onOpenJournal('dreams')}>
-          <Text>stub-open-dreams</Text>
-        </Pressable>
-        <Pressable onPress={() => onOpenJournal('life')}>
-          <Text>stub-open-life</Text>
-        </Pressable>
-        <Pressable onPress={onSearch}>
-          <Text>stub-journals-search</Text>
-        </Pressable>
-      </>
-    ),
+          <Text>{`counts:${counts ? JSON.stringify(counts) : 'null'}`}</Text>
+          <Text>{`unreadable:${unreadable}`}</Text>
+          <Pressable onPress={() => onOpenJournal('dreams')}>
+            <Text>stub-open-dreams</Text>
+          </Pressable>
+          <Pressable onPress={() => onOpenJournal('life')}>
+            <Text>stub-open-life</Text>
+          </Pressable>
+          <Pressable onPress={onSearch}>
+            <Text>stub-journals-search</Text>
+          </Pressable>
+          <Pressable onPress={onNewJournal}>
+            <Text>stub-journals-new</Text>
+          </Pressable>
+        </>
+      ) : null;
+    },
   };
 });
 jest.mock('./src/screens/SearchScreen', () => {
@@ -325,7 +348,7 @@ async function newEntryIn(journalName: string) {
   await pressLabel('Add entry');
   await fireEvent.press(screen.getByRole('menuitem', { name: new RegExp(`^${journalName},`) }));
 }
-/** From Today: Journals home, then the Dream log. */
+/** From Today: the Journals drawer, then the Dream log. */
 async function openDreamLog() {
   await pressLabel('Open Journals');
   await press('stub-open-dreams');
@@ -605,16 +628,15 @@ describe('App Android hardware back', () => {
     expect(screen.getByText('No dream today')).toBeTruthy();
   });
 
-  it('after saving goes to Today, then Journals and the log from there; Today exits', async () => {
+  it('after saving goes to Today, then the drawer and the log from there; Today exits', async () => {
     await renderApp();
     await press('stub-add-set-title');
     await press('stub-add-save');
     expectToday();
     await openDreamLog();
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('journals-screen')).toBeTruthy();
-    expect(await hardwareBack()).toBe(true);
     expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
     expect(await hardwareBack()).toBe(false);
   });
 
@@ -709,7 +731,7 @@ describe('App Dream log and entry', () => {
     expect(screen.getByText('log-screen')).toBeTruthy();
   });
 
-  it('hardware back on the log closes an open search first, then goes to Journals home', async () => {
+  it('hardware back on the log closes an open search first, then goes to Today', async () => {
     await renderApp();
     await goToLog();
     await press('stub-open-search');
@@ -719,18 +741,18 @@ describe('App Dream log and entry', () => {
     expect(screen.getByText('query:')).toBeTruthy();
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('journals-screen')).toBeTruthy();
-    expect(await hardwareBack()).toBe(true);
     expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
     expect(await hardwareBack()).toBe(false);
   });
 
-  it('hardware back on the log with search closed goes to Journals home and keeps the view state', async () => {
+  it('hardware back on the log with search closed goes to Today and keeps the view state', async () => {
     await renderApp();
     await goToLog();
     await press('stub-set-query');
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expectToday();
+    await pressLabel('Open Journals');
     await press('stub-open-dreams');
     expect(screen.getByText('log-screen')).toBeTruthy();
     expect(screen.getByText('query:hall')).toBeTruthy();
@@ -1047,9 +1069,9 @@ describe('App delete dream', () => {
       expect(await hardwareBack()).toBe(true);
       expect(screen.getByText('log-screen')).toBeTruthy();
       expect(await hardwareBack()).toBe(true);
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expectToday();
       await act(async () => g.resolve());
-      expect(screen.getByText('journals-screen')).toBeTruthy();
+      expectToday();
     });
 
     it('does not pull the user off another open entry when the list delete ends', async () => {
@@ -1099,7 +1121,7 @@ describe('App journals navigation', () => {
     expect(saveDream).toHaveBeenCalledWith(expect.objectContaining({ journalId: 'dreams' }));
   });
 
-  it('the log back arrow goes to Journals home, which has counts and goes back to Today', async () => {
+  it('the log back arrow goes to Today; the drawer has counts and Back closes it, then exits', async () => {
     mockLibrary.dreams = [
       finishedDream,
       lifeEntry,
@@ -1108,18 +1130,24 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
+    await pressLabel('Open Journals');
+    expect(screen.getByText('journals-drawer')).toBeTruthy();
     expect(screen.getByText('counts:{"dreams":1,"life":1}')).toBeTruthy();
     expect(screen.getByText('unreadable:false')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
     expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
+    expect(await hardwareBack()).toBe(false);
   });
 
-  it('Journals home shows unreadable from the library status', async () => {
+  it('the drawer shows unreadable from the library status', async () => {
     mockLibrary.indexStatus = 'unreadable';
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     expect(screen.getByText('unreadable:true')).toBeTruthy();
   });
 
@@ -1129,6 +1157,7 @@ describe('App journals navigation', () => {
     await goToLog();
     expect(screen.getByText('log-ids:7')).toBeTruthy();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     expect(screen.getByText('log-journal:life')).toBeTruthy();
     expect(screen.getByText('log-ids:L1')).toBeTruthy();
@@ -1139,6 +1168,7 @@ describe('App journals navigation', () => {
     await goToLog();
     await press('stub-set-query');
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     expect(screen.getByText('query:')).toBeTruthy();
   });
@@ -1147,6 +1177,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     await newEntryIn('Life');
   };
@@ -1241,18 +1272,20 @@ describe('App journals navigation', () => {
     expect(screen.getByText('log-journal:life')).toBeTruthy();
   });
 
-  it('Journals home search opens Search over all records', async () => {
+  it('the drawer search opens Search over all records', async () => {
     mockLibrary.dreams = [finishedDream, lifeEntry];
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     expect(screen.getByText('search-screen')).toBeTruthy();
     expect(screen.getByText('search-count:2')).toBeTruthy();
   });
 
-  it('Search back (arrow and Android) goes to Journals home and resets the search view', async () => {
+  it('Search back (arrow and Android) goes to Today and resets the search view', async () => {
     const toSearch = async () => {
+      await pressLabel('Open Journals');
       await press('stub-journals-search');
       await press('stub-search-set-query');
       await press('stub-search-toggle-tag');
@@ -1264,13 +1297,16 @@ describe('App journals navigation', () => {
     await press('stub-log-back');
     await toSearch();
     await press('stub-search-back');
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     expect(screen.getByText('search-query:')).toBeTruthy();
     expect(screen.getByText('search-tags:')).toBeTruthy();
     await press('stub-search-set-query');
     expect(await hardwareBack()).toBe(true);
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expectToday();
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     expect(screen.getByText('search-query:')).toBeTruthy();
   });
@@ -1280,6 +1316,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     await press('stub-search-set-query');
     await press('stub-search-open-life');
@@ -1298,6 +1335,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     await press('stub-open-life-entry');
     await press('stub-add-back');
@@ -1309,6 +1347,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     await press('stub-search-set-query');
     await press('stub-search-open');
@@ -1343,6 +1382,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-journals-search');
     await press('stub-search-open-life');
     await press('stub-add-set-body');
@@ -1364,6 +1404,7 @@ describe('App journals navigation', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     await press('stub-open-life-entry');
     await press('stub-add-set-title');
@@ -1607,16 +1648,20 @@ describe('App Today page', () => {
     expect(screen.getByText('Long walk')).toBeTruthy();
   });
 
-  it('Journals opens from the book icon; its arrow and Android back return to Today', async () => {
+  it('the drawer opens from the book icon; its close and Android back leave Today open under it', async () => {
     mockLibrary.dreams = [todayDream];
     await renderApp();
     await pressLabel('Open Journals');
-    expect(screen.getByText('journals-screen')).toBeTruthy();
-    await press('stub-journals-back');
+    expect(screen.getByText('journals-drawer')).toBeTruthy();
+    await press('stub-drawer-close');
     expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
     await pressLabel('Open Journals');
     expect(await hardwareBack()).toBe(true);
     expectToday();
+    expect(screen.queryByText('journals-drawer')).toBeNull();
+    // Closed, so Back now leaves the app.
+    expect(await hardwareBack()).toBe(false);
   });
 
   it('Settings opens from the gear and Back (arrow and Android) returns to Today', async () => {
@@ -1934,7 +1979,7 @@ describe('App resume on a new day', () => {
   });
 
   it.each([
-    ['Journals', async () => pressLabel('Open Journals'), 'journals-screen'],
+    ['Journals', async () => pressLabel('Open Journals'), 'journals-drawer'],
     [
       'the Dream log',
       async () => {
@@ -1990,7 +2035,7 @@ describe('App resume on a new day', () => {
     await launch();
     await pressLabel('Open Journals');
     await awayUntil(DAY2);
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expect(screen.getByText('journals-drawer')).toBeTruthy();
     expect(screen.queryByText('add-screen')).toBeNull();
   });
 
@@ -2437,12 +2482,13 @@ describe('App new journal', () => {
     expect(screen.getByText(`add-journal:${id}`)).toBeTruthy();
   });
 
-  it('the log back arrow goes to Journals home (with the new card), then Today, which lists it in the sheet', async () => {
+  it('the log back arrow goes to Today; the drawer has the new card and the sheet lists it', async () => {
     await renderApp();
     await openNameSheet();
     await create('Gratitude');
     await press('stub-log-back');
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    await waitFor(expectToday);
+    await pressLabel('Open Journals');
     expect(screen.getByText('journal-cards:Dreams,Life,Gratitude')).toBeTruthy();
     expect(await hardwareBack()).toBe(true);
     await waitFor(expectToday);
@@ -2505,6 +2551,7 @@ describe('App new journal', () => {
     await openNameSheet();
     await create('Work');
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-dreams');
     expect(screen.getByText('log-ids:7')).toBeTruthy();
     expect(screen.getByText('log-journal:dreams')).toBeTruthy();
@@ -2620,7 +2667,7 @@ describe('App delete from the add-entry page', () => {
     expect(saveDream).not.toHaveBeenCalled();
     // The session is gone: the page is not left over.
     await press('stub-log-back');
-    expect(screen.getByText('journals-screen')).toBeTruthy();
+    expectToday();
   });
 
   it('success from a Life entry returns to the Life log', async () => {
@@ -2628,6 +2675,7 @@ describe('App delete from the add-entry page', () => {
     await renderApp();
     await goToLog();
     await press('stub-log-back');
+    await pressLabel('Open Journals');
     await press('stub-open-life');
     await press('stub-open-life-entry');
     await press('stub-add-delete');

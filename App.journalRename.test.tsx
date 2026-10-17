@@ -27,7 +27,7 @@ jest.mock('expo-audio', () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
-// Records the props App gives Journals home, so a test can call the handlers directly (with ids
+// Records the props App gives the Journals drawer (while open), so a test can call the handlers directly (with ids
 // the UI never offers).
 let mockJournalsProps: {
   onRenameJournal?: (id: string) => void;
@@ -45,13 +45,14 @@ jest.mock('./src/services/journalStorage', () => {
     },
   };
 });
-jest.mock('./src/screens/JournalsScreen', () => {
-  const actual = jest.requireActual('./src/screens/JournalsScreen');
+jest.mock('./src/components/JournalsDrawer', () => {
+  const actual = jest.requireActual('./src/components/JournalsDrawer');
   return {
     ...actual,
-    JournalsScreen: (props: NonNullable<typeof mockJournalsProps>) => {
-      mockJournalsProps = props;
-      return <actual.JournalsScreen {...props} />;
+    JournalsDrawer: (props: NonNullable<typeof mockJournalsProps> & { open: boolean }) => {
+      // Only while the drawer is open, as the old screen was only rendered while shown.
+      if (props.open) mockJournalsProps = props;
+      return <actual.JournalsDrawer {...props} />;
     },
   };
 });
@@ -111,6 +112,9 @@ async function renderApp() {
   await settle();
 }
 const hidden = { includeHiddenElements: true };
+// The drawer slides out before it unmounts.
+const drawerGone = () =>
+  waitFor(() => expect(screen.queryByRole('header', { name: 'Journals' })).toBeNull());
 const openJournals = () => fireEvent.press(screen.getByLabelText('Open Journals'));
 const swipeRename = (name: string) =>
   fireEvent.press(screen.getByLabelText(`Rename ${name}`, hidden));
@@ -189,6 +193,7 @@ describe('App rename a custom journal', () => {
     await fireEvent.press(screen.getByLabelText('Gratitude, 1 entry'));
     expect(screen.getByRole('header', { name: 'Gratitude' })).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back'));
+    await openJournals();
     await renameTo('Gratitude', 'Thankful');
     await fireEvent.press(screen.getByLabelText('Thankful, 1 entry'));
     expect(screen.getByRole('header', { name: 'Thankful' })).toBeTruthy();
@@ -198,7 +203,6 @@ describe('App rename a custom journal', () => {
     expect(screen.getByText('Thankful for tea')).toBeTruthy();
     // Today: the Add entry sheet lists the new name.
     await fireEvent.press(screen.getByLabelText('Back'));
-    await fireEvent.press(screen.getByLabelText('Back to Today'));
     await fireEvent.press(screen.getByLabelText('Add entry'));
     expect(screen.getByRole('menuitem', { name: /^Thankful,/ })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: /^Gratitude,/ })).toBeNull();
@@ -312,7 +316,7 @@ describe('App rename a custom journal', () => {
     expect(screen.queryByLabelText('Rename Life', hidden)).toBeNull();
   });
 
-  it('is only reachable from Journals home', async () => {
+  it('is only reachable from the open Journals drawer', async () => {
     await renderApp();
     expect(screen.queryByText('Rename journal')).toBeNull();
     expect(screen.queryByLabelText('Rename Gratitude', hidden)).toBeNull();
@@ -320,7 +324,7 @@ describe('App rename a custom journal', () => {
     expect(sheetOpen()).toBe(false);
   });
 
-  it('Android back closes the sheet and stays on Journals home', async () => {
+  it('Android back closes the sheet and leaves the Journals drawer open', async () => {
     await renderApp();
     await openJournals();
     await swipeRename('Gratitude');
@@ -331,6 +335,11 @@ describe('App rename a custom journal', () => {
     });
     expect(sheetOpen()).toBe(false);
     expect(screen.getByRole('header', { name: 'Journals' })).toBeTruthy();
+    // The next Back closes the drawer, the next leaves the app.
+    await act(async () => {
+      expect(handlers.at(-1)?.()).toBe(true);
+    });
+    await drawerGone();
   });
 
   it('Android back is swallowed while saving', async () => {
@@ -358,9 +367,10 @@ describe('App rename a custom journal', () => {
     await openJournals();
     await swipeRename('Gratitude');
     expect(screen.getAllByLabelText('Journal name')).toHaveLength(1);
-    // Leaving Journals home closes Rename.
+    // Closing the drawer closes Rename.
     await fireEvent.press(screen.getByLabelText('Close'));
-    await fireEvent.press(screen.getByLabelText('Back to Today'));
+    await fireEvent.press(screen.getByLabelText('Close journals'));
+    await drawerGone();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByLabelText('New journal'));
     expect(screen.getByText('New journal')).toBeTruthy();
@@ -368,14 +378,11 @@ describe('App rename a custom journal', () => {
     expect(screen.getAllByLabelText('Journal name')).toHaveLength(1);
   });
 
-  it('closes the Rename sheet when Journals home is left', async () => {
+  it('closes the Rename sheet when the Journals drawer is closed', async () => {
     await renderApp();
     await openJournals();
     await swipeRename('Gratitude');
-    await act(async () => {
-      // The hardware back handler of App itself (registered first) leaves Journals home.
-      handlers[0]();
-    });
+    await fireEvent.press(screen.getByLabelText('Close journals', hidden));
     expect(sheetOpen()).toBe(false);
     expect(screen.queryByLabelText('Journal name')).toBeNull();
   });

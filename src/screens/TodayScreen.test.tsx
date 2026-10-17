@@ -1,11 +1,17 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Alert, PanResponder, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Entry } from '../types/dream';
 import { colors } from '../theme';
 import { LIFE_JOURNAL } from '../types/entry';
 import { BUILT_IN_JOURNALS, Journal } from '../utils/journals';
-import { TodayScreen } from './TodayScreen';
+import {
+  EDGE_SWIPE_DISTANCE,
+  EDGE_SWIPE_ZONE,
+  opensDrawer,
+  startsEdgeSwipe,
+  TodayScreen,
+} from './TodayScreen';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 800 },
@@ -262,5 +268,138 @@ describe('TodayScreen', () => {
     expect(onOpenEntry).not.toHaveBeenCalled();
     const other = screen.getByLabelText(/^Flying over the sea\./);
     expect(StyleSheet.flatten(other.props.style).opacity ?? 1).toBe(1);
+  });
+});
+
+describe('TodayScreen Journals drawer', () => {
+  type Config = Parameters<typeof PanResponder.create>[0];
+  let config: Config;
+
+  beforeEach(() => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    const create = PanResponder.create.bind(PanResponder);
+    jest.spyOn(PanResponder, 'create').mockImplementation((c) => {
+      config = c;
+      return create(c);
+    });
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const drawerProps = {
+    journals: BUILT_IN_JOURNALS,
+    counts: { dreams: 3, life: 1 },
+    onOpenJournal: jest.fn(),
+    onSearch: jest.fn(),
+  };
+
+  async function setupDrawer(extra: Partial<React.ComponentProps<typeof TodayScreen>> = {}) {
+    const onOpenJournals = jest.fn();
+    const onCloseJournals = jest.fn();
+    const props = {
+      journals: BUILT_IN_JOURNALS,
+      dreams: [DREAM],
+      todayKey: TODAY,
+      skippedToday: false,
+      onOpenEntry: jest.fn(),
+      onOpenDraft: jest.fn(),
+      onDeleteDream: jest.fn(),
+      onOpenJournals,
+      onOpenSettings: jest.fn(),
+      onCloseJournals,
+      drawer: drawerProps,
+      ...extra,
+    };
+    const view = await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <TodayScreen {...props} />
+      </SafeAreaProvider>,
+    );
+    return { onOpenJournals, onCloseJournals, view, props };
+  }
+  const grant = (x0: number, dx: number, dy = 0) => ({ x0, dx, dy }) as never;
+  const move = (x0: number, dx: number, dy = 0) =>
+    config.onMoveShouldSetPanResponderCapture?.({} as never, grant(x0, dx, dy));
+  const release = (dx: number) => config.onPanResponderRelease?.({} as never, grant(0, dx));
+
+  it('renders no drawer while closed and the panel with the journals while open', async () => {
+    const { view, props } = await setupDrawer();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    await view.rerender(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <TodayScreen {...props} journalsOpen />
+      </SafeAreaProvider>,
+    );
+    expect(screen.getByTestId('journals-drawer')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dreams, 3 dreams' })).toBeTruthy();
+    // The page under the drawer is hidden from screen readers.
+    expect(screen.queryByText('Today')).toBeNull();
+    expect(screen.getByText('Today', HIDDEN)).toBeTruthy();
+  });
+
+  it('the backdrop closes it through onCloseJournals', async () => {
+    const { onCloseJournals } = await setupDrawer({ journalsOpen: true });
+    await fireEvent.press(screen.getByLabelText('Close journals'));
+    expect(onCloseJournals).toHaveBeenCalledTimes(1);
+  });
+
+  it('the book icon calls onOpenJournals', async () => {
+    const a = await setupDrawer();
+    await fireEvent.press(screen.getByLabelText('Open Journals'));
+    expect(a.onOpenJournals).toHaveBeenCalledTimes(1);
+  });
+
+  it('a disabled book icon is inert and reads as disabled', async () => {
+    const { onOpenJournals } = await setupDrawer({ journalsDisabled: true });
+    const book = screen.getByLabelText('Open Journals');
+    expect(book.props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(book);
+    expect(onOpenJournals).not.toHaveBeenCalled();
+  });
+
+  describe('left-edge swipe', () => {
+    it('is recognised only from the left edge zone, rightward and mostly horizontal', () => {
+      expect(startsEdgeSwipe({ x0: 0, dx: 30, dy: 0 })).toBe(true);
+      expect(startsEdgeSwipe({ x0: EDGE_SWIPE_ZONE, dx: 30, dy: 5 })).toBe(true);
+      expect(startsEdgeSwipe({ x0: EDGE_SWIPE_ZONE + 1, dx: 30, dy: 0 })).toBe(false);
+      expect(startsEdgeSwipe({ x0: 5, dx: -30, dy: 0 })).toBe(false);
+      expect(startsEdgeSwipe({ x0: 5, dx: 30, dy: 30 })).toBe(false);
+      expect(startsEdgeSwipe({ x0: 5, dx: 5, dy: 0 })).toBe(false);
+    });
+
+    it('opens past the distance only', () => {
+      expect(opensDrawer({ dx: EDGE_SWIPE_DISTANCE })).toBe(true);
+      expect(opensDrawer({ dx: EDGE_SWIPE_DISTANCE - 1 })).toBe(false);
+    });
+
+    it('the page claims an edge swipe and opens the drawer on release', async () => {
+      const { onOpenJournals } = await setupDrawer();
+      expect(move(4, 30)).toBe(true);
+      release(80);
+      expect(onOpenJournals).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not claim a swipe that starts away from the edge, and a short drag does not open', async () => {
+      const { onOpenJournals } = await setupDrawer();
+      expect(move(120, 60)).toBe(false);
+      release(EDGE_SWIPE_DISTANCE - 1);
+      expect(onOpenJournals).not.toHaveBeenCalled();
+    });
+
+    it('is off while opening is disabled or the drawer is already open', async () => {
+      const a = await setupDrawer({ journalsDisabled: true });
+      expect(move(4, 30)).toBe(false);
+      release(80);
+      expect(a.onOpenJournals).not.toHaveBeenCalled();
+      await screen.unmount();
+      const b = await setupDrawer({ journalsOpen: true });
+      expect(move(4, 30)).toBe(false);
+      release(80);
+      expect(b.onOpenJournals).not.toHaveBeenCalled();
+    });
+
+    it('the page carries the responder handlers', async () => {
+      await setupDrawer();
+      expect(screen.getByTestId('today-screen').props.onMoveShouldSetResponderCapture).toBeTruthy();
+    });
   });
 });

@@ -1,22 +1,25 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, BackHandler, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BUILT_IN_JOURNALS, type Journal } from '../utils/journals';
-import { JournalsScreen } from './JournalsScreen';
+import { JournalsDrawer } from './JournalsDrawer';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 800 },
   insets: { top: 0, left: 0, right: 0, bottom: 34 },
 };
 
-type Props = Partial<Parameters<typeof JournalsScreen>[0]>;
+type Props = Partial<Parameters<typeof JournalsDrawer>[0]>;
 
 async function setup(props: Props = {}) {
   const onOpenJournal = jest.fn();
   const onSearch = jest.fn();
-  await render(
+  const onClose = jest.fn();
+  const view = await render(
     <SafeAreaProvider initialMetrics={METRICS}>
-      <JournalsScreen
+      <JournalsDrawer
+        open
+        onClose={onClose}
         journals={BUILT_IN_JOURNALS}
         counts={{ dreams: 12, life: 5 }}
         onOpenJournal={onOpenJournal}
@@ -25,10 +28,10 @@ async function setup(props: Props = {}) {
       />
     </SafeAreaProvider>,
   );
-  return { onOpenJournal, onSearch };
+  return { onOpenJournal, onSearch, onClose, view };
 }
 
-describe('JournalsScreen', () => {
+describe('JournalsDrawer', () => {
   it('shows the header and Dreams before Life', async () => {
     await setup();
     expect(screen.getByRole('header', { name: 'Journals' })).toBeOnTheScreen();
@@ -102,24 +105,6 @@ describe('JournalsScreen', () => {
     const { onSearch } = await setup();
     await fireEvent.press(screen.getByRole('button', { name: 'Search all journals' }));
     expect(onSearch).toHaveBeenCalledTimes(1);
-  });
-
-  it('has no back button', async () => {
-    await setup();
-    expect(screen.queryByLabelText(/back/i)).toBeNull();
-    expect(screen.getAllByRole('button')).toHaveLength(3);
-  });
-
-  it('shows no back arrow without onBack', async () => {
-    await setup();
-    expect(screen.queryByLabelText('Back to Today')).toBeNull();
-  });
-
-  it('shows "Back to Today" and calls onBack when given', async () => {
-    const onBack = jest.fn();
-    await setup({ onBack });
-    await fireEvent.press(screen.getByLabelText('Back to Today'));
-    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it('shows a card for a custom journal after Dreams and Life, same look, and opens it', async () => {
@@ -340,11 +325,138 @@ describe('JournalsScreen', () => {
       expect(screen.queryByLabelText('Add entry')).toBeNull();
     });
 
-    it('pads the list clear of the button', async () => {
+    it('pads the list by the bottom inset only (the button is hidden while the drawer is open)', async () => {
       await setup();
       const scroll = screen.getByTestId('journals-list');
       const style = StyleSheet.flatten(scroll.props.contentContainerStyle);
-      expect(style.paddingBottom).toBe(130); // 34 inset + 16 + 56 (FAB) + 24;
+      expect(style.paddingBottom).toBe(34 + 24); // 34 inset + spacing.lg
     });
+  });
+});
+
+describe('JournalsDrawer open and close', () => {
+  let backHandlers: (() => boolean | null | undefined)[];
+  const removeBack = jest.fn();
+  let reduceSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    backHandlers = [];
+    removeBack.mockClear();
+    reduceSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
+      backHandlers.push(handler as () => boolean);
+      return { remove: removeBack };
+    });
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const finishAnimation = () => act(() => jest.advanceTimersByTime(400));
+  const translateX = () =>
+    StyleSheet.flatten(screen.getByTestId('journals-drawer-panel').props.style).transform[0]
+      .translateX;
+
+  function drawer(open: boolean, onClose = jest.fn()) {
+    return (
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <JournalsDrawer
+          open={open}
+          onClose={onClose}
+          journals={BUILT_IN_JOURNALS}
+          counts={{ dreams: 1, life: 2 }}
+          onOpenJournal={jest.fn()}
+          onSearch={jest.fn()}
+          onNewJournal={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
+  it('renders nothing while closed and never registers a back handler', async () => {
+    await render(drawer(false));
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    expect(screen.queryByText('Journals')).toBeNull();
+    expect(backHandlers).toHaveLength(0);
+  });
+
+  it('is a modal layer (not a Modal) with a panel capped at 360 and 84% of the width', async () => {
+    await render(drawer(true));
+    expect(screen.getByTestId('journals-drawer').props.accessibilityViewIsModal).toBe(true);
+    const panel = StyleSheet.flatten(screen.getByTestId('journals-drawer-panel').props.style);
+    // The default test window is wider than 360 / 0.84, so the cap applies.
+    expect(panel.width).toBe(360);
+    expect(panel.left).toBe(0);
+    expect(JSON.stringify(screen.toJSON())).not.toMatch(/"type":"Modal"/);
+  });
+
+  it('slides in from the left and out again, then unmounts', async () => {
+    const view = await render(drawer(true));
+    expect(translateX()).toBe(-360);
+    await finishAnimation();
+    await view.rerender(drawer(false));
+    expect(screen.getByTestId('journals-drawer')).toBeTruthy();
+    await finishAnimation();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+  });
+
+  it('with Reduce Motion it appears and disappears at once, with no slide', async () => {
+    reduceSpy.mockResolvedValue(true);
+    const view = await render(drawer(false));
+    await act(async () => {});
+    await view.rerender(drawer(true));
+    expect(translateX()).toBe(0);
+    await view.rerender(drawer(false));
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+  });
+
+  it('a tap on the backdrop closes it', async () => {
+    const onClose = jest.fn();
+    await render(drawer(true, onClose));
+    await fireEvent.press(screen.getByLabelText('Close journals'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android Back closes it (handled, so the app does not also go back) and is removed on close', async () => {
+    const onClose = jest.fn();
+    const view = await render(drawer(true, onClose));
+    expect(backHandlers).toHaveLength(1);
+    expect(backHandlers[0]()).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await view.rerender(drawer(false, onClose));
+    expect(removeBack).toHaveBeenCalled();
+  });
+
+  it('"New journal" calls onNewJournal and is shown below the cards', async () => {
+    const onNewJournal = jest.fn();
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <JournalsDrawer
+          open
+          onClose={jest.fn()}
+          journals={BUILT_IN_JOURNALS}
+          counts={null}
+          onOpenJournal={jest.fn()}
+          onSearch={jest.fn()}
+          onNewJournal={onNewJournal}
+        />
+      </SafeAreaProvider>,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    expect(onNewJournal).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no "New journal" row without onNewJournal', async () => {
+    await setup();
+    expect(screen.queryByLabelText('New journal')).toBeNull();
+  });
+
+  it('"New journal" is inert while a journal delete runs', async () => {
+    const onNewJournal = jest.fn();
+    await setup({ onNewJournal, deletingId: 'j_g' });
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    expect(onNewJournal).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import App from './App';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
 
-// Integration tests for renaming a custom journal: the real hooks, the real storage and the real
+// Integration tests for the Journals drawer on Today: the real hooks, the real storage and the real
 // screens, on the in-memory file system. Only native modules are faked.
 jest.mock('expo-file-system', () => jest.requireActual('./src/test/fakeFileSystem'));
 jest.mock('react-native-safe-area-context', () => {
@@ -101,6 +101,12 @@ const openJournals = () => fireEvent.press(screen.getByLabelText('Open Journals'
 const press = (text: string) => fireEvent.press(screen.getByText(text));
 const expectToday = () => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
 const expectJournals = () => expect(screen.getByRole('header', { name: 'Journals' })).toBeTruthy();
+// The drawer slides out before it unmounts; until then it hides the page from queries.
+const drawerGone = () => waitFor(() => expect(screen.queryByTestId('journals-drawer')).toBeNull());
+const closeDrawer = async () => {
+  await fireEvent.press(screen.getByLabelText('Close journals'));
+  await drawerGone();
+};
 const lastButtons = () => (jest.mocked(Alert.alert).mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
 
 let handlers: (() => boolean)[] = [];
@@ -132,51 +138,106 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-describe('App Add entry button on Journals home', () => {
-  it('shows the button on Journals home and the sheet lists every journal', async () => {
+describe('App Journals drawer on Today', () => {
+  it('lists every journal with counts, Search and New journal; there is no Journals screen', async () => {
     await renderApp();
+    expect(screen.queryByRole('header', { name: 'Journals' })).toBeNull();
     await openJournals();
     expectJournals();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    for (const name of ['Dreams', 'Life', 'Gratitude', 'Travel']) {
-      expect(screen.getByRole('menuitem', { name: new RegExp(`^${name},`) })).toBeTruthy();
+    for (const label of [
+      'Dreams, 1 dream',
+      'Life, 1 entry',
+      'Gratitude, 1 entry',
+      'Travel, 1 entry',
+    ]) {
+      expect(screen.getByLabelText(label)).toBeTruthy();
     }
+    expect(screen.getByLabelText('Search all journals')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'New journal' })).toBeTruthy();
+    // Today stays underneath.
+    expect(screen.getByText('Old dream', hidden)).toBeTruthy();
   });
 
-  it('picking a journal opens the add-entry page; Back returns to Today', async () => {
+  it('hides the + button while open and brings it back when closed', async () => {
+    await renderApp();
+    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+    await openJournals();
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
+    await closeDrawer();
+    expectToday();
+    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+  });
+
+  it('the backdrop closes it and shows Today again', async () => {
     await renderApp();
     await openJournals();
+    await closeDrawer();
+    expectToday();
+    expect(screen.queryByLabelText('Close journals')).toBeNull();
+  });
+
+  it('picking a journal closes the drawer and opens its log; Back returns to Today with the drawer closed', async () => {
+    await renderApp();
+    await openJournals();
+    await fireEvent.press(screen.getByLabelText('Gratitude, 1 entry'));
+    expect(screen.getByRole('header', { name: 'Gratitude' })).toBeTruthy();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expectToday();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Journals' })).toBeNull();
+    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+  });
+
+  it('Android back from a log returns to Today, and the next Back leaves the app', async () => {
+    await renderApp();
+    await openJournals();
+    await fireEvent.press(screen.getByLabelText('Travel, 1 entry'));
+    expect(await hardwareBack()).toBe(true);
+    expectToday();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('Search closes the drawer and opens Search; Back returns to Today with the drawer closed', async () => {
+    await renderApp();
+    await openJournals();
+    await fireEvent.press(screen.getByLabelText('Search all journals'));
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    expect(screen.getByText('Lisbon trip')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expectToday();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+  });
+
+  it('Android back closes the drawer first, then leaves the app from Today', async () => {
+    await renderApp();
+    await openJournals();
+    expect(await hardwareBack()).toBe(true);
+    await drawerGone();
+    expectToday();
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('Android back closes the Add entry sheet first (drawer closed), then leaves the app', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    expect(screen.getByRole('menuitem', { name: /^Dreams,/ })).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull());
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('the + sheet works after the drawer: pick a journal, Back and Save return to Today', async () => {
+    await renderApp();
+    await openJournals();
+    await closeDrawer();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
     expect(screen.getByText('add-journal:j_g1')).toBeTruthy();
     await press('stub-add-back');
     expectToday();
-  });
-
-  it('Android back from that page returns to Today', async () => {
-    await renderApp();
-    await openJournals();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    await fireEvent.press(screen.getByRole('menuitem', { name: /^Travel,/ }));
-    expect(screen.getByText('add-journal:j_t1')).toBeTruthy();
-    expect(await hardwareBack()).toBe(true);
-    expectToday();
-  });
-
-  it('a Dreams page started here returns to Today without marking No dream', async () => {
-    await renderApp();
-    await openJournals();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    await fireEvent.press(screen.getByRole('menuitem', { name: /^Dreams,/ }));
-    await press('stub-add-back');
-    expectToday();
-    expect(screen.queryByText('No dream today')).toBeNull();
-  });
-
-  it('after a save the user is on Today, and the entry is stored in that journal', async () => {
-    await renderApp();
-    await openJournals();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
     await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('menuitem', { name: /^Gratitude,/ }));
     await press('stub-add-body');
@@ -187,14 +248,12 @@ describe('App Add entry button on Journals home', () => {
     expect(stored.filter((d) => d.journalId === 'j_g1')).toHaveLength(3);
   });
 
-  it("New journal opens the name sheet; Create opens the new journal's empty log", async () => {
+  it("New journal opens the name sheet over the drawer; Create opens the new journal's empty log", async () => {
     await renderApp();
     await openJournals();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
-    expect(screen.queryByRole('menuitem')).toBeNull();
     expect(screen.getByRole('header', { name: 'New journal' })).toBeTruthy();
-    // One overlay at a time: the button is gone while the name sheet is up.
+    // One overlay at a time: the + button stays hidden under the sheet.
     expect(screen.queryByLabelText('Add entry')).toBeNull();
     await fireEvent.changeText(screen.getByLabelText('Journal name'), 'Ideas');
     await fireEvent.press(screen.getByLabelText('Create'));
@@ -202,31 +261,31 @@ describe('App Add entry button on Journals home', () => {
     expect(screen.getByRole('header', { name: 'Ideas' })).toBeTruthy();
     expect(__fs.read(`${DOC}/journals.json`)).toContain('Ideas');
     expect(screen.queryByLabelText('Journal name')).toBeNull();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expectToday();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
   });
 
-  it('cancelling the name sheet stays on Journals home with the button back', async () => {
+  it('cancelling the name sheet leaves the drawer open, with the + button still hidden', async () => {
     await renderApp();
     await openJournals();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
     await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
     await fireEvent.press(screen.getByLabelText('Cancel'));
     expectJournals();
-    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
   });
 
-  it('Android back closes the sheet first, then leaves Journals home to Today', async () => {
+  it('the + sheet "New journal" still opens the name sheet over Today (drawer closed)', async () => {
     await renderApp();
-    await openJournals();
     await fireEvent.press(screen.getByLabelText('Add entry'));
-    expect(screen.getByRole('menuitem', { name: /^Dreams,/ })).toBeTruthy();
-    expect(await hardwareBack()).toBe(true);
-    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull());
-    expectJournals();
-    expect(await hardwareBack()).toBe(true);
-    expectToday();
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    expect(screen.getByRole('header', { name: 'New journal' })).toBeTruthy();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
   });
 
-  it('the Rename sheet and the Add entry sheet are never open together', async () => {
+  it('the Rename sheet and the + button are never shown together', async () => {
     await renderApp();
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Rename Gratitude', hidden));
@@ -234,7 +293,7 @@ describe('App Add entry button on Journals home', () => {
     expect(screen.queryByLabelText('Add entry')).toBeNull();
   });
 
-  it('is hidden while a journal is being deleted, and the journal card stays', async () => {
+  it('while a journal is being deleted the card stays dimmed in the drawer, and the drawer cannot be reopened until it ends', async () => {
     let open: () => void = () => {};
     mockGate = new Promise<void>((resolve) => {
       open = resolve;
@@ -247,15 +306,23 @@ describe('App Add entry button on Journals home', () => {
         .find((b) => b.text === 'Delete')
         ?.onPress?.();
     });
-    expect(screen.getByLabelText('Add entry').props.accessibilityState.disabled).toBe(true);
     expect(screen.getByLabelText('Gratitude, deleting')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Add entry'));
-    expect(screen.queryByRole('menuitem')).toBeNull();
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
+    await closeDrawer();
+    // Closing is allowed; opening again is not.
+    const book = screen.getByLabelText('Open Journals');
+    expect(book.props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(book);
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
+    expect(screen.getByLabelText('Add entry').props.accessibilityState.disabled).toBe(false);
     await act(async () => {
       open();
     });
     await settle();
+    expect(screen.getByLabelText('Open Journals').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+    await openJournals();
     expect(screen.queryByLabelText(/^Gratitude/)).toBeNull();
-    expect(screen.getByLabelText('Add entry').props.accessibilityState.disabled).toBe(false);
   });
 });

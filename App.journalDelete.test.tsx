@@ -130,6 +130,11 @@ const pressAlert = (text: string) =>
       .find((b) => b.text === text)
       ?.onPress?.();
   });
+// Closes the drawer and waits for its slide-out to finish (it hides the page from queries until then).
+const closeDrawer = async () => {
+  await fireEvent.press(screen.getByLabelText('Close journals'));
+  await waitFor(() => expect(screen.queryByTestId('journals-drawer')).toBeNull());
+};
 const openJournals = () => fireEvent.press(screen.getByLabelText('Open Journals'));
 const swipeDelete = (name: string) =>
   fireEvent.press(screen.getByLabelText(`Delete ${name}`, hidden));
@@ -266,7 +271,7 @@ describe('App delete a custom journal', () => {
 
     it('hides its entries on Today and its row in the Add entry sheet, and restores nothing early', async () => {
       await startDelete();
-      await fireEvent.press(screen.getByLabelText('Back to Today'));
+      await closeDrawer();
       expect(screen.getByLabelText('Add entry')).toBeTruthy();
       expect(screen.queryByText('Thankful for tea')).toBeNull();
       expect(screen.queryByText('Half-written')).toBeNull();
@@ -291,7 +296,7 @@ describe('App delete a custom journal', () => {
 
     it('ignores an entry delete elsewhere, and a second journal delete', async () => {
       await startDelete();
-      await fireEvent.press(screen.getByLabelText('Back to Today'));
+      await closeDrawer();
       const row = screen.getByLabelText(/^Old dream/);
       await act(async () => {
         row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } });
@@ -347,7 +352,7 @@ describe('App delete a custom journal', () => {
       await swipeDelete('Gratitude');
       await pressAlert('Delete');
       await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(2));
-      await fireEvent.press(screen.getByLabelText('Back to Today'));
+      await closeDrawer();
       expect(screen.getByText('Warm sun')).toBeTruthy();
       await fireEvent.press(screen.getByLabelText('Add entry'));
       expect(screen.getByRole('menuitem', { name: /^Gratitude,/ })).toBeTruthy();

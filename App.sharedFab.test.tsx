@@ -148,7 +148,7 @@ const openLog = async (label: string) => {
 };
 
 describe('App shared Add entry button', () => {
-  it('shows exactly one button on Today, Journals home, a log, Search and Settings', async () => {
+  it('shows exactly one button on Today, a log, Search and Settings, and none while the Journals drawer is open', async () => {
     await renderApp();
     expectToday();
     expect(fabs()).toHaveLength(1);
@@ -157,10 +157,11 @@ describe('App shared Add entry button', () => {
     expect(fabs()).toHaveLength(1);
     await fireEvent.press(screen.getByLabelText('Back to Today'));
     await openJournals();
-    expect(fabs()).toHaveLength(1);
+    expect(fabs()).toHaveLength(0);
     await fireEvent.press(screen.getByLabelText('Search all journals'));
     expect(fabs()).toHaveLength(1);
     await fireEvent.press(screen.getByLabelText('Back'));
+    await openJournals();
     await fireEvent.press(screen.getByLabelText('Gratitude, 1 entry'));
     expect(screen.getByRole('header', { name: 'Gratitude' })).toBeTruthy();
     expect(fabs()).toHaveLength(1);
@@ -310,30 +311,38 @@ describe('App shared Add entry button', () => {
     expect(screen.getByRole('header', { name: 'Settings' })).toBeTruthy();
   });
 
-  it('from Journals home: Back and Save return to Today', async () => {
+  it('from Today after the Journals drawer was used: Back and Save return to Today, drawer closed', async () => {
     await renderApp();
     await openJournals();
+    expect(fabs()).toHaveLength(0);
+    await fireEvent.press(screen.getByLabelText('Close journals'));
+    await waitFor(() => expect(screen.queryByTestId('journals-drawer')).toBeNull());
     await pick('Travel');
     await press('stub-add-back');
     expectToday();
-    await openJournals();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
     await pick('Travel');
     await press('stub-add-body');
     await press('stub-add-save');
     await settle();
     expectToday();
+    expect(screen.queryByTestId('journals-drawer')).toBeNull();
   });
 
-  it('is hidden while the Rename sheet is open and back after it closes', async () => {
+  it('is hidden while the Journals drawer or its Rename sheet is open, and back once both are closed', async () => {
     await renderApp();
-    await openJournals();
     expect(fabs()).toHaveLength(1);
+    await openJournals();
+    expect(screen.queryAllByLabelText('Add entry', hidden)).toHaveLength(0);
     await fireEvent.press(screen.getByLabelText('Rename Gratitude', hidden));
     expect(screen.getByText('Rename journal')).toBeTruthy();
     // Include elements the modal sheet hides from accessibility: the button must not be rendered at all.
     expect(screen.queryAllByLabelText('Add entry', hidden)).toHaveLength(0);
     await fireEvent.press(screen.getByLabelText('Cancel'));
     expect(screen.queryByText('Rename journal')).toBeNull();
+    // The drawer is still open under the closed sheet.
+    expect(screen.queryAllByLabelText('Add entry', hidden)).toHaveLength(0);
+    await fireEvent.press(screen.getByLabelText('Close journals'));
     expect(fabs()).toHaveLength(1);
   });
 

@@ -24,7 +24,7 @@ export const LEAVE_ENTRY_KEEP = 'Keep writing';
 export type FlowReturn = 'today' | 'log' | 'search' | 'settings';
 
 export type BackInput = {
-  screen: 'add' | 'log' | 'journals' | 'search' | 'today' | 'settings';
+  screen: 'add' | 'log' | 'search' | 'today' | 'settings';
   /** log: the open log's journal. */
   journalId: JournalId;
   /** log only: the log's search field is open. */
@@ -37,31 +37,23 @@ export type BackInput = {
  * Where Back (the on-screen arrow and Android hardware back) goes from a screen.
  * - `exit`: leave the app (Android only; only Today).
  * - `closeSearch`: close the log's search field first.
- * - `today`: the Today page.
- * - `journals`: Journals home (a log, or Search, whose view App also resets).
+ * - `today`: the Today page (from a log, Search or Settings; Search's view is also reset by App).
  * - `none`: ignore Back (the open entry is being deleted).
  * - `chain`: the add-entry page keeps its own rules (App's `backFromAdd`: the leave prompts, a
  *   running recording's discard confirm, and No dream on an empty launch page).
  */
 export type BackTarget =
-  | { to: 'exit' }
-  | { to: 'closeSearch' }
-  | { to: 'today' }
-  | { to: 'journals' }
-  | { to: 'chain' }
-  | { to: 'none' };
+  { to: 'exit' } | { to: 'closeSearch' } | { to: 'today' } | { to: 'chain' } | { to: 'none' };
 
 export function backTarget(input: BackInput): BackTarget {
   switch (input.screen) {
     case 'today':
       return { to: 'exit' };
     case 'settings':
-    case 'journals':
+    case 'search':
       return { to: 'today' };
     case 'log':
-      return input.searchOpen ? { to: 'closeSearch' } : { to: 'journals' };
-    case 'search':
-      return { to: 'journals' };
+      return input.searchOpen ? { to: 'closeSearch' } : { to: 'today' };
     case 'add':
       return input.entryDeleting ? { to: 'none' } : { to: 'chain' };
   }
