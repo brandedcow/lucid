@@ -2,8 +2,9 @@ import { I18nManager } from 'react-native';
 import { AudioEncodingAndroid } from 'expo-speech-recognition';
 import type { AudioSourceOptions, ExpoSpeechRecognitionOptions } from 'expo-speech-recognition';
 
-// Pure helpers for on-device file transcription: the capability check, the locale choice, the
-// audio source and the error mapping. Nothing here starts a recognition or asks for a permission.
+// Pure helpers for file transcription: the capability checks (on-device and, for an opted-in user,
+// online), the route decision, the locale choice, the audio source and the error mapping. Nothing
+// here starts a recognition or asks for a permission.
 
 /** The fallback locale and the one the device spike (S0) verified. */
 export const FALLBACK_LOCALE = 'en-US';
@@ -24,6 +25,13 @@ export const ANDROID_FILE_SOURCE = {
 export const MIN_ANDROID_API = 33;
 
 export type SpeechOs = 'ios' | 'android';
+
+/**
+ * Platforms where the opt-in online route may be used. iOS only for now: Android server file
+ * transcription is UNVERIFIED (needs the S1 device test), so there Transcribe is never offered
+ * through the online route.
+ */
+export const ONLINE_ROUTE_PLATFORMS: readonly string[] = ['ios'];
 
 /** The part of ExpoSpeechRecognitionModule the capability check reads (none of it prompts). */
 export type SpeechSupportApi = {
@@ -139,6 +147,72 @@ export async function evaluateSupport(opts: {
 }
 
 /**
+ * Whether ONLINE (server) transcription could run now. Only on `ONLINE_ROUTE_PLATFORMS`; needs
+ * `isRecognitionAvailable()` and the SYSTEM language: no en-US or same-language fallback (the wrong
+ * language gives garbage, so it is hidden instead). iOS: the normalized system locale must be in
+ * `getSupportedLocales().locales`. Android (not enabled yet): API 33+ (file input) and the
+ * normalized system/Intl tag in the supported list when the module returns one, else the tag as is.
+ * Any throw means not capable. This says nothing about the user's setting: see `decideRecognitionMode`.
+ */
+export async function evaluateOnlineSupport(opts: {
+  os: string;
+  version: string | number;
+  api: SpeechSupportApi;
+  deviceTag?: string | null;
+  systemLocale?: string | null;
+}): Promise<SupportResult> {
+  const none: SupportResult = { supported: false, locale: null };
+  try {
+    const { os, api } = opts;
+    if (!ONLINE_ROUTE_PLATFORMS.includes(os)) return none;
+    if (os !== 'ios' && os !== 'android') return none;
+    if (os === 'android' && !(Number(opts.version) >= MIN_ANDROID_API)) return none;
+    if (!api.isRecognitionAvailable()) return none;
+    const { locales, installedLocales } = await api.getSupportedLocales({});
+    if (os === 'ios') {
+      const system = normalizeSystemLocale(opts.systemLocale);
+      if (!system || !(locales ?? []).includes(system)) return none;
+      return { supported: true, locale: mint(system) };
+    }
+    const tag = normalizeSystemLocale(opts.systemLocale) ?? normalizeSystemLocale(opts.deviceTag);
+    if (!tag) return none;
+    const list = [...(locales ?? []), ...(installedLocales ?? [])];
+    return list.length === 0 || list.includes(tag) ? { supported: true, locale: mint(tag) } : none;
+  } catch {
+    return none;
+  }
+}
+
+/** How a run recognizes: on the phone, on the provider's servers, or not at all. */
+export type RecognitionMode =
+  | { mode: 'on-device'; requiresOnDevice: true; locale: CheckedLocale }
+  | { mode: 'online'; requiresOnDevice: false; locale: CheckedLocale }
+  | { mode: 'none' };
+
+/** A mode that can start a run. */
+export type RunnableMode = Exclude<RecognitionMode, { mode: 'none' }>;
+
+/**
+ * THE decision, and the only place `requiresOnDeviceRecognition`'s value is produced. Prefers
+ * on-device whenever it is capable; online only as a fallback and only when `onlineAllowed` is
+ * exactly `true` (the saved setting); otherwise nothing starts. No failure ever calls this to
+ * escalate: the route is decided from capability before `start`.
+ */
+export function decideRecognitionMode(input: {
+  onlineAllowed: boolean;
+  onDevice: SupportResult;
+  online: SupportResult;
+}): RecognitionMode {
+  if (input.onDevice.supported) {
+    return { mode: 'on-device', requiresOnDevice: true, locale: input.onDevice.locale };
+  }
+  if (input.onlineAllowed === true && input.online.supported) {
+    return { mode: 'online', requiresOnDevice: false, locale: input.online.locale };
+  }
+  return { mode: 'none' };
+}
+
+/**
  * The recognizer's audio source for a recording file. The URI is passed through exactly as the app
  * holds it (a `file://` string); iOS takes the uri only, Android also the encoding values.
  */
@@ -148,19 +222,20 @@ export function buildAudioSource(os: string, uri: string): AudioSourceOptions {
 }
 
 /**
- * The ONLY builder of the recognizer's start options. `requiresOnDeviceRecognition` is the literal
- * `true`; the locale can only be a `CheckedLocale`.
+ * The ONLY builder of the recognizer's start options. `requiresOnDeviceRecognition` is copied from
+ * the mode `decideRecognitionMode` produced (true on every run except an opted-in online run); the
+ * locale is the mode's `CheckedLocale`, so no other locale can reach the recognizer.
  */
 export function buildStartOptions(
   os: string,
-  checked: CheckedLocale,
+  mode: RunnableMode,
   uri: string,
 ): ExpoSpeechRecognitionOptions {
   return {
-    lang: checked.lang,
+    lang: mode.locale.lang,
     interimResults: true,
     continuous: true,
-    requiresOnDeviceRecognition: true,
+    requiresOnDeviceRecognition: mode.requiresOnDevice,
     audioSource: buildAudioSource(os, uri),
   };
 }
@@ -190,13 +265,26 @@ export type SpeechErrorOutcome =
   | { kind: 'cancelled' }
   | {
       kind: 'failed';
-      code: 'unsupported' | 'busy' | 'permission' | 'no-model' | 'failed';
+      code: 'unsupported' | 'busy' | 'permission' | 'no-model' | 'offline' | 'failed';
       message: string;
     };
 
-/** Maps a recognizer error event to what the hook does. `network` is never retried. */
-export function mapSpeechError(e: { error?: string }): SpeechErrorOutcome {
+/**
+ * Maps a recognizer error event to what the hook does. Nothing is retried. `network` means "needs
+ * internet" only in an online run; on-device it should be impossible, so it stays a plain failure.
+ */
+export function mapSpeechError(e: { error?: string }, online = false): SpeechErrorOutcome {
   switch (e.error) {
+    case 'network':
+      if (online) {
+        return {
+          kind: 'failed',
+          code: 'offline',
+          message:
+            "Transcribing online needs an internet connection. Try again when you're online.",
+        };
+      }
+      return { kind: 'failed', code: 'failed', message: 'Could not transcribe this voice note.' };
     case 'no-speech':
     case 'speech-timeout':
     case 'nomatch':

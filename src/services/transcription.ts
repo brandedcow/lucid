@@ -5,6 +5,7 @@ export type TranscriptionErrorCode =
   | 'busy' // another recording is being transcribed (single queue)
   | 'permission' // speech or microphone permission refused
   | 'no-model' // Android offline model not installed
+  | 'offline' // an online run needs internet and there is none
   | 'cancelled' // the user cancelled (UI treats it as "back to offer", no message)
   | 'failed'; // anything else
 
@@ -17,8 +18,14 @@ export type RecordingTranscriptionState = {
 };
 
 export type RecordingTranscription = {
-  /** Capability: false hides every Transcribe affordance (on-device only; never a network fallback). */
+  /** Capability: false hides every Transcribe affordance. */
   supported: boolean;
+  /**
+   * The route a run would take now: 'on-device', 'online' (only for a user who opted in, when this
+   * phone cannot do it itself) or null (cannot transcribe). The sheet shows a quiet provider line
+   * for 'online'.
+   */
+  route: 'on-device' | 'online' | null;
   /** Id of the recording currently running, or null (one at a time). */
   busyId: string | null;
   stateOf(id: string): RecordingTranscriptionState;
@@ -31,6 +38,7 @@ export type RecordingTranscription = {
 /** The default: nothing can be transcribed, so the UI hides every Transcribe affordance. Starts nothing. */
 export const UNSUPPORTED_TRANSCRIPTION: RecordingTranscription = {
   supported: false,
+  route: null,
   busyId: null,
   stateOf: () => ({ status: 'none' }),
   start: async () => {},

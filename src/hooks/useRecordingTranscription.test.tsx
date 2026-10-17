@@ -19,6 +19,7 @@ const STORED_URI = 'file:///document/dreams/g1.m4a';
 const latest = { hook: null as unknown as RecordingTranscriptionHook };
 let results: [string, string][] = [];
 let recording = false;
+let onlineSetting = false;
 let systemLocale: string | null = 'en_US';
 let appStateHandlers: ((s: string) => void)[] = [];
 let mountedHook: Awaited<ReturnType<typeof render>>;
@@ -27,6 +28,7 @@ function Probe() {
   const value = useRecordingTranscription({
     onResult: (id, text) => results.push([id, text]),
     isRecording: () => recording,
+    onlineAllowed: onlineSetting,
   });
   useEffect(() => {
     latest.hook = value;
@@ -82,6 +84,7 @@ beforeEach(() => {
   fakeSpeech.enable();
   results = [];
   recording = false;
+  onlineSetting = false;
   appStateHandlers = [];
   setOs('android');
   setVersion(34);
@@ -836,3 +839,314 @@ describe('iOS locale policy: only the checked system locale can reach the recogn
     expect(fakeSpeech.starts).toHaveLength(0);
   });
 });
+
+describe('opt-in online transcription (Revision 6)', () => {
+  const ALL = ['en-US', 'en-GB', 'de-DE', 'fr-FR'];
+  // iOS phone whose system locale has no on-device support: only the online route can work.
+  const noOnDevice = () => {
+    setOs('ios');
+    fakeSpeech.enable(ALL);
+    fakeSpeech.set({ onDevice: false });
+  };
+  const setSetting = async (value: boolean) => {
+    onlineSetting = value;
+    await act(async () => {
+      await mountedHook.rerender(<Probe />);
+      await flush();
+    });
+  };
+
+  it('OFF: a phone without on-device support offers nothing and starts nothing', async () => {
+    noOnDevice();
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    expect(latest.hook.route).toBeNull();
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(latest.hook.stateOf('a').error?.code).toBe('unsupported');
+  });
+
+  it('OFF: an on-device capable phone runs on-device with the flag true', async () => {
+    setOs('ios');
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.route).toBe('on-device');
+    await begin('a');
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+  });
+
+  it('ON and on-device capable: prefers on-device (flag true, route on-device)', async () => {
+    onlineSetting = true;
+    setOs('ios');
+    fakeSpeech.enable(ALL);
+    await mount();
+    expect(latest.hook.route).toBe('on-device');
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+    expect(fakeSpeech.onDeviceAtStart[0]).toBe(true);
+  });
+
+  it('ON and on-device incapable: online route, flag false, lang = system language', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    systemLocale = 'de_DE';
+    await mount();
+    expect(latest.hook.supported).toBe(true);
+    expect(latest.hook.route).toBe('online');
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(false);
+    expect(fakeSpeech.starts[0].lang).toBe('de-DE');
+    expect(fakeSpeech.starts[0].continuous).toBe(true);
+    // The audio source is passed through as on-device (the uri exactly).
+    expect(fakeSpeech.starts[0].audioSource).toEqual({ uri: NEW_URI });
+    expect(fakeSpeech.permissionRequests).toEqual(['requestSpeechRecognizerPermissionsAsync']);
+  });
+
+  it('online locale: system language only, no en-US or other-region fallback', async () => {
+    onlineSetting = true;
+    setOs('ios');
+    fakeSpeech.enable(['en-US', 'en-GB']);
+    fakeSpeech.set({ onDevice: false });
+    systemLocale = 'de_DE';
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(latest.hook.stateOf('a').error?.code).toBe('unsupported');
+  });
+
+  it('ON but the online route is not available: nothing starts', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    fakeSpeech.set({ available: false });
+    await mount();
+    expect(latest.hook.supported).toBe(false);
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+  });
+
+  it('the setting turned OFF between the check and start: a fresh read refuses online', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    await mount();
+    expect(latest.hook.route).toBe('online');
+    // Turned off, and start called in the same tick before any re-check could land.
+    onlineSetting = false;
+    await act(async () => {
+      await mountedHook.rerender(<Probe />);
+    });
+    await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(latest.hook.stateOf('a').error?.code).toBe('unsupported');
+  });
+
+  it('the setting turned OFF while the permission prompt is up: nothing starts', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    await mount();
+    const release = fakeSpeech.holdPermissionRequest();
+    await begin('a');
+    await setSetting(false);
+    await act(async () => {
+      release();
+      await flush();
+    });
+    expect(fakeSpeech.starts).toHaveLength(0);
+    expect(latest.hook.stateOf('a').error?.code).toBe('unsupported');
+  });
+
+  it('the setting turned OFF mid-run: the run continues; the next start refuses', async () => {
+    onlineSetting = true;
+    noOnDevice();
+    await mount();
+    const { done } = await begin('a');
+    expect(fakeSpeech.starts).toHaveLength(1);
+    await setSetting(false);
+    expect(fakeSpeech.aborts).toBe(0);
+    await emit(() => fakeSpeech.result('hello', true));
+    await emit(() => fakeSpeech.end());
+    await done;
+    expect(results).toEqual([['a', 'hello']]);
+    await begin('b');
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(latest.hook.stateOf('b').error?.code).toBe('unsupported');
+  });
+
+  it('route and supported recompute when the setting flips, off removing the online route at once', async () => {
+    noOnDevice();
+    await mount();
+    expect([latest.hook.supported, latest.hook.route]).toEqual([false, null]);
+    await setSetting(true);
+    expect([latest.hook.supported, latest.hook.route]).toEqual([true, 'online']);
+    await setSetting(false);
+    expect([latest.hook.supported, latest.hook.route]).toEqual([false, null]);
+  });
+
+  it('a flip does not recheck when nothing changed (no extra capability calls on a re-render)', async () => {
+    setOs('ios');
+    fakeSpeech.enable(ALL);
+    await mount();
+    const calls = fakeSpeech.getSupportedLocalesCalls;
+    await act(async () => {
+      await mountedHook.rerender(<Probe />);
+      await flush();
+    });
+    expect(fakeSpeech.getSupportedLocalesCalls).toBe(calls);
+  });
+
+  describe('failures', () => {
+    it('network in online mode becomes offline ("needs internet") and is not retried', async () => {
+      onlineSetting = true;
+      noOnDevice();
+      await mount();
+      const { done } = await begin('a');
+      await emit(() => fakeSpeech.error('network'));
+      await emit(() => fakeSpeech.end());
+      await done;
+      expect(latest.hook.stateOf('a').error?.code).toBe('offline');
+      expect(latest.hook.stateOf('a').error?.message).toMatch(/needs an internet connection/);
+      expect(fakeSpeech.starts).toHaveLength(1);
+    });
+
+    it('network in on-device mode stays failed, and nothing escalates to online (setting ON)', async () => {
+      onlineSetting = true;
+      setOs('ios');
+      fakeSpeech.enable(ALL);
+      await mount();
+      const { done } = await begin('a');
+      await emit(() => fakeSpeech.error('network'));
+      await emit(() => fakeSpeech.end());
+      await done;
+      expect(latest.hook.stateOf('a').error?.code).toBe('failed');
+      expect(fakeSpeech.starts).toHaveLength(1);
+      expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+      expect(latest.hook.route).toBe('on-device');
+    });
+
+    it.each(['service-not-allowed', 'busy', 'language-not-supported', 'x'])(
+      'an online %s error keeps its mapping and starts nothing more',
+      async (code) => {
+        onlineSetting = true;
+        noOnDevice();
+        await mount();
+        const { done } = await begin('a');
+        await emit(() => fakeSpeech.error(code));
+        await emit(() => fakeSpeech.end());
+        await done;
+        const expected: Record<string, string> = {
+          'service-not-allowed': 'unsupported',
+          busy: 'busy',
+          'language-not-supported': 'no-model',
+          x: 'failed',
+        };
+        expect(latest.hook.stateOf('a').error?.code).toBe(expected[code]);
+        expect(fakeSpeech.starts).toHaveLength(1);
+      },
+    );
+
+    it('the watchdog applies to an online run too', async () => {
+      onlineSetting = true;
+      noOnDevice();
+      await mount();
+      jest.useFakeTimers();
+      await begin('a');
+      await act(async () => {
+        jest.advanceTimersByTime(60_001);
+        await flush();
+      });
+      expect(fakeSpeech.aborts).toBe(1);
+      expect(latest.hook.stateOf('a').error?.code).toBe('failed');
+    });
+  });
+
+  describe('platform gate (ONLINE_ROUTE_PLATFORMS)', () => {
+    it('Android is never online: no route, nothing starts, even with the setting ON', async () => {
+      onlineSetting = true;
+      setOs('android');
+      setVersion(34);
+      fakeSpeech.enable(['en-US']);
+      fakeSpeech.set({ onDevice: false });
+      await mount();
+      expect(latest.hook.supported).toBe(false);
+      expect(latest.hook.route).toBeNull();
+      await begin('a');
+      expect(fakeSpeech.starts).toHaveLength(0);
+    });
+
+    it('Android with the setting ON and on-device capable still runs on-device (flag true)', async () => {
+      onlineSetting = true;
+      setOs('android');
+      setVersion(34);
+      await mount();
+      expect(latest.hook.route).toBe('on-device');
+      await begin('a');
+      expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+    });
+
+    it('Android API 32 with the setting ON: still nothing', async () => {
+      onlineSetting = true;
+      setOs('android');
+      setVersion(32);
+      await mount();
+      expect(latest.hook.supported).toBe(false);
+    });
+  });
+
+  it('property over the hook: a flag-false start happens only with the setting ON, on iOS, and on-device not capable', async () => {
+    let flagFalseStarts = 0;
+    for (const os of ['ios', 'android'] as const) {
+      for (const setting of [false, true]) {
+        for (const onDevice of [false, true]) {
+          for (const available of [false, true]) {
+            for (const system of ['en_US', 'de_DE', 'fr_FR@rg=x', null]) {
+              for (const intl of ['en-US', 'de-DE']) {
+                fakeSpeech.reset();
+                fakeSpeech.enable(['en-US', 'de-DE']);
+                fakeSpeech.set({ onDevice, available });
+                setOs(os);
+                setVersion(34);
+                setLocale(intl);
+                systemLocale = system;
+                onlineSetting = setting;
+                await mount();
+                await begin('a');
+                for (const [i, call] of fakeSpeech.starts.entries()) {
+                  if (call.requiresOnDeviceRecognition === false) {
+                    flagFalseStarts += 1;
+                    expect(setting).toBe(true);
+                    expect(os).toBe('ios');
+                    expect(fakeSpeech.onDeviceAtStart[i]).toBe(false);
+                    expect(call.lang).toBe(normalizeLang(system));
+                  } else {
+                    expect(call.requiresOnDeviceRecognition).toBe(true);
+                    expect(fakeSpeech.onDeviceAtStart[i]).toBe(true);
+                  }
+                }
+                await mountedHook.unmount();
+                while (restorers.length) restorers.pop()?.();
+                spy(jest.spyOn(I18nManager, 'getConstants')).mockImplementation(
+                  () =>
+                    ({
+                      isRTL: false,
+                      doLeftAndRightSwapInRTL: true,
+                      localeIdentifier: systemLocale,
+                    }) as ReturnType<typeof I18nManager.getConstants>,
+                );
+                spy(jest.spyOn(AppState, 'addEventListener')).mockImplementation((_e, h) => {
+                  appStateHandlers.push(h as (s: string) => void);
+                  return { remove: () => {} };
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+    // The sweep did exercise the online route.
+    expect(flagFalseStarts).toBeGreaterThan(0);
+  });
+});
+
+const normalizeLang = (system: string | null) => system?.replace(/_/g, '-');

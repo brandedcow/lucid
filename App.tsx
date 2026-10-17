@@ -106,10 +106,13 @@ export default function App() {
   const journalFor = (id: JournalId): Journal => journalOrDefault(journals, id);
   // The entry on the add-entry page (new entries, drafts and edits).
   const entry = useEntrySession(journals);
-  // On-device transcription of voice notes. Lives here, above the page, so closing the sheet does
-  // not cancel a run; results go straight to the session recording.
+  const settings = useSettings();
+  // Transcription of voice notes: on the phone, or online only if the user opted in (Settings).
+  // Lives here, above the page, so closing the sheet does not cancel a run; results go straight to
+  // the session recording.
   const transcription = useRecordingTranscription({
     onResult: entry.setRecordingTranscript,
+    onlineAllowed: settings.onlineTranscription,
     isRecording: () => entryRecordingRef.current,
   });
   const { cancelAll: cancelTranscription, busyId: transcribingId } = transcription;
@@ -123,7 +126,6 @@ export default function App() {
   }, [sessionRecordings, transcribingId, cancelTranscription]);
   const library = useDreamLibrary();
   const dayMarker = useDayMarker();
-  const settings = useSettings();
   const { todayKey, resumeNewDayToken } = useToday();
   // Created here so the filter, search and scroll position survive leaving the Dream log.
   const view = useLogView();
@@ -770,6 +772,8 @@ export default function App() {
           <SettingsScreen
             autoOpenDreamCapture={settings.autoOpenDreamCapture}
             onChangeAutoOpenDreamCapture={settings.setAutoOpenDreamCapture}
+            onlineTranscription={settings.onlineTranscription}
+            onChangeOnlineTranscription={settings.setOnlineTranscription}
             onBack={() => void performBack()}
           />
         )}

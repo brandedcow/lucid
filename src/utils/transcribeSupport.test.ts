@@ -2,7 +2,12 @@ import {
   ANDROID_FILE_SOURCE,
   buildAudioSource,
   buildStartOptions,
+  decideRecognitionMode,
+  evaluateOnlineSupport,
   evaluateSupport,
+  ONLINE_ROUTE_PLATFORMS,
+  type RunnableMode,
+  type SupportResult,
   normalizeSystemLocale,
   permissionDeniedMessage,
   mapSpeechError,
@@ -186,7 +191,15 @@ describe('buildStartOptions', () => {
         systemLocale: 'en_US',
       });
       if (!r.supported) throw new Error('expected supported');
-      const o = buildStartOptions(os, r.locale, 'file:///x/a.m4a');
+      const o = buildStartOptions(
+        os,
+        decideRecognitionMode({
+          onlineAllowed: false,
+          onDevice: r,
+          online: { supported: false, locale: null },
+        }) as RunnableMode,
+        'file:///x/a.m4a',
+      );
       expect(o.requiresOnDeviceRecognition).toBe(true);
       expect(o.lang).toBe(r.locale.lang);
       expect(o.continuous).toBe(true);
@@ -199,5 +212,146 @@ describe('permissionDeniedMessage', () => {
   it('names the right settings per platform', () => {
     expect(permissionDeniedMessage('ios')).toMatch(/under Lucid/);
     expect(permissionDeniedMessage('android')).toMatch(/Apps, Lucid, Permissions/);
+  });
+});
+
+// Capable results for the two routes, minted by the real checks.
+const capable = async (): Promise<SupportResult> =>
+  evaluateSupport({
+    os: 'ios',
+    version: 17,
+    api: api(),
+    deviceTag: 'en-US',
+    systemLocale: 'en_US',
+  });
+const incapable: SupportResult = { supported: false, locale: null };
+
+describe('decideRecognitionMode truth table', () => {
+  const cases = [true, false].flatMap((onlineAllowed) =>
+    [true, false].flatMap((onDevice) =>
+      [true, false].map((online) => ({ onlineAllowed, onDevice, online })),
+    ),
+  );
+
+  it.each(cases)('allowed=$onlineAllowed onDevice=$onDevice online=$online', async (c) => {
+    const onDev = c.onDevice ? await capable() : incapable;
+    const onl = c.online ? await capable() : incapable;
+    const d = decideRecognitionMode({
+      onlineAllowed: c.onlineAllowed,
+      onDevice: onDev,
+      online: onl,
+    });
+    if (c.onDevice) {
+      // On-device is always preferred, whatever the setting or the online capability.
+      expect(d).toMatchObject({ mode: 'on-device', requiresOnDevice: true });
+    } else if (c.onlineAllowed && c.online) {
+      expect(d).toMatchObject({ mode: 'online', requiresOnDevice: false });
+    } else {
+      expect(d).toEqual({ mode: 'none' });
+    }
+  });
+
+  it('property: requiresOnDevice false only when the setting is on and on-device is not capable', async () => {
+    const values = [true, false, undefined, null, 0, 1, 'true', 'yes', {}] as unknown[];
+    const cap = await capable();
+    for (const allowed of values) {
+      for (const onDevice of [cap, incapable]) {
+        for (const online of [cap, incapable]) {
+          const d = decideRecognitionMode({
+            onlineAllowed: allowed as boolean,
+            onDevice,
+            online,
+          });
+          if (d.mode !== 'none' && d.requiresOnDevice === false) {
+            expect(allowed).toBe(true); // strictly true, not merely truthy
+            expect(onDevice.supported).toBe(false);
+            expect(online.supported).toBe(true);
+          }
+          if (d.mode === 'on-device') expect(d.requiresOnDevice).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('the start options carry exactly the mode flag, and the mode locale', async () => {
+    const cap = await capable();
+    const onDevice = decideRecognitionMode({ onlineAllowed: true, onDevice: cap, online: cap });
+    const online = decideRecognitionMode({ onlineAllowed: true, onDevice: incapable, online: cap });
+    if (onDevice.mode === 'none' || online.mode === 'none') throw new Error('expected runnable');
+    expect(buildStartOptions('ios', onDevice, 'file:///a.m4a').requiresOnDeviceRecognition).toBe(
+      true,
+    );
+    const o = buildStartOptions('ios', online, 'file:///a.m4a');
+    expect(o.requiresOnDeviceRecognition).toBe(false);
+    expect(o.lang).toBe('en-US');
+  });
+});
+
+describe('evaluateOnlineSupport', () => {
+  const run = (over: Record<string, unknown> = {}, a: SpeechSupportApi = api()) =>
+    evaluateOnlineSupport({
+      os: 'ios',
+      version: 17,
+      api: a,
+      deviceTag: 'en-US',
+      systemLocale: 'en_US',
+      ...over,
+    });
+
+  it('is iOS only for now', async () => {
+    expect(ONLINE_ROUTE_PLATFORMS).toEqual(['ios']);
+    expect((await run()).supported).toBe(true);
+    expect((await run({ os: 'android', version: 34 })).supported).toBe(false);
+    expect((await run({ os: 'web' })).supported).toBe(false);
+  });
+  it('needs isRecognitionAvailable but not on-device support', async () => {
+    expect((await run({}, api({ supportsOnDeviceRecognition: () => false }))).supported).toBe(true);
+    expect((await run({}, api({ isRecognitionAvailable: () => false }))).supported).toBe(false);
+  });
+  it('uses the system language only: no region, Intl or en-US fallback', async () => {
+    const a = api({
+      getSupportedLocales: async () => ({ locales: ['en-US', 'de-DE'], installedLocales: [] }),
+    });
+    expect((await run({ systemLocale: 'de_DE' }, a)).locale?.lang).toBe('de-DE');
+    expect((await run({ systemLocale: 'en_GB' }, a)).supported).toBe(false);
+    expect((await run({ systemLocale: 'fr_FR' }, a)).supported).toBe(false);
+    expect((await run({ systemLocale: 'fr_FR', deviceTag: 'en-US' }, a)).supported).toBe(false);
+    expect((await run({ systemLocale: 'de_DE', deviceTag: 'en-US' }, a)).locale?.lang).toBe(
+      'de-DE',
+    );
+    expect((await run({ systemLocale: 'fr_FR@rg=dezzzz' }, a)).supported).toBe(false);
+    expect((await run({ systemLocale: null }, a)).supported).toBe(false);
+  });
+  it('any throw means not capable', async () => {
+    expect(
+      (
+        await run(
+          {},
+          api({
+            getSupportedLocales: async () => {
+              throw new Error('x');
+            },
+          }),
+        )
+      ).supported,
+    ).toBe(false);
+  });
+});
+
+describe('mapSpeechError network by mode', () => {
+  it('online: network is offline (needs internet)', () => {
+    expect(mapSpeechError({ error: 'network' }, true)).toMatchObject({
+      kind: 'failed',
+      code: 'offline',
+    });
+  });
+  it('on-device (default): network stays a plain failure', () => {
+    expect(mapSpeechError({ error: 'network' })).toMatchObject({ kind: 'failed', code: 'failed' });
+    expect(mapSpeechError({ error: 'network' }, false)).toMatchObject({ code: 'failed' });
+  });
+  it('other errors map the same in both modes', () => {
+    for (const e of ['service-not-allowed', 'busy', 'language-not-supported', 'not-allowed', 'x']) {
+      expect(mapSpeechError({ error: e }, true)).toEqual(mapSpeechError({ error: e }, false));
+    }
   });
 });

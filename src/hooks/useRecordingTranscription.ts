@@ -8,10 +8,13 @@ import type {
 } from '../services/transcription';
 import {
   buildStartOptions,
+  decideRecognitionMode,
   deviceLocaleTag,
+  evaluateOnlineSupport,
   evaluateSupport,
   mapSpeechError,
   permissionDeniedMessage,
+  type RecognitionMode,
   systemLocaleTag,
   watchdogMs,
 } from '../utils/transcribeSupport';
@@ -30,6 +33,8 @@ type Run = {
   token: number;
   /** True once the module's start was called (an abort is only meaningful then). */
   started: boolean;
+  /** The route this run was started on (decides how a `network` error is mapped). */
+  online: boolean;
   finals: string[];
   lastPartial: string;
   timer: ReturnType<typeof setTimeout> | null;
@@ -50,31 +55,41 @@ function abortModule() {
 const NONE: RecordingTranscriptionState = { status: 'none' };
 
 /**
- * On-device transcription of recorded voice notes, one at a time. The text goes to `onResult`
- * (`''` = nothing heard); this hook never keeps it and never logs it. `requiresOnDeviceRecognition`
- * is always `true` on every start: there is no network fallback and no retry.
+ * Transcription of recorded voice notes, one at a time. The text goes to `onResult` (`''` = nothing
+ * heard); this hook never keeps it and never logs it. The route is decided only by
+ * `decideRecognitionMode`: on-device whenever that is proven, online only as a fallback and only
+ * when `onlineAllowed` (the saved setting) is true at the moment of the run. A failed run is never
+ * retried or moved to another route automatically.
  * Lives above the page (in App), so closing the sheet does not cancel a run.
  */
 export function useRecordingTranscription({
   onResult,
   isRecording,
+  onlineAllowed = false,
 }: {
   onResult: (id: string, text: string) => void;
   isRecording: () => boolean;
+  /** The "Transcribe voice notes online" setting. Missing means off. Read again at every start. */
+  onlineAllowed?: boolean;
 }): RecordingTranscriptionHook {
   const [supported, setSupported] = useState(false);
+  const [route, setRoute] = useState<'on-device' | 'online' | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RecordingTranscriptionState>>({});
 
   const onResultRef = useRef(onResult);
   const isRecordingRef = useRef(isRecording);
+  const onlineAllowedRef = useRef(onlineAllowed);
   useEffect(() => {
     onResultRef.current = onResult;
     isRecordingRef.current = isRecording;
+    onlineAllowedRef.current = onlineAllowed;
   });
 
   const mounted = useRef(true);
   const supportedRef = useRef(false);
+  const routeRef = useRef<'on-device' | 'online' | null>(null);
+  const checkSeq = useRef(0);
   const run = useRef<Run | null>(null);
   const tokenCounter = useRef(0);
   // True from the module's start until its `end` event, whoever ended the run. While it is true no
@@ -87,19 +102,49 @@ export function useRecordingTranscription({
     if (mounted.current) setStates((prev) => ({ ...prev, [id]: state }));
   };
 
-  const checkSupport = useCallback(async () => {
-    const result = await evaluateSupport({
+  // The route right now: on-device if proven; else online only if the setting is on (read from the
+  // ref, so a run always sees the latest value) and the online route is capable. Never throws.
+  const decide = useCallback(async (): Promise<RecognitionMode> => {
+    const args = {
       os: Platform.OS,
       version: Platform.Version,
       api: ExpoSpeechRecognitionModule,
       deviceTag: deviceLocaleTag(),
       systemLocale: systemLocaleTag(),
-    });
-    if (!mounted.current) return result;
-    supportedRef.current = result.supported;
-    setSupported(result.supported);
-    return result;
+    };
+    const none = { supported: false, locale: null } as const;
+    const onDevice = await evaluateSupport(args);
+    const allowed = onlineAllowedRef.current === true;
+    const online = !onDevice.supported && allowed ? await evaluateOnlineSupport(args) : none;
+    return decideRecognitionMode({ onlineAllowed: allowed, onDevice, online });
   }, []);
+
+  const publishRoute = (next: 'on-device' | 'online' | null) => {
+    routeRef.current = next;
+    supportedRef.current = next !== null;
+    setRoute(next);
+    setSupported(next !== null);
+  };
+
+  const checkSupport = useCallback(async () => {
+    const seq = ++checkSeq.current;
+    const decision = await decide();
+    // A newer check (the setting flipped meanwhile) wins.
+    if (!mounted.current || seq !== checkSeq.current) return;
+    publishRoute(decision.mode === 'none' ? null : decision.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- publishRoute only writes refs and stable setters
+  }, [decide]);
+
+  // The setting flipped: turning it off removes the online route at once, then the capability is
+  // re-derived. A run that is already going on continues (it was consented when it started).
+  const lastAllowed = useRef(onlineAllowed);
+  useEffect(() => {
+    if (lastAllowed.current === onlineAllowed) return;
+    lastAllowed.current = onlineAllowed;
+    if (!onlineAllowed && routeRef.current === 'online') publishRoute(null);
+    void checkSupport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- publishRoute only writes refs and stable setters
+  }, [onlineAllowed, checkSupport]);
 
   // The check at mount (no permission prompt), and again on returning to the foreground while it
   // is false (an offline model may have been installed meanwhile).
@@ -194,7 +239,7 @@ export function useRecordingTranscription({
     const r = liveRun();
     if (!r) return;
     // The module sends `end` after an error; `nativeActive` holds the next run back until then.
-    const outcome = mapSpeechError(e);
+    const outcome = mapSpeechError(e, r.online);
     if (outcome.kind === 'empty') {
       deliver(r);
     } else if (outcome.kind === 'cancelled') {
@@ -265,6 +310,7 @@ export function useRecordingTranscription({
       id,
       token: ++tokenCounter.current,
       started: false,
+      online: false,
       finals: [],
       lastPartial: '',
       timer: null,
@@ -277,18 +323,11 @@ export function useRecordingTranscription({
 
     const launch = async () => {
       try {
-        // 3. Re-check support and locale right now (the system locale can change while the app runs).
-        const check = () =>
-          evaluateSupport({
-            os: Platform.OS,
-            version: Platform.Version,
-            api: ExpoSpeechRecognitionModule,
-            deviceTag: deviceLocaleTag(),
-            systemLocale: systemLocaleTag(),
-          });
-        const first = await check();
+        // 3. Re-check the route and locale right now (the system locale can change while the app
+        // runs, and the online setting is read from its ref each time).
+        const first = await decide();
         if (!alive()) return;
-        if (!first.supported) {
+        if (first.mode === 'none') {
           fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
           return;
         }
@@ -316,9 +355,11 @@ export function useRecordingTranscription({
         // 5. Nothing plays while the module takes over the audio session.
         stopAllPlayback();
         // The locale used is the one checked right now, not the one from before the prompt.
-        const final = await check();
+        // The online setting is read again here: if it was turned off while the prompt was up, an
+        // online route is gone and nothing starts.
+        const final = await decide();
         if (!alive()) return;
-        if (!final.supported) {
+        if (final.mode === 'none') {
           fail(r, 'unsupported', 'This device cannot transcribe voice notes.');
           return;
         }
@@ -326,10 +367,11 @@ export function useRecordingTranscription({
           fail(r, 'busy', 'Still finishing the previous transcription. Try again in a moment.');
           return;
         }
-        // 6. Start. The options come only from buildStartOptions (on-device flag always true).
+        // 6. Start. The options come only from buildStartOptions (the flag is the mode's).
         r.started = true;
+        r.online = final.mode === 'online';
         armWatchdog(r);
-        ExpoSpeechRecognitionModule.start(buildStartOptions(Platform.OS, final.locale, uri));
+        ExpoSpeechRecognitionModule.start(buildStartOptions(Platform.OS, final, uri));
         nativeActive.current = true;
       } catch {
         if (run.current === r) {
@@ -357,6 +399,7 @@ export function useRecordingTranscription({
 
   return {
     supported,
+    route,
     busyId,
     stateOf: (id) => states[id] ?? NONE,
     start,

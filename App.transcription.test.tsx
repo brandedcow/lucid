@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, AlertButton, BackHandler, I18nManager } from 'react-native';
+import { Alert, AlertButton, BackHandler, I18nManager, Platform } from 'react-native';
 import App from './App';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
@@ -237,5 +237,128 @@ describe('App transcription', () => {
     expect(fakeSpeech.permissionRequests).toEqual([]);
     await transcribe();
     expect(fakeSpeech.permissionRequests).toEqual(['requestSpeechRecognizerPermissionsAsync']);
+  });
+});
+
+describe('App online transcription (opt-in)', () => {
+  const allowOnline = () =>
+    __fs.put(
+      `${DOC}/settings.json`,
+      JSON.stringify({ autoOpenDreamCapture: false, onlineTranscription: true }),
+    );
+  // An iPhone whose system locale cannot transcribe on-device: only the online route can work.
+  const noOnDevice = () => fakeSpeech.set({ onDevice: false });
+
+  it('setting ON, no on-device support: Transcribe is offered with the Apple line, and the run is online', async () => {
+    allowOnline();
+    noOnDevice();
+    await openEdit(/Thankful for tea/);
+    await openSheetTranscript();
+    expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
+    await transcribe();
+    expect(fakeSpeech.starts).toHaveLength(1);
+    expect(fakeSpeech.starts[0]).toMatchObject({
+      requiresOnDeviceRecognition: false,
+      lang: 'en-US',
+      audioSource: { uri: STORED_AUDIO },
+    });
+    expect(screen.getByText('Transcribing online...')).toBeTruthy();
+    expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
+    await heard('online words');
+    expect(screen.getByText('online words')).toBeTruthy();
+  });
+
+  it('setting ON but on-device works: no server line and the flag is true', async () => {
+    allowOnline();
+    await openEdit(/Thankful for tea/);
+    await openSheetTranscript();
+    expect(screen.queryByText(/Uses .* servers/)).toBeNull();
+    await transcribe();
+    expect(fakeSpeech.starts[0].requiresOnDeviceRecognition).toBe(true);
+  });
+
+  it('setting OFF (default): no on-device support hides Transcribe, nothing online', async () => {
+    noOnDevice();
+    await openEdit(/Thankful for tea/);
+    await press(byLabel('Open recording'));
+    expect(screen.queryByLabelText('Show transcript')).toBeNull();
+    expect(fakeSpeech.starts).toHaveLength(0);
+  });
+
+  it('a network error in an online run shows the needs-internet message', async () => {
+    allowOnline();
+    noOnDevice();
+    await openEdit(/Thankful for tea/);
+    await openSheetTranscript();
+    await transcribe();
+    await emit(() => fakeSpeech.error('network'));
+    await emit(() => fakeSpeech.end());
+    expect(
+      screen.getByText(
+        "Transcribing online needs an internet connection. Try again when you're online.",
+      ),
+    ).toBeTruthy();
+    expect(fakeSpeech.starts).toHaveLength(1);
+  });
+
+  it('Android is never online: with the setting ON and no on-device support nothing is offered', async () => {
+    allowOnline();
+    noOnDevice();
+    const r = jest.replaceProperty(Platform, 'OS', 'android');
+    try {
+      await openEdit(/Thankful for tea/);
+      await press(byLabel('Open recording'));
+      expect(screen.queryByLabelText('Show transcript')).toBeNull();
+      expect(fakeSpeech.starts).toHaveLength(0);
+    } finally {
+      r.restore();
+    }
+  });
+
+  it('the Settings toggle (after the confirmation) saves the setting and re-evaluates Transcribe', async () => {
+    noOnDevice();
+    await render(<App />);
+    await settle();
+    await press(byLabel('Open Settings'));
+    await fireEvent(
+      screen.getByRole('switch', { name: 'Transcribe voice notes online' }),
+      'valueChange',
+      true,
+    );
+    await settle();
+    // Not saved until the confirmation is accepted.
+    expect(
+      JSON.parse(__fs.read(`${DOC}/settings.json`) ?? '{}').onlineTranscription,
+    ).toBeUndefined();
+    expect(lastButtons().map((b) => b.text)).toEqual(['Cancel', 'Turn on']);
+    await choose('Turn on');
+    expect(JSON.parse(__fs.read(`${DOC}/settings.json`) ?? '{}').onlineTranscription).toBe(true);
+    await press(byLabel('Back to Today'));
+    await press(byLabel('Open Journals'));
+    await press(byLabel(/^Gratitude, /));
+    await press(byLabel(/Thankful for tea/));
+    await openSheetTranscript();
+    expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
+  });
+
+  it('turning it back OFF in Settings removes the online route', async () => {
+    allowOnline();
+    noOnDevice();
+    await render(<App />);
+    await settle();
+    await press(byLabel('Open Settings'));
+    await fireEvent(
+      screen.getByRole('switch', { name: 'Transcribe voice notes online' }),
+      'valueChange',
+      false,
+    );
+    await settle();
+    expect(JSON.parse(__fs.read(`${DOC}/settings.json`) ?? '{}').onlineTranscription).toBe(false);
+    await press(byLabel('Back to Today'));
+    await press(byLabel('Open Journals'));
+    await press(byLabel(/^Gratitude, /));
+    await press(byLabel(/Thankful for tea/));
+    await press(byLabel('Open recording'));
+    expect(screen.queryByLabelText('Show transcript')).toBeNull();
   });
 });

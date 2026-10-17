@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { Alert, BackHandler, ScrollView, StyleSheet } from 'react-native';
+import { Alert, BackHandler, Platform, ScrollView, StyleSheet } from 'react-native';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { copyText } from '../services/clipboard';
 import { createFakeTranscription } from '../test/fakeTranscription';
@@ -960,6 +960,60 @@ describe('transcript', () => {
       expect(t().props.accessibilityState).toMatchObject({ disabled: true });
       await fireEvent.press(t());
       expect(fake.start).not.toHaveBeenCalled();
+    });
+
+    describe('online route line', () => {
+      const SERVERS = /^Uses .* servers$/;
+      it('shows no line for an on-device route, in the offer or the running state', async () => {
+        const v = await show();
+        await open();
+        expect(screen.queryByText(SERVERS)).toBeNull();
+        fake.setState('n1', { status: 'running' });
+        await refresh(v);
+        expect(screen.getByText('Transcribing...')).toBeTruthy();
+        expect(screen.queryByText(SERVERS)).toBeNull();
+      });
+
+      it("shows the provider line under Transcribe and while running when the route is online (iOS: Apple's)", async () => {
+        fake.setRoute('online');
+        const v = await show();
+        await open();
+        expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
+        expect(screen.getByLabelText('Transcribe')).toBeTruthy();
+        fake.setState('n1', { status: 'running' });
+        await refresh(v);
+        expect(screen.getByText('Transcribing online...')).toBeTruthy();
+        expect(screen.getByText("Uses Apple's servers")).toBeTruthy();
+      });
+
+      it("names Google's servers on Android", async () => {
+        const r = jest.replaceProperty(Platform, 'OS', 'android');
+        try {
+          fake.setRoute('online');
+          await show();
+          await open();
+          expect(screen.getByText("Uses Google's servers")).toBeTruthy();
+        } finally {
+          r.restore();
+        }
+      });
+
+      it('shows the needs-internet message for an offline failure, with Try again', async () => {
+        fake.setRoute('online');
+        const v = await show();
+        await open();
+        fake.setState('n1', {
+          status: 'failed',
+          error: { code: 'offline', message: 'x' },
+        });
+        await refresh(v);
+        expect(
+          screen.getByText(
+            "Transcribing online needs an internet connection. Try again when you're online.",
+          ),
+        ).toBeTruthy();
+        expect(screen.getByLabelText('Try again')).toBeTruthy();
+      });
     });
 
     it('shows running with Cancel, a live region and a spinner', async () => {

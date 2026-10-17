@@ -1,12 +1,24 @@
 import { File, Paths } from 'expo-file-system';
 
-/** The persisted settings. One small file on the device; nothing here ever leaves the phone. */
+/**
+ * The persisted settings. One small file on the device. The file itself never leaves the phone;
+ * `onlineTranscription` only PERMITS an online transcription run (a voice note's audio goes to
+ * Apple or Google when the user taps Transcribe), it does not send anything by itself.
+ */
 export type Settings = {
   /** Open Dream capture on the morning prompt. Defaults to on. */
   autoOpenDreamCapture: boolean;
+  /**
+   * Allow online (server) transcription when this phone cannot transcribe a voice note itself.
+   * Defaults to OFF and fails closed: a missing, damaged or non-boolean value is false.
+   */
+  onlineTranscription: boolean;
 };
 
-export const DEFAULT_SETTINGS: Settings = { autoOpenDreamCapture: true };
+export const DEFAULT_SETTINGS: Settings = {
+  autoOpenDreamCapture: true,
+  onlineTranscription: false,
+};
 
 // Paths.document can change between app updates on iOS, so resolve it on every call.
 const settingsFile = () => new File(Paths.document, 'settings.json');
@@ -28,7 +40,8 @@ async function readRaw(): Promise<Record<string, unknown> | null> {
 
 /**
  * The settings, each key validated on its own. Anything missing, damaged or of the wrong type
- * falls back to its default (on), so a damaged file never silences the morning prompt.
+ * falls back to its default (autoOpenDreamCapture on, so a damaged file never silences the morning
+ * prompt; onlineTranscription off, so a damaged file never allows audio to leave the phone).
  * Never throws.
  */
 export async function readSettings(): Promise<Settings> {
@@ -38,6 +51,10 @@ export async function readSettings(): Promise<Settings> {
       typeof raw?.autoOpenDreamCapture === 'boolean'
         ? raw.autoOpenDreamCapture
         : DEFAULT_SETTINGS.autoOpenDreamCapture,
+    onlineTranscription:
+      typeof raw?.onlineTranscription === 'boolean'
+        ? raw.onlineTranscription
+        : DEFAULT_SETTINGS.onlineTranscription,
   };
 }
 
@@ -50,6 +67,9 @@ async function writeNow(patch: Partial<Settings>): Promise<void> {
     const next: Record<string, unknown> = { ...(await readRaw()) };
     if (patch.autoOpenDreamCapture !== undefined) {
       next.autoOpenDreamCapture = patch.autoOpenDreamCapture;
+    }
+    if (patch.onlineTranscription !== undefined) {
+      next.onlineTranscription = patch.onlineTranscription;
     }
     settingsFile().write(JSON.stringify(next));
   } catch {

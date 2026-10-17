@@ -6,6 +6,7 @@ import {
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -66,6 +67,8 @@ const failureMessage = (error: TranscriptionError) => {
       return 'This device cannot transcribe voice notes on-device.';
     case 'no-model':
       return 'The offline speech model for transcription is not installed.';
+    case 'offline':
+      return "Transcribing online needs an internet connection. Try again when you're online.";
     case 'permission':
       return 'Speech recognition permission was not granted.';
     default:
@@ -122,6 +125,14 @@ function TranscriptArea({
     </Pressable>
   );
   const start = () => void transcription.start(note.id, note.uri, note.durationMs);
+  // Awareness at the point of use: shown only when the route is online (the opt-in setting is on
+  // and this phone cannot transcribe the note itself).
+  const serverLine =
+    transcription.route === 'online' ? (
+      <Text testID="voice-note-online-line" style={styles.transcriptServer}>
+        {Platform.OS === 'ios' ? "Uses Apple's servers" : "Uses Google's servers"}
+      </Text>
+    ) : null;
   let body: ReactNode = null;
   switch (view.kind) {
     case 'text':
@@ -146,6 +157,7 @@ function TranscriptArea({
             <Text style={styles.transcriptNote}>Another voice note is being transcribed.</Text>
           )}
           {action('Transcribe', start, busy || view.busyElsewhere)}
+          {serverLine}
         </>
       );
       break;
@@ -157,7 +169,10 @@ function TranscriptArea({
           style={styles.transcriptStack}
         >
           <ActivityIndicator color={colors.muted} />
-          <Text style={styles.transcriptNote}>Transcribing...</Text>
+          <Text style={styles.transcriptNote}>
+            {transcription.route === 'online' ? 'Transcribing online...' : 'Transcribing...'}
+          </Text>
+          {serverLine}
           {action('Cancel', () => transcription.cancel(note.id))}
         </View>
       );
@@ -918,6 +933,7 @@ const styles = StyleSheet.create({
   transcriptText: { color: colors.text, fontSize: 17, lineHeight: 26 },
   transcriptCentered: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   transcriptStack: { alignItems: 'center', gap: spacing.md },
+  transcriptServer: { color: colors.muted, fontSize: 13, textAlign: 'center', opacity: 0.8 },
   transcriptNote: { color: colors.muted, fontSize: 15, textAlign: 'center' },
   transcriptButton: {
     minHeight: 44,

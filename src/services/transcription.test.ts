@@ -72,3 +72,9 @@ describe('transcriptView', () => {
     expect(transcriptView('', none, false, false)).toEqual({ kind: 'empty', canRetry: false });
   });
 });
+
+describe('route (opt-in online transcription)', () => {
+  it('the default unsupported transcription has no route', () => {
+    expect(UNSUPPORTED_TRANSCRIPTION.route).toBeNull();
+  });
+});
