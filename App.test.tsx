@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, AlertButton, AppState, AppStateStatus, BackHandler, Keyboard } from 'react-native';
 import App from './App';
+import { runBackChain } from './src/test/hardwareBackChain';
 import { __fs } from './src/test/fakeFileSystem';
 import { localDateKey } from './src/utils/today';
 import { discardRecording, saveDream } from './src/services/dreamStorage';
@@ -310,10 +311,9 @@ let addListener: jest.SpyInstance;
 // Handlers registered and not yet removed (the Today "+" menu adds and removes its own).
 let liveBackHandlers: (() => boolean)[] = [];
 const hardwareBack = async (): Promise<boolean> => {
-  const handler = liveBackHandlers[liveBackHandlers.length - 1];
   let result = false;
   await act(async () => {
-    result = handler();
+    result = runBackChain(liveBackHandlers);
   });
   return result;
 };
@@ -1855,7 +1855,9 @@ describe('App launch cap timer', () => {
     const cleared: unknown[] = [];
     globalThis.setTimeout = ((fn: () => void, ms?: number) => {
       const id = fakeSet(fn, ms);
-      if (ms === 1000) capIds.push(id);
+      // Only App's own cap timer: react-navigation also sets a 1000 ms timer (useLinking), so
+      // identify ours by the file that called setTimeout.
+      if (ms === 1000 && /\/App\.tsx:\d+/.test(new Error().stack ?? '')) capIds.push(id);
       return id;
     }) as never;
     globalThis.clearTimeout = ((id: never) => {

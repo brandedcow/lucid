@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton, BackHandler } from 'react-native';
 import App from './App';
+import { runBackChain } from './src/test/hardwareBackChain';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
 import { bodyText } from './src/test/bodyText';
@@ -83,7 +84,7 @@ let handlers: (() => boolean)[] = [];
 const hardwareBack = async () => {
   let handled = false;
   await act(async () => {
-    handled = handlers.at(-1)?.() ?? false;
+    handled = runBackChain(handlers);
   });
   await settle();
   return handled;

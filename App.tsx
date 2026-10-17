@@ -3,6 +3,7 @@ import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react
 import { Alert, BackHandler, Keyboard, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RootNavigator } from './src/navigation/RootNavigator';
 import { useDreamLibrary } from './src/hooks/useDreamLibrary';
 import { useDayMarker } from './src/hooks/useDayMarker';
 import {
@@ -93,7 +94,7 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
 }
 
 // Temporary screen switch; replace with real navigation once that is decided.
-export default function App() {
+function AppScreen() {
   // null until the launch rule has decided (a blank view shows meanwhile).
   const [screen, setScreen] = useState<Screen | null>(null);
   // The journal whose log is open (or was last open): Dreams or Life.
@@ -873,4 +874,8 @@ export default function App() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+export default function App() {
+  return <RootNavigator main={AppScreen} />;
 }

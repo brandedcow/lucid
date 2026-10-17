@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, BackHandler } from 'react-native';
 import App from './App';
+import { runBackChain } from './src/test/hardwareBackChain';
 import type { Dream } from './src/types/dream';
 import { __fs } from './src/test/fakeFileSystem';
 
@@ -329,7 +330,7 @@ describe('App rename a custom journal', () => {
     await openJournals();
     await swipeRename('Gratitude');
     expect(sheetOpen()).toBe(true);
-    const sheetBack = handlers.at(-1);
+    const sheetBack = () => runBackChain(handlers);
     await act(async () => {
       expect(sheetBack?.()).toBe(true);
     });
@@ -337,7 +338,7 @@ describe('App rename a custom journal', () => {
     expect(screen.getByRole('header', { name: 'Journals' })).toBeTruthy();
     // The next Back closes the drawer, the next leaves the app.
     await act(async () => {
-      expect(handlers.at(-1)?.()).toBe(true);
+      expect(runBackChain(handlers)).toBe(true);
     });
     await drawerGone();
   });
@@ -353,7 +354,7 @@ describe('App rename a custom journal', () => {
     await settle();
     expect(screen.getByLabelText('Save').props.accessibilityState.busy).toBe(true);
     await act(async () => {
-      expect(handlers.at(-1)?.()).toBe(true);
+      expect(runBackChain(handlers)).toBe(true);
     });
     expect(sheetOpen()).toBe(true);
     await act(async () => release());
