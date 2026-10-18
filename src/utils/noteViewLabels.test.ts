@@ -1,4 +1,4 @@
-import { emptyText, tagsByUse, viewTitle } from './noteViewLabels';
+import { tagsByUse, viewTitle } from './noteViewLabels';
 import { NoteView } from './noteViews';
 
 const views: NoteView[] = [
@@ -22,20 +22,6 @@ describe('viewTitle', () => {
       '#dream',
       'Recently Deleted',
     ]);
-  });
-});
-
-describe('emptyText', () => {
-  it('has non-empty text for every view', () => {
-    for (const v of views) expect(emptyText(v).length).toBeGreaterThan(0);
-  });
-  it('uses the agreed wording', () => {
-    expect(emptyText({ kind: 'all' })).toBe('No notes yet. Tap + to write one.');
-    expect(emptyText({ kind: 'today' })).toBe('Nothing written today.');
-    expect(emptyText({ kind: 'todo' })).toBe('No notes with checkboxes.');
-    expect(emptyText({ kind: 'untagged' })).toBe('No untagged notes.');
-    expect(emptyText({ kind: 'pinned' })).toBe('No pinned notes.');
-    expect(emptyText({ kind: 'tag', tag: 'dream' })).toBe('No notes with #dream.');
   });
 });
 

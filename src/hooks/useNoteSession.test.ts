@@ -846,6 +846,90 @@ describe('pin', () => {
     await tick(1000);
     expect(stored()[0]).toMatchObject({ body: 'hello', pinned: true });
   });
+
+  describe('a failed pin and the save-error state', () => {
+    const openStored = async () => {
+      putIndex([base('5')]);
+      const h = await setup();
+      await act(async () => void api(h).open(storedNote('5')!));
+      return h;
+    };
+    const failPinOnce = () =>
+      jest.spyOn(storage, 'setPinned').mockRejectedValueOnce(new Error('pin failed'));
+    const pin = async (h: Hook) => {
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await api(h).setPinned(true);
+      });
+      return ok;
+    };
+
+    it('a pin that fails and then succeeds on retry leaves the state idle', async () => {
+      const h = await openStored();
+      failPinOnce();
+      expect(await pin(h)).toBe(false);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('idle');
+      expect(storedNote('5')?.pinned).toBe(true);
+    });
+
+    it('keeps the error when a body save failed after the pin failure', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => api(h).setBody('unsaved edit'));
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+
+    it('keeps the error when the note was trashed elsewhere', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      await softDeleteNote('5');
+      await act(async () => api(h).setBody('edited after trash'));
+      await tick(1000);
+      expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+      jest.spyOn(storage, 'setPinned').mockResolvedValueOnce(undefined as never);
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+    });
+
+    it('keeps the error when a recording is still waiting to be saved', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => {
+        api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+        await flushMicrotasks();
+      });
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+
+    it('a pin failure followed by a good flush does not taint a later unrelated error', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      await act(async () => api(h).setBody('edit one'));
+      await act(async () => void (await api(h).flush()));
+      expect(api(h).session?.saveState).toBe('idle');
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => api(h).setBody('edit two'));
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+  });
 });
 
 describe('timers', () => {
@@ -864,5 +948,68 @@ describe('timers', () => {
     await act(async () => void (await api(h).leave()));
     expect((await saveNote({ id: 'zz', body: 'x' })).note).not.toBeNull();
     expect((await listNotes()).map((n) => n.body).sort()).toEqual(['final', 'x']);
+  });
+});
+
+// Intended difference (architect ruling for chunk 7a-1, point 5): `trash()` is the user choosing to
+// delete the note, so cache recordings that nothing can reference any more are discarded; `leave()`
+// on a note trashed elsewhere is not that choice, and the cache files may be the only copy.
+describe('cache files: trash() clears them, leave() keeps them (intended)', () => {
+  /** A stored note trashed elsewhere, then edited with an unsaved cache recording attached. */
+  async function trashedElsewhereWithCacheRecording() {
+    putIndex([base('5')]);
+    const h = await setup();
+    await act(async () => void api(h).open(storedNote('5')!));
+    await softDeleteNote('5');
+    await act(async () => {
+      api(h).setBody('edited after the note was trashed');
+      api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+      await flushMicrotasks();
+    });
+    expect(api(h).session?.saveState).toBe('error');
+    expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+    expect(__fs.has(CACHE_A)).toBe(true);
+    return h;
+  }
+
+  it('trash() after NOTE_IN_TRASH discards the cache files (the user chose to delete)', async () => {
+    const h = await trashedElsewhereWithCacheRecording();
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await api(h).trash();
+    });
+    expect(ok).toBe(true);
+    expect(api(h).session).toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(false);
+  });
+
+  it('leave() after NOTE_IN_TRASH keeps the cache files (they may be the only copy)', async () => {
+    const h = await trashedElsewhereWithCacheRecording();
+    let result: { kept: boolean } | undefined;
+    await act(async () => {
+      result = await api(h).leave();
+    });
+    expect(result).toEqual({ kept: false });
+    expect(api(h).session).toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(true);
+  });
+
+  it('trash() whose own save fails (note not in the trash) leaves the cache file and the session', async () => {
+    const h = await setup();
+    await act(async () => api(h).openNew());
+    __fs.failNext('write');
+    await act(async () => {
+      api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+      await flushMicrotasks();
+    });
+    expect(api(h).session?.saveState).toBe('error');
+    __fs.failNext('write');
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await api(h).trash();
+    });
+    expect(ok).toBe(false);
+    expect(api(h).session).not.toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(true);
   });
 });

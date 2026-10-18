@@ -29,6 +29,18 @@ const codeOf = (error: unknown): string | undefined => {
   return typeof code === 'string' ? code : undefined;
 };
 
+/** Recordings still to write: new ones, and stored ones whose transcript text changed. */
+const pendingRecordingWork = (s: NoteSession) => ({
+  additions: s.recordings.filter((r) => !r.persisted && !r.removed),
+  texts: s.recordings.filter(
+    (r) =>
+      r.persisted &&
+      r.fileName !== undefined &&
+      r.voiceTranscript !== undefined &&
+      r.voiceTranscript !== r.baseVoiceTranscript,
+  ),
+});
+
 type SaveOutcome = { ok: true } | { ok: false; error: unknown };
 type LeaveResult = { kept: boolean; error?: unknown };
 
@@ -107,6 +119,8 @@ export function useNoteSession(opts?: {
   const createdFired = useRef(false);
   const trashedByUs = useRef(false);
   const trashedElsewhere = useRef(false);
+  // A pin change failed and set the error state; lets a later successful pin clear only that error.
+  const pinFailed = useRef(false);
   const leaving = useRef(false);
   const leavePromise = useRef<Promise<LeaveResult> | null>(null);
   // Set after render; lets the save code (defined earlier) re-arm the timers.
@@ -177,14 +191,7 @@ export function useNoteSession(opts?: {
       const s = latest.current;
       if (!s || trashedElsewhere.current) return { ok: true };
       const rev = revision.current;
-      const additions = s.recordings.filter((r) => !r.persisted && !r.removed);
-      const texts = s.recordings.filter(
-        (r) =>
-          r.persisted &&
-          r.fileName !== undefined &&
-          r.voiceTranscript !== undefined &&
-          r.voiceTranscript !== r.baseVoiceTranscript,
-      );
+      const { additions, texts } = pendingRecordingWork(s);
       if (rev === savedRevision.current && additions.length === 0 && texts.length === 0) {
         return { ok: true };
       }
@@ -235,6 +242,7 @@ export function useNoteSession(opts?: {
         });
       }
       savedRevision.current = rev;
+      pinFailed.current = false;
       if (note !== null) {
         const first = !s.stored;
         if (typeof note.deletedAt === 'string') trashedByUs.current = true;
@@ -304,6 +312,7 @@ export function useNoteSession(opts?: {
     createdFired.current = false;
     trashedByUs.current = false;
     trashedElsewhere.current = false;
+    pinFailed.current = false;
     leaving.current = false;
     leavePromise.current = null;
   }, [clearTimers]);
@@ -410,9 +419,23 @@ export function useNoteSession(opts?: {
         try {
           await storeSetPinned(s.id, pinned);
           dispatch({ type: 'setPinned', pinned });
+          if (pinFailed.current) {
+            pinFailed.current = false;
+            const { additions, texts } = pendingRecordingWork(latest.current ?? s);
+            if (
+              latest.current?.saveState === 'error' &&
+              !trashedElsewhere.current &&
+              revision.current === savedRevision.current &&
+              additions.length === 0 &&
+              texts.length === 0
+            ) {
+              dispatch({ type: 'saveState', state: 'idle' });
+            }
+          }
           changed();
           return true;
         } catch (error) {
+          pinFailed.current = true;
           failState(error);
           return false;
         }
