@@ -61,8 +61,8 @@ export function RootNavigator({
         <Stack.Screen
           name="Add"
           component={add}
-          // The default push. The swipe back starts off; the page turns it on while leaving needs
-          // no prompt (see `leavesWithoutPrompt`).
+          // The default push. The native swipe back starts off; the page turns it on while leaving
+          // needs no prompt (see `leavesWithoutPrompt`); otherwise its own edge swipe asks.
           options={{ animation: 'default', gestureEnabled: false }}
         />
       </Stack.Navigator>

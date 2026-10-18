@@ -12,11 +12,22 @@ jest.mock('expo-audio', () => ({
 }));
 
 function Probe() {
-  const { current, startCapture, openDraft, navigationRef } = useAppFlow();
+  const { current, startCapture, openDraft, navigationRef, entry, finishSystemLeave, allowLeave } =
+    useAppFlow();
   return (
     <>
       <Text>{`current:${String(current)}`}</Text>
       <Text>{`ready:${navigationRef.isReady()}`}</Text>
+      <Text>{`session:${entry.session ? 'open' : 'none'}`}</Text>
+      <Text>{`allowLeave:${allowLeave}`}</Text>
+      <Pressable
+        onPress={() => {
+          finishSystemLeave();
+          finishSystemLeave();
+        }}
+      >
+        <Text>finish-twice</Text>
+      </Pressable>
       <Pressable onPress={() => startCapture('dreams')}>
         <Text>start</Text>
       </Pressable>
@@ -56,5 +67,24 @@ describe('AppFlowProvider without a navigator', () => {
     await fireEvent.press(screen.getByText('start'));
     await fireEvent.press(screen.getByText('draft'));
     expect(screen.getByText('current:today')).toBeTruthy();
+  });
+
+  it('finishSystemLeave clears the session and is safe to run twice; allowLeave stays down off the Add route', async () => {
+    __fs.reset();
+    __fs.put('file:///document/settings.json', JSON.stringify({ autoOpenDreamCapture: false }));
+    await render(
+      <AppFlowProvider>
+        <Probe />
+      </AppFlowProvider>,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await fireEvent.press(screen.getByText('start'));
+    expect(screen.getByText('session:open')).toBeTruthy();
+    await fireEvent.press(screen.getByText('finish-twice'));
+    expect(screen.getByText('session:none')).toBeTruthy();
+    expect(screen.getByText('allowLeave:false')).toBeTruthy();
+    expect(__fs.read('file:///document/no-dream.json')).toBeUndefined();
   });
 });

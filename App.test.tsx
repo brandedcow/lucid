@@ -3070,6 +3070,8 @@ describe('App Add route', () => {
   });
 
   describe('the iOS swipe (gestureEnabled)', () => {
+    // The native swipe is on only while Back leaves at once; a page that would ask has it off (the
+    // app's own edge swipe, device-only, opens the prompt) and a system pop shows the same prompt.
     it('is on for an empty new page and off once something is typed', async () => {
       await renderApp();
       await addEntry('Dreams');
@@ -3078,16 +3080,21 @@ describe('App Add route', () => {
       expect(gesture()).toBe(false);
     });
 
-    it('follows typed text: off when something is typed, on when it is cleared again', async () => {
+    it('a swipe (system pop) on a typed page opens the prompt; clearing the text makes it leave silently', async () => {
       await renderApp();
       await addEntry('Dreams');
       await press('stub-add-set-title');
-      expect(gesture()).toBe(false);
+      await directGoBack();
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await choose('Keep writing');
       await press('stub-add-clear-title');
-      expect(gesture()).toBe(true);
+      await directGoBack();
+      expect(alertCount()).toBe(1);
+      expect(routeNames()).toEqual(['Main']);
     });
 
-    it('is off while a save is in flight and the swipe/goBack is ignored', async () => {
+    it('a save in flight turns the native swipe off and ignores a system pop (no prompt, the page stays)', async () => {
       let resolve: (v: unknown) => void = () => {};
       jest.mocked(saveDream).mockReturnValue(new Promise((r) => (resolve = r)) as any);
       await renderApp();
@@ -3103,7 +3110,7 @@ describe('App Add route', () => {
       expect(routeNames()).toEqual(['Main']);
     });
 
-    it('is off while the open entry is being deleted, and goBack is ignored', async () => {
+    it('while the open entry is being deleted the swipe is ignored, and the page pops once when the delete ends', async () => {
       let release: () => void = () => {};
       mockLibrary.onRemove = () => new Promise<void>((r) => (release = r));
       await renderApp();
@@ -3120,16 +3127,23 @@ describe('App Add route', () => {
       expect(routeNames()).toEqual(['Main']);
     });
 
-    it('for an edit: on while unchanged, off once changed', async () => {
+    it('for an edit: unchanged leaves silently, changed asks to discard (Keep editing stays)', async () => {
       await renderApp();
       await openDreamLog();
       await press('stub-open-dream');
       expect(gesture()).toBe(true);
       await press('stub-add-set-title');
       expect(gesture()).toBe(false);
+      await directGoBack();
+      expect(alertCount()).toBe(1);
+      expect(lastAlertButtons().map((b) => b.text)).toEqual(['Keep editing', 'Discard']);
+      await choose('Keep editing');
+      expect(routeNames()).toEqual(['Main', 'Add']);
+      await choose('Discard');
+      expect(routeNames()).toEqual(['Main']);
     });
 
-    it('a clean launch page is swipeable and the swipe counts as No dream', async () => {
+    it('a clean launch page: the swipe pops once and counts as No dream', async () => {
       putSettings(true);
       mockLibrary.dreams = [oldDream];
       await renderApp();
@@ -3139,12 +3153,33 @@ describe('App Add route', () => {
       expect(routeNames()).toEqual(['Main']);
       expectToday();
       expect(screen.getByText('No dream today')).toBeTruthy();
+      expect(__fs.read(`${DOC}/no-dream.json`)).toContain(todayKeyNow());
     });
 
-    // Every state: the swipe is on exactly when Back leaves at once with no prompt.
+    it('a clean page: the arrow, hardware back and a system pop each pop exactly once and clear the session', async () => {
+      await renderApp();
+      const pops: number[] = [];
+      for (const leave of [
+        () => press('stub-add-back'),
+        () => hardwareBack(),
+        () => directGoBack(),
+      ]) {
+        await addEntry('Dreams');
+        alertReset();
+        await leave();
+        await flush();
+        expect(alertCount()).toBe(0);
+        pops.push(routeNames().length);
+        expect(routeNames()).toEqual(['Main']);
+        expectToday();
+      }
+      expect(pops).toEqual([1, 1, 1]);
+    });
+
+    // Every state: the removal asks exactly when backFromAdd would ask; otherwise it leaves once.
     it.each([
-      ['an empty new page', async () => {}],
-      ['a new page with a title', async () => press('stub-add-set-title')],
+      ['an empty new page', async () => {}, false],
+      ['a new page with a title', async () => press('stub-add-set-title'), true],
       [
         'an unchanged edit',
         async () => {
@@ -3152,6 +3187,7 @@ describe('App Add route', () => {
           await openDreamLog();
           await press('stub-open-dream');
         },
+        false,
       ],
       [
         'a changed edit',
@@ -3161,6 +3197,7 @@ describe('App Add route', () => {
           await press('stub-open-dream');
           await press('stub-add-set-title');
         },
+        true,
       ],
       [
         'a stored draft',
@@ -3169,16 +3206,17 @@ describe('App Add route', () => {
           await openDreamLog();
           await press('stub-open-draft');
         },
+        true,
       ],
-    ] as const)('agrees with backFromAdd for %s', async (_name, setup) => {
+    ] as const)('agrees with backFromAdd for %s', async (_name, setup, asks) => {
       await renderApp();
       await addEntry('Dreams');
       await setup();
-      const swipeOn = gesture();
+      expect(gesture()).toBe(!asks);
       jest.mocked(Alert.alert).mockClear();
       await directGoBack();
-      const leftSilently = alertCount() === 0 && routeNames().length === 1;
-      expect(swipeOn).toBe(leftSilently);
+      expect(alertCount()).toBe(asks ? 1 : 0);
+      expect(routeNames().length).toBe(asks ? 2 : 1);
     });
   });
 
@@ -3233,6 +3271,95 @@ describe('App Add route', () => {
       await choose('Discard');
       expect(routeNames()).toEqual(['Main']);
       expect(screen.queryByText('No dream today')).toBeNull();
+    });
+  });
+
+  describe('one pop per exit', () => {
+    // A second pop would be invisible on a stack of one route, so count the pops themselves.
+    let pops = 0;
+    let unsubscribe = () => {};
+    const track = () => {
+      pops = 0;
+      let last = routeNames().length;
+      unsubscribe = mockNav.current.addListener('state', () => {
+        const n = routeNames().length;
+        if (n < last) pops += 1;
+        last = n;
+      });
+    };
+    afterEach(() => unsubscribe());
+
+    const exits: [string, () => Promise<unknown>][] = [
+      ['the arrow on a clean page', async () => press('stub-add-back')],
+      ['hardware back on a clean page', async () => hardwareBack()],
+      ['a system pop on a clean page', async () => directGoBack()],
+      [
+        'Discard',
+        async () => {
+          await press('stub-add-set-body');
+          await press('stub-add-back');
+          await choose('Discard');
+        },
+      ],
+      [
+        'Save draft',
+        async () => {
+          await press('stub-add-set-body');
+          await directGoBack();
+          await choose('Save draft');
+        },
+      ],
+      [
+        'Save',
+        async () => {
+          await press('stub-add-set-title');
+          await press('stub-add-save');
+        },
+      ],
+    ];
+    it.each(exits)('%s pops exactly once', async (_name, leave) => {
+      await renderApp();
+      await addEntry('Dreams');
+      track();
+      await leave();
+      await flush();
+      expect(pops).toBe(1);
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('delete from the page pops exactly once', async () => {
+      await renderApp();
+      await openDreamLog();
+      await press('stub-open-dream');
+      track();
+      await press('stub-add-delete');
+      await alertDelete();
+      await flush();
+      expect(pops).toBe(1);
+      expect(routeNames()).toEqual(['Main']);
+    });
+
+    it('No dream on the launch page pops exactly once (arrow)', async () => {
+      putSettings(true);
+      mockLibrary.dreams = [oldDream];
+      await renderApp();
+      track();
+      await press('stub-add-back');
+      await flush();
+      expect(pops).toBe(1);
+      expect(__fs.read(`${DOC}/no-dream.json`)).toContain(todayKeyNow());
+    });
+
+    it('Keep writing stays: no pop', async () => {
+      await renderApp();
+      await addEntry('Dreams');
+      await press('stub-add-set-body');
+      track();
+      await directGoBack();
+      await choose('Keep writing');
+      await flush();
+      expect(pops).toBe(0);
+      expect(routeNames()).toEqual(['Main', 'Add']);
     });
   });
 

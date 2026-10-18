@@ -11,6 +11,11 @@ import {
   backTarget,
   discardChangesMessage,
   leavesWithoutPrompt,
+  BACK_EDGE_DISTANCE,
+  BACK_EDGE_VELOCITY,
+  BACK_EDGE_ZONE,
+  completesBackEdgeSwipe,
+  startsBackEdgeSwipe,
   type LeaveInput,
 } from './sessionNavigation';
 
@@ -107,5 +112,35 @@ describe('leavesWithoutPrompt', () => {
     ['a delete in flight on an empty page', { deleting: true }, false],
   ] as [string, Partial<LeaveInput>, boolean][])('%s -> %s', (_name, patch, expected) => {
     expect(leavesWithoutPrompt({ ...idle, ...patch })).toBe(expected);
+  });
+});
+
+describe('startsBackEdgeSwipe', () => {
+  const ok = { x0: 5, dx: 20, dy: 3 };
+  it('starts for a mostly horizontal rightward drag from the edge zone', () => {
+    expect(startsBackEdgeSwipe(ok)).toBe(true);
+    expect(startsBackEdgeSwipe({ ...ok, x0: BACK_EDGE_ZONE })).toBe(true);
+  });
+  it.each([
+    ['starts outside the zone', { x0: BACK_EDGE_ZONE + 1 }],
+    ['starts well inside the page', { x0: 40 }],
+    ['has not moved past the threshold', { dx: 10 }],
+    ['goes left', { dx: -30 }],
+    ['is vertical', { dx: 20, dy: 40 }],
+    ['is only 1.5:1 horizontal', { dx: 30, dy: 20 }],
+  ])('does not start when it %s', (_n, patch) => {
+    expect(startsBackEdgeSwipe({ ...ok, ...patch })).toBe(false);
+  });
+});
+
+describe('completesBackEdgeSwipe', () => {
+  it('completes by distance or by velocity', () => {
+    expect(completesBackEdgeSwipe({ dx: BACK_EDGE_DISTANCE, vx: 0 })).toBe(true);
+    expect(completesBackEdgeSwipe({ dx: 15, vx: BACK_EDGE_VELOCITY })).toBe(true);
+  });
+  it('does not complete a short slow drag (an early lift)', () => {
+    expect(
+      completesBackEdgeSwipe({ dx: BACK_EDGE_DISTANCE - 1, vx: BACK_EDGE_VELOCITY - 0.1 }),
+    ).toBe(false);
   });
 });

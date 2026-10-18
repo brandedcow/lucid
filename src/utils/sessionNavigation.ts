@@ -34,10 +34,29 @@ export type LeaveInput = {
   deleting: boolean;
 };
 
+/** The left-edge zone (points) where the app's own back swipe may start on a page that asks. */
+export const BACK_EDGE_ZONE = 20;
+/** How far (points) that swipe must travel to open the prompt. */
+export const BACK_EDGE_DISTANCE = 40;
+/** Or how fast (points per ms) it must be moving on release. */
+export const BACK_EDGE_VELOCITY = 0.5;
+
+/** Whether a moving touch is the back edge swipe: started in the edge zone, mostly horizontal. */
+export function startsBackEdgeSwipe(g: { x0: number; dx: number; dy: number }): boolean {
+  return g.x0 <= BACK_EDGE_ZONE && g.dx > 10 && g.dx > Math.abs(g.dy) * 2;
+}
+
+/** Whether a released back edge swipe went far or fast enough to open the prompt. */
+export function completesBackEdgeSwipe(g: { dx: number; vx: number }): boolean {
+  return g.dx >= BACK_EDGE_DISTANCE || g.vx >= BACK_EDGE_VELOCITY;
+}
+
 /**
  * True when Back on the add-entry page would leave at once, with no prompt, no recording discard
- * confirm and no ignored press: the iOS swipe-back is only on then. Mirrors the branches of App's
- * `backFromAdd`; keep the two in step.
+ * confirm and no ignored press. The Add route does not prevent removal then (the system pops it
+ * and the leave's side effects run from a listener) and the native iOS swipe is on; otherwise every
+ * removal goes to `backFromAdd` and the native swipe is off (the back edge swipe replaces it).
+ * Mirrors the branches of App's `backFromAdd`; keep the two in step.
  */
 export function leavesWithoutPrompt(input: LeaveInput): boolean {
   if (input.recording || input.saving || input.deleting) return false;

@@ -245,7 +245,7 @@ describe('App voice entry', () => {
       expect(mockRec.stop).not.toHaveBeenCalled();
     });
 
-    it('turns the swipe off, and a swipe or system pop asks to discard; Discard stops it and pops', async () => {
+    it('turns the native swipe off, and a swipe or system pop asks to discard; Discard stops it and pops', async () => {
       await openNewGratitude();
       expect(mockNav.current.getCurrentOptions().gestureEnabled).toBe(true);
       await press(byLabel('Record voice note'));

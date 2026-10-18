@@ -91,6 +91,13 @@ function useAppFlowValue() {
   // Set just before the app itself pops the Add route, so the route's `beforeRemove` guard lets
   // that one removal through (every other removal goes to `backFromAdd`).
   const allowLeaveRef = useRef(false);
+  // The same fact as state: the Add route stops preventing removal in the render where this is
+  // true, and only then pops (see `leaveFlow`). The ref is for synchronous reads in listeners.
+  const [allowLeave, setAllowLeave] = useState(false);
+  const resetAllowLeave = () => {
+    allowLeaveRef.current = false;
+    setAllowLeave(false);
+  };
   // The screen the user sees: the Add route when it is on top, else the screen switch's. The switch
   // keeps its own value underneath (and never holds 'add' itself any more).
   const current: Screen | null = addOpen ? 'add' : screen;
@@ -98,11 +105,17 @@ function useAppFlowValue() {
   // ready or while the page is already up (a resume or a second tap never stacks a second one).
   const openAdd = () => {
     if (!navigationRef.isReady() || navigationRef.getCurrentRoute()?.name === 'Add') return;
+    resetAllowLeave();
     navigationRef.navigate('Add');
     setAddOpen(true);
   };
   // Re-reads from the container whether Add is on top (after any push or pop, from any source).
-  const syncAddOpen = () => setAddOpen(navigationRef.getCurrentRoute()?.name === 'Add');
+  const syncAddOpen = () => {
+    const onAdd = navigationRef.getCurrentRoute()?.name === 'Add';
+    // Once Add is gone the one-shot permission to leave is spent.
+    if (!onAdd) resetAllowLeave();
+    setAddOpen(onAdd);
+  };
   // The add-entry page's recorder: true while it starts or runs (readable synchronously), and the
   // page's discard confirmation for back to open.
   const entryRecordingRef = useRef(false);
@@ -290,6 +303,13 @@ function useAppFlowValue() {
 
   // The drawer is never left open behind another screen.
   if (journalsOpen && current !== 'today') setJournalsOpen(false);
+  // A journal delete that sent the open entry away wants the drawer open on Today. The page pops a
+  // render after the delete (see `leaveFlow`), so the drawer opens once Today is what shows.
+  const [drawerAfterLeave, setDrawerAfterLeave] = useState(false);
+  if (drawerAfterLeave && current === 'today') {
+    setDrawerAfterLeave(false);
+    setJournalsOpen(true);
+  }
 
   // A screen showing the journal that is being deleted (its log, or one of its entries open on the
   // add-entry page) goes back to Today with the Journals drawer open (where the delete shows) instead
@@ -346,23 +366,45 @@ function useAppFlowValue() {
 
   // Where a flow ends: the screen it started from, which is still mounted under the Add route (so a
   // log keeps `journalId`, its filter, search and scroll; Today, Search and Settings keep theirs).
-  // If a log's journal was deleted meanwhile, Today. The allow flag lets this one pop past the
-  // route's `beforeRemove` guard.
+  // If a log's journal was deleted meanwhile, Today. It does not pop: it raises the allow flag (ref
+  // and state), the Add route stops preventing removal in that render, and its effect then pops
+  // once. A pop made in the same tick would still meet the prevention of the previous render.
   const leaveFlow = () => {
     if (screen === 'log' && !visibleJournals.some((j) => j.id === journalId)) setScreen('today');
     if (!navigationRef.isReady() || navigationRef.getCurrentRoute()?.name !== 'Add') return;
     allowLeaveRef.current = true;
-    navigationRef.goBack();
-    // The container's state is already updated; follow it now, not on its change callback.
-    syncAddOpen();
+    setAllowLeave(true);
   };
 
   // No dream: in memory first, so Today shows it at once; the file write follows and a failed
-  // write never blocks leaving. Used by Back on an empty launch page (and a discarded recording on it); it pops to Today.
-  const handleNoDream = () => {
+  // write never blocks leaving.
+  const recordNoDream = () => {
     dayMarker.markNoDream(todayKey);
     setScreen('today');
+  };
+
+  // No dream by Back on an empty launch page (and a discarded recording on it); it pops to Today.
+  const handleNoDream = () => {
+    recordNoDream();
     leaveFlow();
+  };
+
+  // The add page was removed by the system (the iOS swipe, the arrow, Android back) while leaving
+  // needed no prompt: only the side effects of leaving remain, the route is going anyway. An empty
+  // new page on the launch Dreams page counts as No dream (Today is already underneath).
+  const finishSystemLeave = () => {
+    const current = entry.session;
+    entry.clear();
+    if (
+      current &&
+      current.origin === 'new' &&
+      launchPage &&
+      current.journalId === DREAMS_JOURNAL &&
+      !entryHasContent(current) &&
+      !hasPendingAudioRemoval(current)
+    ) {
+      recordNoDream();
+    }
   };
 
   // The add page pops the route, which cannot be done while rendering, so it is an effect.
@@ -377,7 +419,7 @@ function useAppFlowValue() {
     entry.clear();
     leaveFlow();
     setScreen('today');
-    setJournalsOpen(true);
+    setDrawerAfterLeave(true);
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the condition turns true
   }, [addShowsDeletingJournal]);
@@ -729,6 +771,9 @@ function useAppFlowValue() {
     screen,
     navigationRef,
     allowLeaveRef,
+    allowLeave,
+    resetAllowLeave,
+    finishSystemLeave,
     syncAddOpen,
     setScreen,
     journals,
