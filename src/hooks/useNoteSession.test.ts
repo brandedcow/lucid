@@ -866,3 +866,66 @@ describe('timers', () => {
     expect((await listNotes()).map((n) => n.body).sort()).toEqual(['final', 'x']);
   });
 });
+
+// Intended difference (architect ruling for chunk 7a-1, point 5): `trash()` is the user choosing to
+// delete the note, so cache recordings that nothing can reference any more are discarded; `leave()`
+// on a note trashed elsewhere is not that choice, and the cache files may be the only copy.
+describe('cache files: trash() clears them, leave() keeps them (intended)', () => {
+  /** A stored note trashed elsewhere, then edited with an unsaved cache recording attached. */
+  async function trashedElsewhereWithCacheRecording() {
+    putIndex([base('5')]);
+    const h = await setup();
+    await act(async () => void api(h).open(storedNote('5')!));
+    await softDeleteNote('5');
+    await act(async () => {
+      api(h).setBody('edited after the note was trashed');
+      api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+      await flushMicrotasks();
+    });
+    expect(api(h).session?.saveState).toBe('error');
+    expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+    expect(__fs.has(CACHE_A)).toBe(true);
+    return h;
+  }
+
+  it('trash() after NOTE_IN_TRASH discards the cache files (the user chose to delete)', async () => {
+    const h = await trashedElsewhereWithCacheRecording();
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await api(h).trash();
+    });
+    expect(ok).toBe(true);
+    expect(api(h).session).toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(false);
+  });
+
+  it('leave() after NOTE_IN_TRASH keeps the cache files (they may be the only copy)', async () => {
+    const h = await trashedElsewhereWithCacheRecording();
+    let result: { kept: boolean } | undefined;
+    await act(async () => {
+      result = await api(h).leave();
+    });
+    expect(result).toEqual({ kept: false });
+    expect(api(h).session).toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(true);
+  });
+
+  it('trash() whose own save fails (note not in the trash) leaves the cache file and the session', async () => {
+    const h = await setup();
+    await act(async () => api(h).openNew());
+    __fs.failNext('write');
+    await act(async () => {
+      api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+      await flushMicrotasks();
+    });
+    expect(api(h).session?.saveState).toBe('error');
+    __fs.failNext('write');
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await api(h).trash();
+    });
+    expect(ok).toBe(false);
+    expect(api(h).session).not.toBeNull();
+    expect(__fs.has(CACHE_A)).toBe(true);
+  });
+});
