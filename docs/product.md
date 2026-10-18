@@ -71,7 +71,7 @@ Status: **Built** (the same behavior carries over to notes). Transcription after
 - The waveform button in the toolbar opens a recording panel at the bottom of the page. It starts idle (a large timer, a flat waveform and a big red button); tapping the red button starts recording (the time and a live waveform; no pause) and tapping it again stops. Closing the idle panel (its handle, or back) needs no confirmation.
 - When a recording stops, a card appears above the body: play/pause, a waveform that fills in as the voice note plays, its length, and a close button. The toolbar button stays available, so a note can hold several voice notes (no limit); with several, the cards sit in a row the user swipes sideways in the order recorded (the next one peeks in, with page dots) and only one plays at a time.
 - Tapping a card opens the **expanded view**: share, trash, a large waveform to scrub, the time, back and forward 15 seconds, play/pause and a playback-speed button; with several voice notes the user swipes between them. Trash is the same as the card's close.
-- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Status: **Planned**. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. What happens to held recordings when the note is left is Open (see Open decisions).
+- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Status: **Planned**. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. When the note is left, its held recordings are permanently deleted from the phone (**Planned**).
 - Voice notes are kept with the note when it is saved. The app does not yet turn a voice note into text: the body is typed (transcribing after recording is planned and needs a device test; there is no live text while recording). Transcription, when built, runs on the device only.
 
 ### Launch and first note of the day
@@ -97,7 +97,7 @@ Status: **Planned** (the app currently has different list screens).
 - Tags in the drawer are flat, shown with how many notes use them, sorted alphabetically. Open: whether the drawer shows every tag or only the most used.
 - Which day a note belongs to follows when it was first stored, in the device's local time.
 - Rows swipe to delete (this moves the note to Recently Deleted). Screen readers get a "Delete" action on every row instead of the swipe.
-- Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row (the swipe directions are to be designed). Open: whether pinned notes also sort first in the main list.
+- Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row (the swipe directions are to be designed). Pinning does not change a note's order in the main list, which stays by edit time (**Planned**).
 
 ### Opening a saved note
 
@@ -112,7 +112,9 @@ Status: **Planned**. The app today deletes permanently with no trash.
 
 - **Delete** (in the "..." menu, or by swiping a row) moves the note to **Recently Deleted**. Its voice notes are kept with it. Nothing is removed from the phone at this point. When deleted from the editor, the app returns to where the note was opened, with no prompt.
 - In Recently Deleted the user can **Restore** a note (it returns to the list with its voice notes) or **Delete forever**.
-- **Delete forever** and **Empty Recently Deleted** are the only ways a note and its voice notes' audio are permanently removed. Both ask for confirmation first and say that they can't be undone.
+- **Delete forever** and **Empty Recently Deleted** are the only ways a whole note and its voice notes' audio are permanently removed, apart from one case: when the user leaves a note, voice notes they closed in it (held recordings) are permanently deleted from the phone. Both Delete forever and Empty Recently Deleted ask for confirmation first and say that they can't be undone.
+- **Safety copies.** Delete forever does not remove leftover safety copies named `notes.corrupt-...` (rare; they exist only after a storage damage event). It does remove the deleted note's text from the other backup copies.
+- Emptying an existing note (all text removed and no voice notes) moves it to Recently Deleted (**Planned**). A pinned note moved to Recently Deleted keeps its pin, so Restore brings it back pinned (**Planned**).
 - There is no automatic purge: nothing in Recently Deleted is ever removed unless the user chooses to. (Decided 2026-10-18; a time-based purge would need a separate decision and a change to the deletion rules.)
 - If a delete fails, an alert says so and the note stays.
 
@@ -192,8 +194,7 @@ Do not build these unless explicitly asked:
 
 These are undecided. Ask before assuming an answer.
 
-- What happens to held recordings (voice notes closed on a note) when the note is left. They would be removed from the phone then, as the old explicit-save flow did on save. This needs approval of a new case in the deletion allow-list before it is built.
 - How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
 - How markdown is shown in the editor, and whether there is also a rendered reading view with tap-to-toggle checkboxes (a technical decision for the architect).
-- Whether pinned notes sort first in the main list, whether the drawer shows every tag, and where Search is entered from.
+- Whether the drawer shows every tag, and where Search is entered from.
 - Whether transcribing a voice note into text after recording works well enough on device (needs a device test).
