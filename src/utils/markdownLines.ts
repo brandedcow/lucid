@@ -164,6 +164,60 @@ function tokenizeLine(line: string, eol: string): MarkdownLine {
   return out;
 }
 
+export interface ListPrefix {
+  kind: 'bullet' | 'numbered' | 'checkbox';
+  /** Leading whitespace. */
+  indent: string;
+  /** The marker exactly as written: '- ', '* ', '12. ', '- [ ] ', '- [x]' (checkbox trailing space is optional). */
+  marker: string;
+  /** Bullet and checkbox lines. */
+  bullet?: '-' | '*';
+  /** Numbered lines. */
+  number?: number;
+  /** Checkbox lines. */
+  checked?: boolean;
+  /** indent + marker length: the offset where the content starts. */
+  length: number;
+}
+
+/**
+ * The list prefix of a single line (no line ending), or null for plain lines, headings and quotes.
+ * Uses the same patterns as the tokenizer, so both agree on what counts as a list item.
+ */
+export function parseListPrefix(line: string): ListPrefix | null {
+  let m: RegExpMatchArray | null;
+  if ((m = line.match(CHECKBOX))) {
+    return {
+      kind: 'checkbox',
+      indent: m[1],
+      marker: m[0].slice(m[1].length),
+      bullet: m[2] as '-' | '*',
+      checked: m[3] !== ' ',
+      length: m[0].length,
+    };
+  }
+  if ((m = line.match(BULLET))) {
+    return {
+      kind: 'bullet',
+      indent: m[1],
+      marker: m[0].slice(m[1].length),
+      bullet: m[0].trimStart()[0] as '-' | '*',
+      length: m[0].length,
+    };
+  }
+  if ((m = line.match(NUMBERED))) {
+    const marker = m[0].slice(m[1].length);
+    return {
+      kind: 'numbered',
+      indent: m[1],
+      marker,
+      number: parseInt(marker, 10),
+      length: m[0].length,
+    };
+  }
+  return null;
+}
+
 /** Tokenizes a note body into lines of styled runs. Accepts "\n", "\r\n" and "\r" line endings. */
 export function markdownLines(body: string): MarkdownLine[] {
   const out: MarkdownLine[] = [];
