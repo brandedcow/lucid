@@ -25,12 +25,10 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
 // add page is its own route over this one; this keeps showing the screen it was opened from.
 function MainRoute() {
   const {
-    current,
     screen,
     setScreen,
     journals,
     journalFor,
-    journalRegistry,
     settings,
     library,
     dayMarker,
@@ -39,14 +37,10 @@ function MainRoute() {
     searchView,
     journalsOpen,
     setJournalsOpen,
-    namingJournal,
     setNamingJournal,
-    renamingJournal,
-    renamingJournalId,
     setRenamingJournalId,
     deletingDream,
     deletingJournalId,
-    live,
     visibleRecords,
     visibleJournals,
     logEntries,
@@ -55,11 +49,9 @@ function MainRoute() {
     journalsLocked,
     showLog,
     deleteDreamFor,
-    canRenameJournal,
     requestRenameJournal,
     requestDeleteJournal,
     performBack,
-    startCapture,
     openDraft,
     openEntryForEdit,
     openEntryById,
@@ -141,6 +133,33 @@ function MainRoute() {
           onOpenDream={(id) => openEntryById(id)}
         />
       )}
+    </>
+  );
+}
+
+// The shell: the shared "+" button and its sheet, both journal-name sheets and the status bar. It is
+// rendered once above the navigator, so it stays put while screens slide beneath it.
+function Shell() {
+  const {
+    current,
+    journals,
+    journalRegistry,
+    journalsOpen,
+    namingJournal,
+    setNamingJournal,
+    renamingJournal,
+    renamingJournalId,
+    setRenamingJournalId,
+    deletingDream,
+    visibleJournals,
+    live,
+    showLog,
+    canRenameJournal,
+    startCapture,
+  } = useAppFlow();
+
+  return (
+    <>
       <NewJournalSheet
         visible={namingJournal && current !== 'add'}
         onClose={() => setNamingJournal(false)}
@@ -195,14 +214,17 @@ function AppNavigator() {
   const { screen, navigationRef, syncAddOpen, current } = useAppFlow();
   if (screen === null) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   return (
-    <RootNavigator
-      main={MainRoute}
-      add={AddRoute}
-      navigationRef={navigationRef}
-      startInAdd={current === 'add'}
-      onReady={syncAddOpen}
-      onStateChange={syncAddOpen}
-    />
+    <>
+      <RootNavigator
+        main={MainRoute}
+        add={AddRoute}
+        navigationRef={navigationRef}
+        startInAdd={current === 'add'}
+        onReady={syncAddOpen}
+        onStateChange={syncAddOpen}
+      />
+      <Shell />
+    </>
   );
 }
 

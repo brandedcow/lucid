@@ -2055,6 +2055,17 @@ describe('App resume on a new day', () => {
     expectLaunchCapture();
   });
 
+  it('the New journal sheet closes when the new-day jump opens the add page', async () => {
+    await launch();
+    await pressLabel('Add entry');
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    expect(screen.getByRole('header', { name: 'New journal' })).toBeTruthy();
+    await awayUntil(DAY2);
+    expectLaunchCapture();
+    expect(screen.queryByRole('header', { name: 'New journal' })).toBeNull();
+    expect(screen.queryByLabelText('Journal name')).toBeNull();
+  });
+
   it('stays when a finished dream exists on the new day', async () => {
     const day2Dream = { ...finishedDream, id: 'd2', createdAt: at(DAY2, 8), title: 'Day two' };
     mockLibrary.dreams = [day1Dream, day2Dream];
