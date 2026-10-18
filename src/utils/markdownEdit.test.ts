@@ -143,7 +143,9 @@ describe('checkboxAction / toggleCheckbox', () => {
     ['no trailing space', '- [ ]', 'check', '- [x]'],
     ['star checkbox', '* [ ] a', 'check', '* [x] a'],
     ['bullet -> checkbox', '- a', 'add', '- [ ] a'],
-    ['star bullet keeps char? -> dash checkbox', '* a', 'add', '- [ ] a'],
+    ['star bullet keeps its char', '* a', 'add', '* [ ] a'],
+    ['indented star bullet keeps its char', '  * a', 'add', '  * [ ] a'],
+    ['plus is not a bullet -> plain line', '+ a', 'add', '- [ ] + a'],
     ['indented bullet', '  - a', 'add', '  - [ ] a'],
     ['numbered -> checkbox', '3. a', 'add', '- [ ] a'],
     ['indented numbered', '  3. a', 'add', '  - [ ] a'],
@@ -154,6 +156,14 @@ describe('checkboxAction / toggleCheckbox', () => {
   it.each(table)('%s', (_n, text, action, out) => {
     expect(checkboxAction(text, at(text.length))).toBe(action);
     expect(toggleCheckbox(text, at(text.length))!.text).toBe(out);
+  });
+
+  it('keeps the star bullet through add, check and uncheck', () => {
+    const added = toggleCheckbox('* a', at(3))!;
+    expect(added.text).toBe('* [ ] a');
+    const checked = toggleCheckbox(added.text, added.selection)!;
+    expect(checked.text).toBe('* [x] a');
+    expect(toggleCheckbox(checked.text, checked.selection)!.text).toBe('* [ ] a');
   });
 
   it('is a no-op on headings and quotes', () => {

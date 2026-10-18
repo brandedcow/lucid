@@ -125,7 +125,11 @@ function planToggle(text: string, sel: Sel): TogglePlan | null {
       newPrefix: p.indent + p.marker.replace(/\[[ xX]\]/, `[${mark}]`),
     };
   }
-  if (p) return { action: 'add', line, oldLen: p.length, newPrefix: `${p.indent}- [ ] ` };
+  if (p) {
+    // A bullet keeps its own char; numbered items become '- [ ] '.
+    const bullet = p.kind === 'bullet' ? p.bullet : '-';
+    return { action: 'add', line, oldLen: p.length, newPrefix: `${p.indent}${bullet} [ ] ` };
+  }
   const indent = line.text.match(/^\s*/)![0];
   return { action: 'add', line, oldLen: indent.length, newPrefix: `${indent}- [ ] ` };
 }
