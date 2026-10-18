@@ -30,6 +30,8 @@ export type NoteEditor = {
   indent(): void;
   outdent(): void;
   focus(): void;
+  /** Moves the caret to `sel` together with a body change made in the same update (a tag edit). */
+  select(sel: Sel): void;
 };
 
 /**
@@ -82,5 +84,9 @@ export function useNoteEditor(args: {
     indent: () => apply(indentLines(body, selection)),
     outdent: () => apply(indentLines(body, selection, true)),
     focus: () => setFocusSignal((n) => n + 1),
+    select: (sel) => {
+      setSelection(sel);
+      setPending(sel);
+    },
   };
 }
