@@ -8,7 +8,6 @@ import {
   LEAVE_ENTRY_MESSAGE,
   LEAVE_ENTRY_SAVE_DRAFT,
   LEAVE_ENTRY_TITLE,
-  backTarget,
   discardChangesMessage,
   leavesWithoutPrompt,
   BACK_EDGE_DISTANCE,
@@ -42,28 +41,6 @@ describe('discardChangesMessage', () => {
     expect(discardChangesMessage('dream')).toBe(DISCARD_CHANGES_MESSAGE);
     expect(discardChangesMessage('journal')).toBe('Your changes to this entry will be lost.');
     expect(discardChangesMessage('journal')).not.toMatch(/dream/i);
-  });
-});
-
-describe('backTarget', () => {
-  it('Today exits', () => {
-    expect(backTarget({ screen: 'today' })).toEqual({ to: 'exit' });
-  });
-  it('the add-entry page keeps its own chain, whatever journal it holds', () => {
-    // The page decides in App (`backFromAdd`): leave prompts, recording discard, No dream.
-    expect(backTarget({ screen: 'add' })).toEqual({ to: 'chain' });
-    expect(backTarget({ screen: 'add' })).toEqual({ to: 'chain' });
-  });
-  it('ignores Back on the add-entry page while its entry is being deleted', () => {
-    expect(backTarget({ screen: 'add', entryDeleting: true })).toEqual({
-      to: 'none',
-    });
-    expect(backTarget({ screen: 'add', entryDeleting: false })).toEqual({
-      to: 'chain',
-    });
-  });
-  it('entryDeleting changes nothing on Today', () => {
-    expect(backTarget({ screen: 'today', entryDeleting: true })).toEqual({ to: 'exit' });
   });
 });
 

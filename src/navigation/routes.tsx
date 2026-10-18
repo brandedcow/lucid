@@ -13,8 +13,89 @@ import { useAppFlow } from '../app/AppFlowProvider';
 import { DreamLogScreen } from '../screens/DreamLogScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { TodayScreen } from '../screens/TodayScreen';
 import { entriesFor } from '../utils/journals';
 import type { RootStackParamList } from './RootNavigator';
+
+// Today as the root route. It hosts the Journals drawer (open state lives in the provider) and
+// opens Settings, Search and a journal's log by pushing them. A journal delete that sent the user
+// back here (`drawerAfterLeave`) opens the drawer once Today is in focus.
+export function TodayRoute() {
+  const {
+    openSettings,
+    openSearch,
+    journals,
+    library,
+    dayMarker,
+    todayKey,
+    journalsOpen,
+    setJournalsOpen,
+    setNamingJournal,
+    setRenamingJournalId,
+    deletingDream,
+    deletingJournalId,
+    visibleRecords,
+    visibleJournals,
+    counts,
+    journalsLocked,
+    routeName,
+    drawerAfterLeave,
+    setDrawerAfterLeave,
+    showLog,
+    deleteDreamFor,
+    requestRenameJournal,
+    requestDeleteJournal,
+    openDraft,
+    openEntryForEdit,
+  } = useAppFlow();
+  const focused = useIsFocused();
+
+  // Waits for the container to report Today too, so the drawer is not closed again as "behind
+  // another screen" while `routeName` still names the route being left.
+  useEffect(() => {
+    if (!drawerAfterLeave || !focused || routeName !== 'Today') return;
+    setDrawerAfterLeave(false);
+    setJournalsOpen(true);
+  }, [drawerAfterLeave, focused, routeName, setDrawerAfterLeave, setJournalsOpen]);
+
+  return (
+    <TodayScreen
+      journals={visibleJournals}
+      dreams={visibleRecords}
+      todayKey={todayKey}
+      skippedToday={dayMarker.noDreamDate === todayKey}
+      unreadable={library.indexStatus === 'unreadable'}
+      onOpenEntry={(d) => openEntryForEdit(d)}
+      onOpenDraft={(draft) => openDraft(draft)}
+      onDeleteDream={(d) => void deleteDreamFor(d)}
+      deletingId={deletingDream?.id ?? null}
+      onOpenJournals={() => {
+        if (!journalsLocked) setJournalsOpen(true);
+      }}
+      onOpenSettings={openSettings}
+      journalsOpen={journalsOpen}
+      onCloseJournals={() => setJournalsOpen(false)}
+      journalsDisabled={journalsLocked}
+      drawer={{
+        journals,
+        counts,
+        unreadable: library.indexStatus === 'unreadable',
+        onOpenJournal: (id) => {
+          setJournalsOpen(false);
+          showLog(id);
+        },
+        onSearch: openSearch,
+        onNewJournal: () => {
+          setRenamingJournalId(null);
+          setNamingJournal(true);
+        },
+        onDeleteJournal: requestDeleteJournal,
+        onRenameJournal: requestRenameJournal,
+        deletingId: deletingJournalId,
+      }}
+    />
+  );
+}
 
 // A journal's log as a route, pushed from Today (`Log { journalId }`: the journal is the route's
 // identity, so the log derives its journal and entries from it). Its filter, search and scroll live

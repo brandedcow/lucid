@@ -7,9 +7,8 @@ import { AppFlowProvider, useAppFlow } from './src/app/AppFlowProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AddEntryMenu } from './src/components/AddEntryMenu';
 import { AddRoute } from './src/navigation/AddRoute';
-import { LogRoute, SearchRoute, SettingsRoute } from './src/navigation/routes';
+import { LogRoute, SearchRoute, SettingsRoute, TodayRoute } from './src/navigation/routes';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
-import { TodayScreen } from './src/screens/TodayScreen';
 import { colors } from './src/theme';
 
 // The one "+" button and Add entry sheet of the app. It must sit inside SafeAreaProvider to read the
@@ -19,88 +18,11 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
   return <AddEntryMenu {...props} bottomInset={insets.bottom} />;
 }
 
-// Temporary screen switch holding Today (it becomes a plain route later). The logs, Settings, Search
-// and the add page are routes over this one.
-function MainRoute() {
-  const {
-    screen,
-    openSettings,
-    openSearch,
-    journals,
-    journalFor,
-    library,
-    dayMarker,
-    todayKey,
-    view,
-    journalsOpen,
-    setJournalsOpen,
-    setNamingJournal,
-    setRenamingJournalId,
-    deletingDream,
-    deletingJournalId,
-    visibleRecords,
-    visibleJournals,
-    counts,
-    journalsLocked,
-    showLog,
-    deleteDreamFor,
-    requestRenameJournal,
-    requestDeleteJournal,
-    openDraft,
-    openEntryForEdit,
-    openEntryById,
-  } = useAppFlow();
-
-  if (screen === null) return null;
-
-  return (
-    <>
-      {screen === 'today' && (
-        <TodayScreen
-          journals={visibleJournals}
-          dreams={visibleRecords}
-          todayKey={todayKey}
-          skippedToday={dayMarker.noDreamDate === todayKey}
-          unreadable={library.indexStatus === 'unreadable'}
-          onOpenEntry={(d) => openEntryForEdit(d)}
-          onOpenDraft={(draft) => openDraft(draft)}
-          onDeleteDream={(d) => void deleteDreamFor(d)}
-          deletingId={deletingDream?.id ?? null}
-          onOpenJournals={() => {
-            if (!journalsLocked) setJournalsOpen(true);
-          }}
-          onOpenSettings={openSettings}
-          journalsOpen={journalsOpen}
-          onCloseJournals={() => setJournalsOpen(false)}
-          journalsDisabled={journalsLocked}
-          drawer={{
-            journals,
-            counts,
-            unreadable: library.indexStatus === 'unreadable',
-            onOpenJournal: (id) => {
-              setJournalsOpen(false);
-              showLog(id);
-            },
-            onSearch: openSearch,
-            onNewJournal: () => {
-              setRenamingJournalId(null);
-              setNamingJournal(true);
-            },
-            onDeleteJournal: requestDeleteJournal,
-            onRenameJournal: requestRenameJournal,
-            deletingId: deletingJournalId,
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 // The shell: the shared "+" button and its sheet, both journal-name sheets and the status bar. It is
 // rendered once above the navigator, so it stays put while screens slide beneath it.
 function Shell() {
   const {
-    current,
+    routeName,
     journals,
     journalRegistry,
     journalsOpen,
@@ -120,7 +42,7 @@ function Shell() {
   return (
     <>
       <NewJournalSheet
-        visible={namingJournal && current !== 'add'}
+        visible={namingJournal && routeName !== 'Add'}
         onClose={() => setNamingJournal(false)}
         existing={journals}
         onSubmit={async (name) => {
@@ -132,7 +54,7 @@ function Shell() {
         }}
       />
       <NewJournalSheet
-        visible={renamingJournal !== undefined && current === 'today' && journalsOpen}
+        visible={renamingJournal !== undefined && routeName === 'Today' && journalsOpen}
         onClose={() => setRenamingJournalId(null)}
         existing={journals}
         excludeId={renamingJournal?.id}
@@ -160,7 +82,9 @@ function Shell() {
           setNamingJournal(true);
         }}
         disabled={deletingDream !== null}
-        hidden={current === 'add' || journalsOpen || namingJournal || renamingJournal !== undefined}
+        hidden={
+          routeName === 'Add' || journalsOpen || namingJournal || renamingJournal !== undefined
+        }
       />
       <StatusBar style="light" />
     </>
@@ -170,20 +94,20 @@ function Shell() {
 // Mounts the navigator once the launch decision is made, so a launch into the add page starts with
 // it on top of Today. Until then nothing is drawn but the background.
 function AppNavigator() {
-  const { screen, navigationRef, syncAddOpen, current } = useAppFlow();
-  if (screen === null) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  const { launchDecided, navigationRef, syncRoute, startInAdd } = useAppFlow();
+  if (!launchDecided) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   return (
     <>
       <RootNavigator
-        main={MainRoute}
+        today={TodayRoute}
         log={LogRoute}
         settings={SettingsRoute}
         search={SearchRoute}
         add={AddRoute}
         navigationRef={navigationRef}
-        startInAdd={current === 'add'}
-        onReady={syncAddOpen}
-        onStateChange={syncAddOpen}
+        startInAdd={startInAdd}
+        onReady={syncRoute}
+        onStateChange={syncRoute}
       />
       <Shell />
     </>

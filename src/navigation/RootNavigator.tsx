@@ -7,12 +7,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useState, type ComponentType } from 'react';
 import { colors } from '../theme';
 
-// `Main` renders Today through the app's own screen switch (it becomes the `Today` route in a later
-// chunk). `Log` (one journal's log), `Settings` and `Search` are pushed over it. `Add` is the add-entry page, pushed over
-// whatever is showing, so the screen it was opened from stays mounted underneath. No deep linking
-// and no navigation-state persistence.
+// `Today` is the root. `Log` (one journal's log), `Settings` and `Search` are pushed over it. `Add`
+// is the add-entry page, pushed over whatever is showing, so the screen it was opened from stays
+// mounted underneath. No deep linking and no navigation-state persistence.
 export type RootStackParamList = {
-  Main: undefined;
+  Today: undefined;
   Log: { journalId: string };
   Settings: undefined;
   Search: undefined;
@@ -28,7 +27,7 @@ const theme = {
 };
 
 export function RootNavigator({
-  main,
+  today,
   log,
   settings,
   search,
@@ -38,20 +37,20 @@ export function RootNavigator({
   onReady,
   onStateChange,
 }: {
-  main: ComponentType;
+  today: ComponentType;
   log: ComponentType;
   settings: ComponentType;
   search: ComponentType;
   add: ComponentType;
   navigationRef?: NavigationContainerRefWithCurrent<RootStackParamList>;
-  /** Mount with `Add` already on top of `Main` (the launch page). Read once, at mount. */
+  /** Mount with `Add` already on top of `Today` (the launch page). Read once, at mount. */
   startInAdd?: boolean;
   onReady?: () => void;
   onStateChange?: () => void;
 }) {
   // The container reads its initial state only at mount, so it is fixed here too.
   const [initialState] = useState(() =>
-    startInAdd ? { routes: [{ name: 'Main' as const }, { name: 'Add' as const }] } : undefined,
+    startInAdd ? { routes: [{ name: 'Today' as const }, { name: 'Add' as const }] } : undefined,
   );
   return (
     <NavigationContainer
@@ -62,7 +61,7 @@ export function RootNavigator({
       onStateChange={onStateChange}
     >
       <Stack.Navigator
-        initialRouteName="Main"
+        initialRouteName="Today"
         screenOptions={{
           headerShown: false,
           gestureEnabled: false,
@@ -70,7 +69,7 @@ export function RootNavigator({
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="Main" component={main} />
+        <Stack.Screen name="Today" component={today} />
         {/* Pushed from Today: the default push, and the native swipe back (iOS) pops to Today. The
             log turns its swipe off while its search field is open (see `LogRoute`). */}
         <Stack.Screen

@@ -15,7 +15,7 @@ import { capitalizeFirst } from '../utils/capitalizeFirst';
 import { splitEmotions } from '../utils/emotions';
 import { leavesWithoutPrompt } from '../utils/sessionNavigation';
 
-// The `Add` route: the add-entry page pushed over `Main`. It is the only place the leave rules are
+// The `Add` route: the add-entry page pushed over whatever is showing. It is the only place the leave rules are
 // enforced for this page. While Back would ask something (a prompt, a recording's discard confirm,
 // or an ignored press) removal is prevented for every source (the toolbar arrow, Android hardware
 // back, the iOS edge swipe) and goes to `backFromAdd`. When Back would leave at once nothing is

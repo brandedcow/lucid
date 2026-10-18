@@ -339,9 +339,9 @@ describe('App journal delete live guards', () => {
       await fireEvent.press(screen.getByLabelText('Open Journals'));
       await press('open-j_g1');
       expect(screen.getByText('Thankful for tea')).toBeTruthy();
-      expect(routeNames()).toEqual(['Main', 'Log']);
+      expect(routeNames()).toEqual(['Today', 'Log']);
       await startFrom();
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Today']);
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(screen.getByText('deleting:j_g1')).toBeTruthy();
       expect(screen.queryByText('Thankful for tea')).toBeNull();
@@ -371,13 +371,13 @@ describe('App journal delete live guards', () => {
       await press('open-j_g1');
       await fireEvent.press(screen.getByText('Thankful for tea'));
       expect(screen.getByText('stub-done')).toBeTruthy();
-      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
+      expect(routeNames()).toEqual(['Today', 'Log', 'Add']);
       await startFrom();
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       await act(async () => open());
       await waitFor(() => expect(mockRemoveJournalCalls).toHaveLength(1));
       await settle();
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Today']);
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(storedIds()).toEqual(['d1', 'd2', 'l1', 't1']);
     });

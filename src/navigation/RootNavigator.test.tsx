@@ -49,8 +49,8 @@ function Plain() {
   return <Text>the-app</Text>;
 }
 
-function mainWith(onBack: () => boolean) {
-  return function Main() {
+function todayWith(onBack: () => boolean) {
+  return function Today() {
     useEffect(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
@@ -66,7 +66,7 @@ function AddPage() {
 describe('RootNavigator', () => {
   it('mounts and renders the main component', async () => {
     await render(
-      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
     expect(screen.getByText('the-app')).toBeTruthy();
   });
@@ -75,7 +75,7 @@ describe('RootNavigator', () => {
     const onBack = jest.fn(() => true);
     await render(
       <RootNavigator
-        main={mainWith(onBack)}
+        today={todayWith(onBack)}
         log={Plain}
         settings={Plain}
         search={Plain}
@@ -95,7 +95,7 @@ describe('RootNavigator', () => {
     const onBack = jest.fn(() => true);
     await render(
       <RootNavigator
-        main={mainWith(onBack)}
+        today={todayWith(onBack)}
         log={Plain}
         settings={Plain}
         search={Plain}
@@ -107,7 +107,7 @@ describe('RootNavigator', () => {
     expect(await pressBack()).toBe(true);
     expect(onBack).not.toHaveBeenCalled();
     expect(screen.queryByText('the-add-page')).toBeNull();
-    // Back on Main alone reaches the app handler again.
+    // Back on Today alone reaches the app handler again.
     expect(await pressBack()).toBe(true);
     expect(onBack).toHaveBeenCalledTimes(1);
   });
@@ -116,7 +116,7 @@ describe('RootNavigator', () => {
     const onBack = jest.fn(() => false);
     await render(
       <RootNavigator
-        main={mainWith(onBack)}
+        today={todayWith(onBack)}
         log={Plain}
         settings={Plain}
         search={Plain}
@@ -127,19 +127,19 @@ describe('RootNavigator', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('has the Main route (no chrome, no transition, no swipe) and an Add route with a push and the swipe off until the page allows it', async () => {
+  it('has the Today route (no chrome, no transition, no swipe) and an Add route with a push and the swipe off until the page allows it', async () => {
     mockNavigatorProps.current = null;
     await render(
-      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
     const props = mockNavigatorProps.current as unknown as {
       initialRouteName: string;
       screenOptions: Record<string, unknown>;
       children: { props: { name: string; options?: Record<string, unknown> } }[];
     };
-    expect(props.initialRouteName).toBe('Main');
+    expect(props.initialRouteName).toBe('Today');
     expect(props.children.map((c) => c.props.name)).toEqual([
-      'Main',
+      'Today',
       'Log',
       'Settings',
       'Search',
@@ -148,7 +148,7 @@ describe('RootNavigator', () => {
     expect(props.screenOptions).toEqual(
       expect.objectContaining({ headerShown: false, gestureEnabled: false, animation: 'none' }),
     );
-    // Main keeps the stack defaults; Add overrides only the animation (a real push) and starts
+    // Today keeps the stack defaults; Add overrides only the animation (a real push) and starts
     // with the swipe off (the page turns it on while leaving needs no prompt).
     expect(props.children[0].props.options).toBeUndefined();
     expect(props.children[4].props.options).toEqual({
@@ -160,7 +160,7 @@ describe('RootNavigator', () => {
   it('has Log as a push with the native swipe back on (the log turns it off while searching)', async () => {
     mockNavigatorProps.current = null;
     await render(
-      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
     const props = mockNavigatorProps.current as unknown as {
       children: { props: { name: string; options?: Record<string, unknown> } }[];
@@ -172,7 +172,7 @@ describe('RootNavigator', () => {
   it('has Settings and Search as pushes with the native swipe back on', async () => {
     mockNavigatorProps.current = null;
     await render(
-      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
     const props = mockNavigatorProps.current as unknown as {
       children: { props: { name: string; options?: Record<string, unknown> } }[];
@@ -183,8 +183,8 @@ describe('RootNavigator', () => {
     }
   });
 
-  it('starts on Main alone', async () => {
-    function Main() {
+  it('starts on Today alone', async () => {
+    function Today() {
       const routes =
         useNavigation()
           .getState()
@@ -192,19 +192,19 @@ describe('RootNavigator', () => {
       return <Text>{`routes:${routes.join(',')}`}</Text>;
     }
     await render(
-      <RootNavigator main={Main} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Today} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
-    expect(screen.getByText('routes:Main')).toBeTruthy();
+    expect(screen.getByText('routes:Today')).toBeTruthy();
     expect(screen.queryByText('the-add-page')).toBeNull();
   });
 
-  it('starts with Add on top of Main when asked to (the launch page), and only at mount', async () => {
-    function Main() {
+  it('starts with Add on top of Today when asked to (the launch page), and only at mount', async () => {
+    function Today() {
       return <Text>the-main</Text>;
     }
     const view = await render(
       <RootNavigator
-        main={Main}
+        today={Today}
         log={Plain}
         settings={Plain}
         search={Plain}
@@ -213,12 +213,12 @@ describe('RootNavigator', () => {
       />,
     );
     expect(screen.getByText('the-add-page')).toBeTruthy();
-    // Main stays mounted underneath.
+    // Today stays mounted underneath.
     expect(screen.getByText('the-main', { includeHiddenElements: true })).toBeTruthy();
     // A later change of the prop does not re-initialise a mounted container.
     await view.rerender(
       <RootNavigator
-        main={Main}
+        today={Today}
         log={Plain}
         settings={Plain}
         search={Plain}
@@ -230,12 +230,12 @@ describe('RootNavigator', () => {
   });
 
   it('applies the dark theme with the app background', async () => {
-    function Main() {
+    function Today() {
       const theme = useTheme();
       return <Text>{`theme:${theme.dark}:${theme.colors.background}:${theme.colors.card}`}</Text>;
     }
     await render(
-      <RootNavigator main={Main} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator today={Today} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
     );
     expect(colors.background).toBe('#0D1017');
     expect(screen.getByText('theme:true:#0D1017:#0D1017')).toBeTruthy();

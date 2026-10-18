@@ -258,12 +258,12 @@ describe('App voice entry', () => {
         expect.any(Array),
       );
       expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual([
-        'Main',
+        'Today',
         'Add',
       ]);
       await choose('Discard');
       expect(mockRec.stop).toHaveBeenCalledTimes(1);
-      expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Main']);
+      expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual(['Today']);
     });
 
     it('Android back asks too; Discard stops, deletes the cache file and leaves an empty page', async () => {
