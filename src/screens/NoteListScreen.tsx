@@ -1,0 +1,225 @@
+import { ReactNode, useCallback } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NewNoteButton, listClearance } from '../components/NewNoteButton';
+import { NoteRow } from '../components/NoteRow';
+import { useDrawerEdgeSwipe } from '../hooks/useDrawerEdgeSwipe';
+import { Note } from '../services/notesStorage';
+import { colors, fonts, spacing } from '../theme';
+import { NoteView } from '../utils/noteViews';
+import { NoteRowData, noteRow } from '../utils/noteRow';
+
+/** The views whose empty text the list can show (Recently Deleted has its own screen). */
+export type ListEmptyKind = Exclude<NoteView, { kind: 'trash' }>;
+
+/** A one-off line above the list about the import of earlier notes. The provider supplies the text. */
+export type MigrationNotice =
+  | { kind: 'working' }
+  | { kind: 'info'; text: string; onDismiss: () => void }
+  | { kind: 'retry'; text: string; onRetry: () => void };
+
+export const LIST_COPY = {
+  openMenu: 'Open menu',
+  unreadable: 'Your notes could not be read. Nothing was changed.',
+  working: 'Bringing in your earlier notes...',
+  dismiss: 'Dismiss',
+  tryAgain: 'Try again',
+} as const;
+
+/** The empty-list lines: a first line and, for All Notes only, a hint line. */
+export function listEmptyLines(kind: ListEmptyKind): { text: string; hint?: string } {
+  switch (kind.kind) {
+    case 'all':
+      return { text: 'No notes yet.', hint: 'Tap + to write one.' };
+    case 'today':
+      return { text: 'Nothing written today.' };
+    case 'todo':
+      return { text: 'No notes with checkboxes.' };
+    case 'untagged':
+      return { text: 'No untagged notes.' };
+    case 'pinned':
+      return { text: 'No pinned notes.' };
+    case 'tag':
+      return { text: `No notes with #${kind.tag}.` };
+  }
+}
+
+type Props = {
+  /** The view title, shown as the page header ("All Notes", "#dreams"). */
+  title: string;
+  /** The notes to list, newest edit first as given; null = still loading. */
+  notes: Note[] | null;
+  now: Date;
+  indexStatus: 'ok' | 'unreadable';
+  emptyKind: ListEmptyKind;
+  migrationNotice?: MigrationNotice | null;
+  onOpenNote: (id: string) => void;
+  onNewNote: () => void;
+  onOpenMenu: () => void;
+  newNoteDisabled?: boolean;
+  /** Extra header content at the right (7c puts the search icon here). */
+  rightSlot?: ReactNode;
+  /** True while the drawer is open: the list is hidden from screen readers and the swipe is off. */
+  drawerOpen?: boolean;
+};
+
+/** Three bars drawn with Views. Hidden from screen readers; the button names it. */
+function MenuIcon() {
+  return (
+    <View style={styles.menuBox} accessible={false} importantForAccessibility="no-hide-descendants">
+      <View style={styles.menuBar} />
+      <View style={styles.menuBar} />
+      <View style={styles.menuBar} />
+    </View>
+  );
+}
+
+function NoticeLine({ notice }: { notice: MigrationNotice }) {
+  const text = notice.kind === 'working' ? LIST_COPY.working : notice.text;
+  const action =
+    notice.kind === 'info'
+      ? { label: LIST_COPY.dismiss, onPress: notice.onDismiss }
+      : notice.kind === 'retry'
+        ? { label: LIST_COPY.tryAgain, onPress: notice.onRetry }
+        : null;
+  return (
+    <View style={styles.notice} accessibilityLiveRegion="polite">
+      <Text style={styles.noticeText}>{text}</Text>
+      {action && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          onPress={action.onPress}
+          style={styles.noticeButton}
+        >
+          <Text style={styles.noticeButtonText}>{action.label}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The note list page. Props only: it reads no storage. Header (menu button, view title, `rightSlot`),
+ * an optional migration line, then the list or one of: nothing (loading), the unreadable message
+ * (replaces the list), or the empty text. The "+" button floats at the bottom right. A swipe from
+ * the left edge opens the menu.
+ */
+export function NoteListScreen({
+  title,
+  notes,
+  now,
+  indexStatus,
+  emptyKind,
+  migrationNotice = null,
+  onOpenNote,
+  onNewNote,
+  onOpenMenu,
+  newNoteDisabled = false,
+  rightSlot,
+  drawerOpen = false,
+}: Props) {
+  const insets = useSafeAreaInsets();
+  const edge = useDrawerEdgeSwipe(onOpenMenu, drawerOpen);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Note }) => {
+      const row: NoteRowData = noteRow(item, now);
+      return <NoteRow row={row} onOpen={onOpenNote} />;
+    },
+    [now, onOpenNote],
+  );
+  const keyExtractor = useCallback((n: Note) => n.id, []);
+
+  let body: ReactNode = null;
+  if (indexStatus === 'unreadable') {
+    body = (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>{LIST_COPY.unreadable}</Text>
+      </View>
+    );
+  } else if (notes === null) {
+    body = null;
+  } else if (notes.length === 0) {
+    const lines = listEmptyLines(emptyKind);
+    body = (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>{lines.text}</Text>
+        {lines.hint && <Text style={styles.emptyHint}>{lines.hint}</Text>}
+      </View>
+    );
+  } else {
+    body = (
+      <FlatList
+        testID="note-list"
+        data={notes}
+        extraData={now}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        initialNumToRender={12}
+        windowSize={9}
+        contentContainerStyle={{ paddingBottom: listClearance(insets.bottom) }}
+      />
+    );
+  }
+
+  return (
+    <View style={styles.container} testID="note-list-screen" {...edge}>
+      <SafeAreaView
+        style={styles.safe}
+        edges={['top', 'left', 'right']}
+        importantForAccessibility={drawerOpen ? 'no-hide-descendants' : 'auto'}
+      >
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={LIST_COPY.openMenu}
+            onPress={onOpenMenu}
+            style={styles.iconButton}
+          >
+            <MenuIcon />
+          </Pressable>
+          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+            {title}
+          </Text>
+          <View style={styles.right}>{rightSlot}</View>
+        </View>
+        {migrationNotice && <NoticeLine notice={migrationNotice} />}
+        <View style={styles.body}>{body}</View>
+      </SafeAreaView>
+      <NewNoteButton onPress={onNewNote} disabled={newNoteDisabled} bottomInset={insets.bottom} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 64,
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  title: { flex: 1, color: colors.text, fontFamily: fonts.serif, fontSize: 28 },
+  right: { minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  body: { flex: 1 },
+  menuBox: { width: 22, height: 18, justifyContent: 'space-between' },
+  menuBar: { height: 2, borderRadius: 1, backgroundColor: colors.muted },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  noticeText: { flex: 1, color: colors.muted, fontSize: 14 },
+  noticeButton: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+  noticeButtonText: { color: colors.accent, fontSize: 14 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: 4 },
+  emptyText: { color: colors.muted, fontSize: 16, textAlign: 'center' },
+  emptyHint: { color: colors.faint, fontSize: 14, textAlign: 'center' },
+});
