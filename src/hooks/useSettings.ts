@@ -48,6 +48,9 @@ export function useSettings() {
     loaded,
     autoOpenDreamCapture,
     setAutoOpenDreamCapture,
+    // New names for the same value and setter; the old names stay until the old app is removed.
+    autoOpenNewNote: autoOpenDreamCapture,
+    setAutoOpenNewNote: setAutoOpenDreamCapture,
     onlineTranscription,
     setOnlineTranscription,
   };
