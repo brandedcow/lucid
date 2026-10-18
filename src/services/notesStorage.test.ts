@@ -531,15 +531,19 @@ describe('newNoteId and getIndexStatus', () => {
 });
 
 describe('delete audit', () => {
-  // The safety rules allow exactly two deleting calls in this module (see CLAUDE.md): this save's
-  // own copies on a failed commit, and a cache source after a successful commit.
-  it('has exactly two delete calls and no other way to remove files', () => {
+  // The safety rules allow exactly these deleting calls in this module (see CLAUDE.md):
+  //  1. saveNote: this save's own copies on a failed commit (case 3);
+  //  2. saveNote: a cache source after a successful commit (case 4);
+  //  3. deleteAudioFiles: stored notes audio, shared by Delete forever / Empty Recently Deleted
+  //     (cases 1, 2) and by discardHeld (case 5), each file passing deletableFiles first;
+  //  4. scrubCopy: the leftover notes.json.bak / .tmp that cannot be overwritten (cases 1, 2).
+  it('has exactly four delete calls and no other way to remove files', () => {
     const source = nodeFs.readFileSync(`${process.cwd()}/src/services/notesStorage.ts`, 'utf8');
     const code = source
       .split('\n')
       .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
       .join('\n');
-    expect(code.match(/\.delete\(/g)).toHaveLength(2);
+    expect(code.match(/\.delete\(/g)).toHaveLength(4);
     expect(code).not.toMatch(/\.remove\(|unlink|deleteAsync|rmdir|\.rm\(/);
   });
 });
