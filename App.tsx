@@ -10,6 +10,7 @@ import { AddRoute } from './src/navigation/AddRoute';
 import { LogRoute, SearchRoute, SettingsRoute, TodayRoute } from './src/navigation/routes';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
 import { colors } from './src/theme';
+import { EditorSpikeScreen } from './src/dev/EditorSpikeScreen';
 
 // The one "+" button and Add entry sheet of the app. It must sit inside SafeAreaProvider to read the
 // bottom inset, so it is its own component.
@@ -115,6 +116,8 @@ function AppNavigator() {
 }
 
 export default function App() {
+  // Dev-only harness for the editor device spike (chunk 6c); replaced by the notes navigator in 7a.
+  if (__DEV__ && process.env.EXPO_PUBLIC_EDITOR_SPIKE === '1') return <EditorSpikeScreen />;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
