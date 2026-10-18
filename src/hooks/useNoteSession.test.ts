@@ -846,6 +846,90 @@ describe('pin', () => {
     await tick(1000);
     expect(stored()[0]).toMatchObject({ body: 'hello', pinned: true });
   });
+
+  describe('a failed pin and the save-error state', () => {
+    const openStored = async () => {
+      putIndex([base('5')]);
+      const h = await setup();
+      await act(async () => void api(h).open(storedNote('5')!));
+      return h;
+    };
+    const failPinOnce = () =>
+      jest.spyOn(storage, 'setPinned').mockRejectedValueOnce(new Error('pin failed'));
+    const pin = async (h: Hook) => {
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await api(h).setPinned(true);
+      });
+      return ok;
+    };
+
+    it('a pin that fails and then succeeds on retry leaves the state idle', async () => {
+      const h = await openStored();
+      failPinOnce();
+      expect(await pin(h)).toBe(false);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('idle');
+      expect(storedNote('5')?.pinned).toBe(true);
+    });
+
+    it('keeps the error when a body save failed after the pin failure', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => api(h).setBody('unsaved edit'));
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+
+    it('keeps the error when the note was trashed elsewhere', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      await softDeleteNote('5');
+      await act(async () => api(h).setBody('edited after trash'));
+      await tick(1000);
+      expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+      jest.spyOn(storage, 'setPinned').mockResolvedValueOnce(undefined as never);
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(api(h).session?.error?.code).toBe(NOTE_IN_TRASH);
+    });
+
+    it('keeps the error when a recording is still waiting to be saved', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => {
+        api(h).attachRecording({ uri: CACHE_A, durationMs: 1 });
+        await flushMicrotasks();
+      });
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+
+    it('a pin failure followed by a good flush does not taint a later unrelated error', async () => {
+      const h = await openStored();
+      failPinOnce();
+      await pin(h);
+      await act(async () => api(h).setBody('edit one'));
+      await act(async () => void (await api(h).flush()));
+      expect(api(h).session?.saveState).toBe('idle');
+      jest.spyOn(storage, 'saveNote').mockRejectedValueOnce(new Error('disk full'));
+      await act(async () => api(h).setBody('edit two'));
+      await tick(1000);
+      expect(api(h).session?.saveState).toBe('error');
+      expect(await pin(h)).toBe(true);
+      expect(api(h).session?.saveState).toBe('error');
+    });
+  });
 });
 
 describe('timers', () => {

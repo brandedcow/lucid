@@ -249,6 +249,66 @@ describe('launch', () => {
     expect(flow().notes.all.map((n) => n.id)).toEqual(['a']);
   });
 
+  it('the launch waits for the earlier-notes import to settle', async () => {
+    jest.useFakeTimers();
+    let finish!: (r: legacy.MigrationResult) => void;
+    jest.spyOn(legacy, 'migrateLegacyDreams').mockImplementation(
+      () =>
+        new Promise<legacy.MigrationResult>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(app());
+    // Everything else has loaded, but the import is still running: nothing is decided yet.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.getByText('gate')).toBeTruthy();
+    await act(async () => {
+      finish({ status: 'already-done' });
+      await jest.advanceTimersByTimeAsync(50);
+    });
+    expect(screen.getByText('editor-body:')).toBeTruthy();
+  });
+
+  it('the cap timer is cleared when the provider unmounts before it fires', async () => {
+    jest.useFakeTimers();
+    const real = storage.listNotes;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    jest.spyOn(storage, 'listNotes').mockImplementation(async () => {
+      await gate;
+      return real();
+    });
+    // Watch the 1 s cap timer by wrapping the (fake) timer functions by hand.
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    const capIds: unknown[] = [];
+    const cleared: unknown[] = [];
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      const id = realSet(fn, ms);
+      if (ms === 1000) capIds.push(id);
+      return id;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = ((id: never) => {
+      cleared.push(id);
+      realClear(id);
+    }) as typeof globalThis.clearTimeout;
+    try {
+      const view = await render(app());
+      expect(capIds).toHaveLength(1);
+      expect(cleared).not.toContain(capIds[0]);
+      await act(async () => view.unmount());
+      expect(cleared).toContain(capIds[0]);
+    } finally {
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
+    }
+    release();
+  });
+
   it('the cap does not fire after the launch was decided by the rule', async () => {
     jest.useFakeTimers();
     autoOpen(false);
@@ -580,6 +640,8 @@ describe('menu actions', () => {
     await press('editor-banner-retry');
     await waitFor(() => expect(screen.getByText('editor-pinned:false')).toBeTruthy());
     expect(stored()[0].pinned).toBeFalsy();
+    // The retry worked, so the save-error banner is gone.
+    await waitFor(() => expect(screen.getByText('editor-banner:none')).toBeTruthy());
   });
 });
 
