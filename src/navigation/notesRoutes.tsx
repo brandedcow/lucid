@@ -2,7 +2,7 @@ import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
-import { useNotesFlow } from '../app/NotesFlowProvider';
+import { useAppFlow } from '../app/AppFlowProvider';
 import { NotesDrawer } from '../components/NotesDrawer';
 import { useBackEdgePrompt } from '../hooks/useBackEdgePrompt';
 import { useNow } from '../hooks/useNow';
@@ -22,7 +22,7 @@ import type { NotesStackParamList } from './NotesNavigator';
 // the list otherwise back exits the app.
 export function NotesRoute() {
   const navigation = useNavigation<NativeStackNavigationProp<NotesStackParamList>>();
-  const { notes, view, setView, migrationNotice, openNote, openNewNote } = useNotesFlow();
+  const { notes, view, setView, migrationNotice, openNote, openNewNote } = useAppFlow();
   const now = useNow();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
@@ -93,7 +93,7 @@ export function EditorRoute() {
     togglePin,
     allowLeave,
     resetAllowLeave,
-  } = useNotesFlow();
+  } = useAppFlow();
 
   // The last non-null session of this route. After a leave the provider clears the session while
   // the pop animation still shows this page; it keeps painting the last content. The state
@@ -161,15 +161,14 @@ export function RecentlyDeletedRoute() {
   return <RecentlyDeletedScreen onBack={() => navigation.goBack()} />;
 }
 
-// Settings as a route of its own. The arrow, Android back and (iOS) the native swipe pop it. The
-// screen still has its old prop names and labels; chunk 7a-7 renames them.
+// Settings as a route of its own. The arrow, Android back and (iOS) the native swipe pop it.
 export function NotesSettingsRoute() {
   const navigation = useNavigation();
-  const { settings } = useNotesFlow();
+  const { settings } = useAppFlow();
   return (
     <SettingsScreen
-      autoOpenDreamCapture={settings.autoOpenNewNote}
-      onChangeAutoOpenDreamCapture={settings.setAutoOpenNewNote}
+      autoOpenNewNote={settings.autoOpenNewNote}
+      onChangeAutoOpenNewNote={settings.setAutoOpenNewNote}
       onlineTranscription={settings.onlineTranscription}
       onChangeOnlineTranscription={settings.setOnlineTranscription}
       onBack={() => navigation.goBack()}

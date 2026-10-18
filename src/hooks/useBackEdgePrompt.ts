@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { PanResponder, Platform, type GestureResponderHandlers } from 'react-native';
-import { completesBackEdgeSwipe, startsBackEdgeSwipe } from '../utils/sessionNavigation';
+import { completesBackEdgeSwipe, startsBackEdgeSwipe } from '../utils/edgeSwipe';
 
 /**
  * The iOS stand-in for the swipe back on a page that would ask before leaving: the native swipe is

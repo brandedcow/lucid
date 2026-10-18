@@ -4,6 +4,24 @@ Where the project stands, so anyone (human or agent) can pick it up. `docs/produ
 
 _Last updated: 2026-10-11 (several voice recordings per entry; tags written inline in the body as `#tag`; Android keyboard handling on the add-entry page; before that the single add-entry page replaced Capture, Read it back and Review, the launch opens it for Dreams, the old flow and live transcription were removed; before that custom journals, the Today page, Settings and the launch rule, Multiple journals, the Delete UX rework, Dream log, then the read-only Dream entry screen, since removed: saved entries open on the add-entry page), branch `feat/add-entry-page`. Jest: 76 suites, 1739 tests, all green (`LANG=en_US.UTF-8 npm run check`)._
 
+## 7a state (notes model, after the cutover)
+
+This section is current; the sections below still describe the older dream and journal app until chunk 8 rewrites them.
+
+**What is mounted.** `App.tsx` mounts `AppFlowProvider` (`src/app/AppFlowProvider.tsx`) and `NotesNavigator` with the four approved routes: `Notes` (the list, with the drawer), `Editor`, `Settings` and `RecentlyDeleted` (a stub: title, back arrow, "Deleted notes will appear here."). The old Today, Log, Search and Add routes, their provider and shell are gone. The `EXPO_PUBLIC_EDITOR_SPIKE` harness still replaces the app in dev builds.
+
+**Works in Jest (nothing here is device-verified):** the launch rule (cap `LAUNCH_CAP_MS`, 1000 ms), the note list and drawer views, the editor with autosave, pin and delete in the editor's "..." menu, voice notes in notes, the import of earlier notes with its migration lines, and Settings ("Open a new note on launch", "When off, the app opens to the note list.", back label "Back to notes"; online transcription row unchanged).
+
+**Import is a hard cutover.** `migrateLegacyDreams` runs at provider mount, inside the launch gate, on every launch (single-flight; a marker `migrated.json` makes later runs a no-op). It only reads `dreams.json`, `dreams.json.bak` and `dreams/`; it never writes or deletes them. Anything an older build writes to `dreams.json` after the first import is not imported. `src/app/noLegacyWriters.test.ts` proves that nothing reachable from `App.tsx` imports the old writers and that `dreams.json` is named only in `services/legacyImport.ts`. An older build does not know `notes.json`, so notes created in the new app are not visible to it.
+
+**Accepted behaviour: a stale list.** Opening a note from a list that is out of date (the note was trashed elsewhere) opens the editor; its first save returns `NOTE_IN_TRASH` and the "in trash" banner shows with Leave, and the text stays on screen. This cannot happen with one device and one writer because every trash path goes through the provider, which calls `notes.refresh()`.
+
+**Rule for 7b.** Every trash, restore or empty action from the list or the Recently Deleted screen must end with `notes.refresh()` before the UI re-renders. This is what keeps the stale-list case unreachable.
+
+**Not done in 7a:** Search (7c), resume on a new day (7c), swipe pin/delete on rows and the real Recently Deleted screen (7b), the full docs rewrite and removal of the old code (chunk 8).
+
+**Device checks still open (all of 7a):** cold launch into a new note and into the list; launch with a large legacy library (cap and the "Bringing in your earlier notes..." line); the migration lines; editor keyboard, caret and drawer gestures on iOS and Android; Android back (drawer, editor, Settings); the iOS swipe-back on Settings; voice notes in the editor; the Settings switch persisting across launches.
+
 ## What works today
 
 The add-entry page and Dream log are built and covered by tests, but **mostly not yet verified on a physical device** (see Gaps):

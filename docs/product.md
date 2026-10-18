@@ -76,7 +76,7 @@ Status: **Built** (the same behavior carries over to notes). Transcription after
 
 ### Launch and first note of the day
 
-Status: **Built** under the older concept (the first launch each day opens the capture page); **Planned** for notes as described here.
+Status: **Built** (since the 7a cutover; resume on a new day is **Planned**, chunk 7c). Not yet verified on a device.
 
 - When the user opens the app and nothing is done yet today, it opens to a new, empty note. Once a note with content exists today, or the user backs out of the empty new note (see below), the app opens to the note list for the rest of that day. This can be turned off in Settings.
 - The launch note can always be dismissed with one tap: its back arrow (and Android back) while the note is empty counts as done for the day: the day marker is written, the app lands on the note list, and the launch note does not reappear that day. There is no confirmation and no separate button. With something on the note, back just leaves; the note is already saved by autosave, which makes today done.
@@ -89,7 +89,7 @@ Status: **Built** under the older concept (the first launch each day opens the c
 
 ### Note list and drawer
 
-Status: **Planned** (the app currently has different list screens).
+Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is All Notes); swipe actions are **Planned** (7b). Not yet verified on a device.
 
 - The main screen is a note list: each row shows the title, a short preview of the body and a relative time in full words ("2 seconds ago", "37 minutes ago", "3 hours ago", "2 days ago", then a short date from 7 days on; "Just now" for under a second). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
 - A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view, the list of tags, **Recently Deleted**, and **Settings**.
@@ -127,7 +127,7 @@ Status: **Built** under the older concept (search by words and tags); **Planned*
 
 ### Settings
 
-Status: **Built** (the switch exists under an older name); the new label is **Planned**.
+Status: **Built** (since the 7a cutover, with the label "Open a new note on launch").
 
 - Opened from the drawer. One switch controlling whether the app opens a new note on the first launch each day, on by default, labelled "Open a new note on launch", with the line "When off, the app opens to the note list."
 - When off, the app always opens to the note list and resume on a new day changes nothing. Backing out of an empty launch note and the "+" button are unaffected.
@@ -135,7 +135,7 @@ Status: **Built** (the switch exists under an older name); the new label is **Pl
 
 ### Navigation
 
-Status: **Built** for the gestures listed; the screen structure is **Planned**. The app keeps its current native-stack navigation setup.
+Status: **Built**. The routes are Notes (the list, root), Editor, Settings and Recently Deleted (a stub until 7b), on the native stack.
 
 - Android back on the note list exits the app. Back from any other screen returns to where the user came from.
 - Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. Settings and Recently Deleted open from the drawer and go back to the list.
@@ -152,7 +152,7 @@ Status: **Planned**.
 
 ## Retired terms and migration
 
-Status: the import is **Built** as a module (`src/services/legacyImport.ts`); the app does not run it yet (a later chunk wires it in).
+Status: **Built**. The import runs once at app start, inside the launch gate (`src/app/AppFlowProvider.tsx`), and is a one-time cutover: anything an older build writes to `dreams.json` afterwards is not imported.
 
 These terms belong to the older concept and are retired. The older code (still present at this commit) saves only through a check button and asks "Save a draft?" or "Discard changes?" when leaving. They remain only in the older code and in the import until the cleanup chunk removes them; do not use them in new copy, code or data models.
 
