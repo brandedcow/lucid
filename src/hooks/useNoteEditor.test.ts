@@ -99,6 +99,15 @@ describe('useNoteEditor', () => {
     expect(view.result.current.inputProps.focusSignal).toBe((before ?? 0) + 1);
   });
 
+  it('select sets the selection and the pending selection handed to the input', async () => {
+    const { view } = await setup();
+    await act(() => view.result.current.select({ start: 3, end: 3 }));
+    expect(view.result.current.selection).toEqual(at(3));
+    expect(view.result.current.inputProps.selection).toEqual(at(3));
+    await act(() => view.result.current.inputProps.onSelectionChange?.(at(4)));
+    expect(view.result.current.inputProps.selection).toBeUndefined();
+  });
+
   it('only ever calls setBody and onEdit', async () => {
     const setBody = jest.fn();
     const onEdit = jest.fn();
