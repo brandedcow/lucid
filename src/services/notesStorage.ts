@@ -69,6 +69,12 @@ export function resetCorruptCopyGuard() {
 }
 
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const PLAIN_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** True for a plain file name (no path, no `..`): the only kind of recording name safe to resolve. */
+export function isPlainFileName(name: unknown): name is string {
+  return typeof name === 'string' && PLAIN_FILE_NAME.test(name) && !name.includes('..');
+}
 
 /** Longest stored `voiceTranscript` (characters); a longer text is cut to this length. */
 const MAX_VOICE_TRANSCRIPT_LENGTH = 20000;
@@ -223,26 +229,45 @@ async function rewindToPrevious(previous: Note[]) {
  * until step 4; if step 4 leaves it missing or damaged, recovery reads the temp file or backup.
  */
 async function commitIndex(list: Note[], previous: Note[]) {
-  const tmp = tempFile();
-  tmp.write(indexContent(list));
-  const check = await readStored(tmp);
-  if (check === null || check.length !== list.length) {
-    throw new Error('The note index could not be written');
-  }
-
-  const index = indexFile();
-  const hadContent = index.exists && index.size !== 0;
-  if (hadContent) {
-    try {
-      await index.copy(backupFile(), { overwrite: true });
-    } catch {
-      // A missing backup does not block saving.
-    }
-  }
+  // Set once the move failure path already dealt with the temp file (rewound it).
+  let rewound = false;
   try {
-    await tmp.move(index, { overwrite: true });
+    const tmp = tempFile();
+    tmp.write(indexContent(list));
+    const check = await readStored(tmp);
+    if (check === null || check.length !== list.length) {
+      throw new Error('The note index could not be written');
+    }
+
+    const index = indexFile();
+    const hadContent = index.exists && index.size !== 0;
+    if (hadContent) {
+      try {
+        await index.copy(backupFile(), { overwrite: true });
+      } catch {
+        // A missing backup does not block saving.
+      }
+    }
+    try {
+      await tmp.move(index, { overwrite: true });
+    } catch (error) {
+      if (hadContent && (await readStored(indexFile())) === null) {
+        rewound = true;
+        await rewindToPrevious(previous);
+      }
+      throw error;
+    }
   } catch (error) {
-    if (hadContent && (await readStored(indexFile())) === null) await rewindToPrevious(previous);
+    // A failed commit must not leave the rejected list in the temp file: recovery prefers it, and
+    // a save that threw would come back. While notes.json is still readable it holds the last
+    // acknowledged state, so put that back (best effort, nothing is deleted).
+    if (!rewound) {
+      try {
+        if ((await readStored(indexFile())) !== null) tempFile().write(indexContent(previous));
+      } catch {
+        // Recovery then reads the temp file or backup as before.
+      }
+    }
     throw error;
   }
 }
@@ -271,6 +296,17 @@ export async function listNotes(opts?: { includeDeleted?: boolean }): Promise<No
   return notes
     .filter((n) => opts?.includeDeleted === true || !isTrashed(n))
     .sort((a, b) => stamp(b).localeCompare(stamp(a)));
+}
+
+/** Whether `uri` is a file (not a directory) strictly inside the cache directory, without `..`. */
+function isCacheFile(uri: string, cachePrefix: string): boolean {
+  if (!uri.startsWith(cachePrefix) || uri.endsWith('/')) return false;
+  try {
+    if (decodeURIComponent(uri).split(/[\\/]/).includes('..')) return false;
+  } catch {
+    return false;
+  }
+  return !new Directory(uri).exists;
 }
 
 export type SaveNoteInput = {
@@ -306,12 +342,19 @@ export async function saveNote(
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) throw new Error('Invalid note id');
   if (typeof body !== 'string') throw new Error('A note body must be text');
   const additions = input.addRecordings ?? [];
+  const withSlash = (uri: string) => (uri.endsWith('/') ? uri : `${uri}/`);
   const storedDirs = [audioDir(), new Directory(Paths.document, 'dreams')].map((d) =>
-    d.uri.endsWith('/') ? d.uri : `${d.uri}/`,
+    withSlash(d.uri),
   );
+  const cachePrefix = withSlash(new Directory(Paths.cache).uri);
   for (const add of additions) {
-    // The source is deleted after the save, so a stored recording must never be passed in.
-    if (typeof add.uri !== 'string' || storedDirs.some((prefix) => add.uri.startsWith(prefix))) {
+    // The source is deleted after the save, so only a file inside the cache directory may be
+    // passed in (never a stored recording, a directory or anything reached through `..`).
+    if (
+      typeof add.uri !== 'string' ||
+      !isCacheFile(add.uri, cachePrefix) ||
+      storedDirs.some((prefix) => add.uri.startsWith(prefix))
+    ) {
       throw new Error('That file cannot be added as a new recording');
     }
   }
@@ -323,6 +366,15 @@ export async function saveNote(
       throw coded('The note is in Recently Deleted', NOTE_IN_TRASH);
     }
 
+    // A stored `recordings` that is not a list is left untouched: it never makes the note empty,
+    // and nothing can be added to it.
+    const badRecordings =
+      existing !== undefined &&
+      existing.recordings !== undefined &&
+      !Array.isArray(existing.recordings);
+    if (badRecordings && additions.length > 0) {
+      throw new Error('The stored recordings of this note cannot be read');
+    }
     const current = existing ? storedRecordings(existing) : [];
     const texts = new Map<string, string>();
     for (const { fileName, text } of input.recordingTexts ?? []) {
@@ -342,7 +394,7 @@ export async function saveNote(
     }
 
     const now = new Date().toISOString();
-    if (body.trim() === '' && current.length === 0 && additions.length === 0) {
+    if (body.trim() === '' && current.length === 0 && additions.length === 0 && !badRecordings) {
       if (!existing) return { note: null, added: [] };
       // Emptied: Recently Deleted, not gone. The stored text is kept so Restore brings it back.
       const trashed: Note = { ...existing, deletedAt: now };
@@ -528,11 +580,27 @@ export function releaseRecording(id: string, fileName: string): Promise<Note> {
 /**
  * Adds notes read from the old store in one atomic write. A note whose id is already stored (or
  * repeated in `records`) is skipped, so running it again adds nothing. The given `createdAt` and
- * `updatedAt` are kept. Every id must be plain, else it throws before anything is written.
+ * `updatedAt` are kept. Every id must be plain, `body`, `createdAt` and `updatedAt` text, and every recording file name
+ * plain (`isPlainFileName`), else the whole batch is rejected before anything is written.
  */
 export async function appendImported(records: Note[]): Promise<{ added: number }> {
   for (const record of records) {
     if (!hasId(record) || !ID_PATTERN.test(record.id)) throw new Error('Invalid note id');
+    if (
+      typeof record.body !== 'string' ||
+      typeof record.createdAt !== 'string' ||
+      typeof record.updatedAt !== 'string'
+    ) {
+      throw new Error('An imported note needs a text body, createdAt and updatedAt');
+    }
+    if (record.recordings !== undefined) {
+      if (!Array.isArray(record.recordings)) throw new Error('Imported recordings must be a list');
+      for (const recording of record.recordings) {
+        if (!isPlainFileName(nameOf(recording))) {
+          throw new Error('An imported recording needs a plain file name');
+        }
+      }
+    }
   }
   return serialized(async () => {
     const notes = await readRawIndex(true);
