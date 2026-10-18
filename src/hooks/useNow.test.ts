@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { AppState, AppStateStatus } from 'react-native';
-import { useNow } from './useNow';
+import { NOW_INTERVAL_MS, useNow } from './useNow';
 
 let handler: ((s: AppStateStatus) => void) | null;
 const remove = jest.fn();
@@ -39,6 +39,20 @@ afterEach(() => {
 });
 
 describe('useNow', () => {
+  it('defaults to a 30 second interval', async () => {
+    expect(NOW_INTERVAL_MS).toBe(30000);
+    const { result } = await renderHook(() => useNow());
+    const first = result.current.getTime();
+    await act(async () => {
+      jest.advanceTimersByTime(29999);
+    });
+    expect(result.current.getTime()).toBe(first);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current.getTime()).toBe(first + 30000);
+  });
+
   it('starts at the current time and ticks every interval', async () => {
     const { result } = await renderHook(() => useNow(30000));
     const first = result.current.getTime();
