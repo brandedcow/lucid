@@ -223,12 +223,12 @@ async function rewindToPrevious(previous: Note[]) {
 }
 
 /**
- * The commit. Nothing is deleted anywhere: (1) write notes.json.tmp, (2) read it back and check it
+ * The commit. This function itself deletes nothing: (1) write notes.json.tmp, (2) read it back and check it
  * parses with the same count, (3) copy a content-bearing current index to the backup (a failure
  * does not block the save), (4) move the temp file over notes.json. The old index stays whole
  * until step 4; if step 4 leaves it missing or damaged, recovery reads the temp file or backup.
  */
-async function commitIndex(list: Note[], previous: Note[]) {
+async function commitIndex(list: Note[], previous: Note[], opts?: { scrubbed?: boolean }) {
   // Set once the move failure path already dealt with the temp file (rewound it).
   let rewound = false;
   try {
@@ -241,7 +241,16 @@ async function commitIndex(list: Note[], previous: Note[]) {
 
     const index = indexFile();
     const hadContent = index.exists && index.size !== 0;
-    if (hadContent) {
+    if (opts?.scrubbed) {
+      // Delete forever: the current index still holds the note being removed, so it must not be
+      // copied to the backup. The backup becomes the new list instead (a failure leaves the copy
+      // that was just scrubbed, or none).
+      try {
+        backupFile().write(indexContent(list));
+      } catch {
+        // A missing backup does not block the delete.
+      }
+    } else if (hadContent) {
       try {
         await index.copy(backupFile(), { overwrite: true });
       } catch {
@@ -614,5 +623,168 @@ export async function appendImported(records: Note[]): Promise<{ added: number }
     if (fresh.length === 0) return { added: 0 };
     await commitIndex([...notes, ...fresh], notes);
     return { added: fresh.length };
+  });
+}
+
+/** `error.code` of the failure deleteNoteForever throws for a note that is not in Recently Deleted. */
+export const NOTE_NOT_IN_TRASH = 'NOTE_NOT_IN_TRASH';
+
+/** Records of every note except those in `skip` (the notes being removed), junk items included. */
+const recordsOf = (notes: Note[], skip: Note[] = []): unknown[] =>
+  notes.flatMap((n) => (hasId(n) && !skip.includes(n) ? storedRecordings(n) : []));
+
+/**
+ * The audio files that may be deleted for `candidates`, given the records that survive. Deletable
+ * only if the record is not legacy-origin (its file lives in `dreams/`, which is never touched),
+ * the stored name is a plain name, the resolved file lies inside `notes/`, and no surviving record
+ * (in any note, Recently Deleted included) uses the same name. One entry per file name.
+ */
+function deletableFiles(candidates: unknown[], survivors: unknown[]): File[] {
+  const dir = audioDir();
+  const prefix = dir.uri.endsWith('/') ? dir.uri : `${dir.uri}/`;
+  const inUse = new Set<unknown>(survivors.map(nameOf));
+  const seen = new Set<string>();
+  const files: File[] = [];
+  for (const record of candidates) {
+    const name = nameOf(record);
+    if ((record as NoteRecording | null)?.origin === 'legacy') continue;
+    if (!isPlainFileName(name) || inUse.has(name) || seen.has(name)) continue;
+    const file = new File(dir, name);
+    if (!file.uri.startsWith(prefix)) continue;
+    seen.add(name);
+    files.push(file);
+  }
+  return files;
+}
+
+/** The files Delete forever may remove for `note`: every recording, held included. See above. */
+export function deletableAudioFiles(note: Note, notes: Note[]): File[] {
+  return deletableFiles(storedRecordings(note), recordsOf(notes, [note]));
+}
+
+/**
+ * Deletes the files in order, stopping at the first real failure. A file that is already gone
+ * counts as deleted. Returns the names removed and the failure, if any.
+ */
+function deleteAudioFiles(files: File[]): { gone: Set<string>; failure?: unknown } {
+  const gone = new Set<string>();
+  for (const file of files) {
+    try {
+      if (file.exists) file.delete(); // deletion case 1, 2 and 5 (CLAUDE.md): stored notes audio
+    } catch (failure) {
+      return { gone, failure };
+    }
+    gone.add(file.uri.slice(file.uri.lastIndexOf('/') + 1));
+  }
+  return { gone };
+}
+
+/**
+ * Leaving a note: permanently deletes the voice notes the user closed (held recordings). Audio
+ * first, index last: a crash in between leaves a hidden held record whose file is gone (harmless;
+ * the next call or Delete forever clears it), never a file nothing points at. A held recording
+ * that is legacy-origin stays held and its file is left alone. One whose file is shared with a
+ * surviving record or whose name is not plain loses its record but not the file. Unknown id, a
+ * note in Recently Deleted (Restore keeps its held ones) and nothing held do nothing and write
+ * nothing. A delete failure commits the progress made so far and rethrows; a failed index write
+ * leaves files gone and records held, and running it again finishes the job.
+ * Disclosure: the transcripts of discarded voice notes can remain in `notes.json.bak` until the
+ * next index commit (usually the next autosave); this does not scrub it.
+ */
+export function discardHeld(id: string): Promise<{ removed: number }> {
+  return serialized(async () => {
+    const notes = await readRawIndex(true);
+    const note = notes.find((n) => hasId(n) && n.id === id);
+    if (!note || isTrashed(note)) return { removed: 0 };
+
+    const all = storedRecordings(note);
+    const held = all.filter(
+      (r) =>
+        typeof r === 'object' &&
+        r !== null &&
+        typeof r.heldAt === 'string' &&
+        r.origin !== 'legacy',
+    );
+    if (held.length === 0) return { removed: 0 };
+
+    const survivors = [...recordsOf(notes, [note]), ...all.filter((r) => !held.includes(r))];
+    const files = deletableFiles(held, survivors);
+    const deletable = new Set<unknown>(files.map((f) => f.uri.slice(f.uri.lastIndexOf('/') + 1)));
+    const { gone, failure } = deleteAudioFiles(files);
+
+    const removing = held.filter((r) => {
+      const name = nameOf(r);
+      return !deletable.has(name) || gone.has(name as string);
+    });
+    if (removing.length > 0) {
+      const next: Note = { ...note, recordings: all.filter((r) => !removing.includes(r)) };
+      await commitIndex(
+        notes.map((n) => (n === note ? next : n)),
+        notes,
+      );
+    }
+    if (failure !== undefined) throw failure;
+    return { removed: removing.length };
+  });
+}
+
+/** Overwrites a leftover copy of the index with `content`; if that fails removes it. Throws if neither works. */
+function scrubCopy(file: File, content: string) {
+  if (!file.exists) return;
+  try {
+    file.write(content);
+  } catch {
+    file.delete(); // deletion case 1 and 2 (CLAUDE.md): the safety copy's text of the deleted note
+  }
+}
+
+/** One Delete forever step sequence. `notes` is the current index; returns the list without `note`. */
+async function foreverLocked(notes: Note[], note: Note): Promise<Note[]> {
+  const remaining = notes.filter((n) => n !== note);
+  // 1. Scrub the note's text from the leftover copies (temp file and backup). Idempotent.
+  const content = indexContent(remaining);
+  scrubCopy(backupFile(), content);
+  scrubCopy(tempFile(), content);
+  // 2. Audio. A failure leaves the note listed (in Recently Deleted); running again finishes.
+  const { failure } = deleteAudioFiles(deletableAudioFiles(note, notes));
+  if (failure !== undefined) throw failure;
+  // 3. Index last, so a note is never unlisted while its audio remains.
+  await commitIndex(remaining, notes, { scrubbed: true });
+  return remaining;
+}
+
+/**
+ * Permanently deletes one note from Recently Deleted: its text is scrubbed from `.bak` and `.tmp`,
+ * then its audio (see `deletableFiles`), then the index entry is removed. An unknown id does
+ * nothing; a note that is not in Recently Deleted throws NOTE_NOT_IN_TRASH. `notes.corrupt-*`
+ * copies are left alone.
+ */
+export function deleteNoteForever(id: string): Promise<void> {
+  return serialized(async () => {
+    const notes = await readRawIndex(true);
+    const note = notes.find((n) => hasId(n) && n.id === id);
+    if (!note) return;
+    if (!isTrashed(note)) throw coded('The note is not in Recently Deleted', NOTE_NOT_IN_TRASH);
+    await foreverLocked(notes, note);
+  });
+}
+
+/**
+ * Delete forever for every note in Recently Deleted, one after another in a single queued task.
+ * Stops at the first failure and reports it; the notes already deleted stay deleted.
+ */
+export function emptyRecentlyDeleted(): Promise<{ deleted: number; failedId?: string }> {
+  return serialized(async () => {
+    let notes = await readRawIndex(true);
+    let deleted = 0;
+    for (const note of notes.filter((n) => hasId(n) && isTrashed(n))) {
+      try {
+        notes = await foreverLocked(notes, note);
+        deleted += 1;
+      } catch {
+        return { deleted, failedId: note.id };
+      }
+    }
+    return { deleted };
   });
 }
