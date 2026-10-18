@@ -212,13 +212,42 @@ describe('saveNote', () => {
       expect(stored().notes).toHaveLength(1);
     });
 
-    it('an existing empty note that is saved empty again is left alone', async () => {
+    it('an existing blank note with no recording that is saved blank again goes to Recently Deleted', async () => {
+      // Before chunk 5 this was a silent no-op (equal body); the empty rule now comes first so a
+      // note whose last voice note was just discarded cannot stay behind as an invisible empty note.
       putIndex(note({ id: '1', body: '' }));
+      const { note: trashed } = await saveNote({ id: '1', body: '' });
+      expect(trashed?.deletedAt).toEqual(expect.any(String));
+      expect(stored().notes[0].deletedAt).toEqual(expect.any(String));
+      expect(stored().notes[0].body).toBe('');
+      expect(await listNotes()).toHaveLength(0);
+    });
+
+    it('a new blank note is still not created', async () => {
+      const { note: none } = await saveNote({ id: '9', body: '  ' });
+      expect(none).toBeNull();
+      expect(__fs.has(INDEX)).toBe(false);
+    });
+
+    it('a blank note with only a held voice note is not trashed (equal body stays a no-op)', async () => {
+      putIndex(
+        note({
+          id: '1',
+          body: '',
+          recordings: [{ fileName: '1.m4a', durationMs: 1, heldAt: 'h' }],
+        }),
+      );
       const before = __fs.read(INDEX);
       __fs.failWhen('write', () => true);
       const { note: same } = await saveNote({ id: '1', body: '' });
       expect(same?.deletedAt).toBeUndefined();
       expect(__fs.read(INDEX)).toBe(before);
+    });
+
+    it('a blank note whose only voice note was discarded is trashed by the next blank save', async () => {
+      putIndex(note({ id: '1', body: '', recordings: [] }));
+      const { note: trashed } = await saveNote({ id: '1', body: '' });
+      expect(trashed?.deletedAt).toEqual(expect.any(String));
     });
   });
 

@@ -341,9 +341,10 @@ export type SaveNoteInput = {
  * Autosave of a note's body (and new recordings). Order matters for safety: validate, copy the
  * audio (one file at a time, under free names), write the index (the commit), and only then delete
  * the cache sources, so a failure at any step leaves the recordings in place. A note in Recently
- * Deleted throws NOTE_IN_TRASH. An equal body with nothing to add writes nothing. A body that is
- * blank with no recording at all (held ones count) is empty: a new note is not created
- * (`{ note: null }`), a stored note is moved to Recently Deleted with its text kept.
+ * Deleted throws NOTE_IN_TRASH. A body that is blank with no recording at all (held ones count)
+ * is empty (checked first, so an equal blank body still counts): a new note is not created
+ * (`{ note: null }`), a stored note is moved to Recently Deleted with its text kept. Otherwise an
+ * equal body with nothing to add writes nothing.
  */
 export async function saveNote(
   input: SaveNoteInput,
@@ -400,11 +401,9 @@ export async function saveNote(
       return typeof name === 'string' && texts.has(name) && texts.get(name) !== r.voiceTranscript;
     });
 
-    if (existing && existing.body === body && additions.length === 0 && !textsChanged) {
-      return { note: existing, added: [] };
-    }
-
     const now = new Date().toISOString();
+    // Checked before the equal-body no-op: a blank note whose last recording was just discarded
+    // has an equal body but is empty, and must still go to Recently Deleted.
     if (body.trim() === '' && current.length === 0 && additions.length === 0 && !badRecordings) {
       if (!existing) return { note: null, added: [] };
       // Emptied: Recently Deleted, not gone. The stored text is kept so Restore brings it back.
@@ -414,6 +413,10 @@ export async function saveNote(
         notes,
       );
       return { note: trashed, added: [] };
+    }
+
+    if (existing && existing.body === body && additions.length === 0 && !textsChanged) {
+      return { note: existing, added: [] };
     }
 
     for (const add of additions) {
