@@ -1,4 +1,4 @@
-import { markdownLines, plainLineText } from './markdownLines';
+import { markdownLines, parseListPrefix, plainLineText } from './markdownLines';
 
 const texts = (body: string) => markdownLines(body).map((l) => l.runs.map((r) => r.text));
 const rebuild = (body: string) =>
@@ -197,5 +197,50 @@ describe('markdownLines structure', () => {
       for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)];
       expect(rebuild(s)).toBe(s);
     }
+  });
+});
+
+describe('parseListPrefix', () => {
+  const cases: [string, object | null][] = [
+    ['- a', { kind: 'bullet', indent: '', marker: '- ', bullet: '-', length: 2 }],
+    ['* a', { kind: 'bullet', indent: '', marker: '* ', bullet: '*', length: 2 }],
+    ['  - a', { kind: 'bullet', indent: '  ', marker: '- ', bullet: '-', length: 4 }],
+    ['- ', { kind: 'bullet', indent: '', marker: '- ', bullet: '-', length: 2 }],
+    ['12. a', { kind: 'numbered', indent: '', marker: '12. ', number: 12, length: 4 }],
+    ['1. ', { kind: 'numbered', indent: '', marker: '1. ', number: 1, length: 3 }],
+    ['\t3. a', { kind: 'numbered', indent: '\t', marker: '3. ', number: 3, length: 4 }],
+    [
+      '- [ ] a',
+      { kind: 'checkbox', indent: '', marker: '- [ ] ', bullet: '-', checked: false, length: 6 },
+    ],
+    [
+      '- [x] a',
+      { kind: 'checkbox', indent: '', marker: '- [x] ', bullet: '-', checked: true, length: 6 },
+    ],
+    [
+      '- [X] a',
+      { kind: 'checkbox', indent: '', marker: '- [X] ', bullet: '-', checked: true, length: 6 },
+    ],
+    [
+      '* [ ]',
+      { kind: 'checkbox', indent: '', marker: '* [ ]', bullet: '*', checked: false, length: 5 },
+    ],
+    [
+      '  - [x]',
+      { kind: 'checkbox', indent: '  ', marker: '- [x]', bullet: '-', checked: true, length: 7 },
+    ],
+    ['-a', null],
+    ['-', null],
+    ['*italic* text', null],
+    ['**bold** text', null],
+    ['1.a', null],
+    ['# Heading', null],
+    ['## Heading', null],
+    ['> quote', null],
+    ['plain', null],
+    ['', null],
+  ];
+  it.each(cases)('%j', (line, expected) => {
+    expect(parseListPrefix(line)).toEqual(expected);
   });
 });
