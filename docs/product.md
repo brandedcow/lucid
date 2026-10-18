@@ -152,7 +152,7 @@ Status: **Planned**.
 
 ## Retired terms and migration
 
-Status: the import is **Planned**, not built yet.
+Status: the import is **Built** as a module (`src/services/legacyImport.ts`); the app does not run it yet (a later chunk wires it in).
 
 These terms belong to the older concept and are retired. The older code (still present at this commit) saves only through a check button and asks "Save a draft?" or "Discard changes?" when leaving. They remain only in the older code and in the import until the cleanup chunk removes them; do not use them in new copy, code or data models.
 
@@ -169,7 +169,7 @@ These terms belong to the older concept and are retired. The older code (still p
 | Check button, "Discard changes?"         | Gone. No explicit save and no leave prompts (autosave).                                             |
 | "Open dream capture on launch" (setting) | The launch switch in Settings, labelled "Open a new note on launch".                                |
 
-Existing data is brought over by a read-only import of the older data file (`dreams.json`) and its audio into notes. The old files are never changed or removed. Each old entry becomes a note: the title becomes the first line, the text follows, the journal becomes a tag (for example `#dreams`, `#life`, or a custom journal's name made into a tag), the old emotion text is kept as a plain line in the body, and drafts become ordinary notes. Open: the exact layout of the imported text, whether old audio is referenced in place or copied, and the tag spelling for custom journal names are technical choices still to be made.
+Existing data is brought over by a read-only import of the older data file (`dreams.json`) into notes. It runs once (a small marker file records that it ran) and never changes or removes the old files. Each old entry becomes a note laid out as: the title as the first line, then the text, then an `Emotion: sad, afraid` line when the old entry had an emotion, then one line of tags. The journal becomes the first tag (`#dreams`, `#life`, or a custom journal's name made into a tag, for example `#dream-work`), followed by the entry's own tags. Drafts become ordinary notes. The old audio stays in its old place and is played from there; it is never copied or deleted. An entry that cannot be converted (damaged id or date, or completely empty) is skipped and listed in the marker file; its data stays in `dreams.json`. If `dreams.json` cannot be read, nothing is imported and the import is tried again next time.
 
 ## Platforms
 
