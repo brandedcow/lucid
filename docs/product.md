@@ -58,7 +58,7 @@ Status: **Planned** (the editor is the older editor page with a separate title f
 Status: **Planned** for autosave and the first-line title. The code at this commit still implements the older explicit-save flow (see Retired terms), and still has a separate title field.
 
 - One page creates and edits every note. Top bar: a back arrow and, for a saved note, a "..." menu. Under it: the date, optional **voice note cards** and the **body**. At the bottom, above the keyboard when it is open, a **toolbar**: undo, redo, record a voice note, "#" for tags, and (planned) a checkbox toggle for the current line; above it, while a tag is being typed, a row of tag suggestions.
-- **Autosave.** There is no save button and no check. The editor saves on its own: a note is saved shortly after typing stops, and again when the user leaves the editor. An empty note (no text and no voice note) is never kept. Leaving the editor never asks whether to save or discard.
+- **Autosave.** There is no save button and no check. The editor saves on its own: a note is saved shortly after typing stops, and again when the user leaves the editor. An empty note (no text and no voice note) is never kept. Leaving the editor never asks whether to save or discard. Closing a stored voice note does not delete it at once: the recording is held, with undo, until the note is left.
 - **Tag suggestions.** While a tag is being typed, a row above the toolbar suggests tags the user has used before and tags already in this note; tapping one completes the word. The "#" button types a `#` at the cursor.
 - **Undo and redo** cover typing in the body (tags included, since they are body text) and closing a voice note (one history, most recent first). They are off while the recording panel is open.
 - **Leaving.** The back arrow (and Android back) leaves the editor and returns to where the note was opened; what is on the note is already saved. While the recording panel is open and idle, back just closes it. While recording, back first asks "Discard this recording?" (Keep recording / Discard), and Discard deletes the unsaved recording and then carries on leaving.
@@ -71,7 +71,7 @@ Status: **Built** (the same behavior carries over to notes). Transcription after
 - The waveform button in the toolbar opens a recording panel at the bottom of the page. It starts idle (a large timer, a flat waveform and a big red button); tapping the red button starts recording (the time and a live waveform; no pause) and tapping it again stops. Closing the idle panel (its handle, or back) needs no confirmation.
 - When a recording stops, a card appears above the body: play/pause, a waveform that fills in as the voice note plays, its length, and a close button. The toolbar button stays available, so a note can hold several voice notes (no limit); with several, the cards sit in a row the user swipes sideways in the order recorded (the next one peeks in, with page dots) and only one plays at a time.
 - Tapping a card opens the **expanded view**: share, trash, a large waveform to scrub, the time, back and forward 15 seconds, play/pause and a playback-speed button; with several voice notes the user swipes between them. Trash is the same as the card's close.
-- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Status: **Open**. Under the older explicit save, closing a stored voice note deleted its audio only on save and could be undone; with autosave a close would take effect at once, so what happens to the audio is not decided (see Open decisions). Until decided, nothing stored is deleted by a close.
+- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Status: **Planned**. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. What happens to held recordings when the note is left is Open (see Open decisions).
 - Voice notes are kept with the note when it is saved. The app does not yet turn a voice note into text: the body is typed (transcribing after recording is planned and needs a device test; there is no live text while recording). Transcription, when built, runs on the device only.
 
 ### Launch and first note of the day
@@ -91,7 +91,7 @@ Status: **Built** under the older concept (the first launch each day opens the c
 
 Status: **Planned** (the app currently has different list screens).
 
-- The main screen is a note list: each row shows the title, a short preview of the body and a relative time ("5 min ago", "Yesterday"). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
+- The main screen is a note list: each row shows the title, a short preview of the body and a relative time in full words ("2 seconds ago", "37 minutes ago", "3 hours ago", "2 days ago", then a short date from 7 days on; "Just now" for under a second). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
 - A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view, the list of tags, **Recently Deleted**, and **Settings**.
 - **Smart views** (chosen from the dropdown): **Today** (notes created today), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
 - Tags in the drawer are flat, shown with how many notes use them, sorted alphabetically. Open: whether the drawer shows every tag or only the most used.
@@ -192,7 +192,7 @@ Do not build these unless explicitly asked:
 
 These are undecided. Ask before assuming an answer.
 
-- **Closing a stored voice note under autosave.** Closing used to delete the audio only on an explicit save, and could be undone. With autosave a close is immediate. Options: (a) closing moves the recording to a hold area until the note is left, with undo until then; (b) closing removes it from the note but the file stays and is only deleted via Delete forever of the note; (c) confirm before removing a stored voice note.
+- What happens to held recordings (voice notes closed on a note) when the note is left. They would be removed from the phone then, as the old explicit-save flow did on save. This needs approval of a new case in the deletion allow-list before it is built.
 - How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
 - How markdown is shown in the editor, and whether there is also a rendered reading view with tap-to-toggle checkboxes (a technical decision for the architect).
 - Whether pinned notes sort first in the main list, whether the drawer shows every tag, and where Search is entered from.
