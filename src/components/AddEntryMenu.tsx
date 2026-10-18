@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
+import { useSheetDismiss } from '../hooks/useSheetDismiss';
 import { colors, fonts, spacing } from '../theme';
 import { JournalId } from '../types/entry';
 import { Journal, journalCopy } from '../utils/journals';
@@ -117,6 +118,21 @@ export function AddEntryMenu({
     animateTo(0, () => setMounted(false));
   }, [animateTo]);
 
+  // Swipe down on the sheet dismisses it by the same path as a backdrop tap.
+  const sheetHeightRef = useRef(0);
+  useEffect(() => {
+    sheetHeightRef.current = sheetHeight;
+  }, [sheetHeight]);
+  const swipe = useSheetDismiss({
+    onDismiss: close,
+    enabled: isOpen,
+    getHeight: () => sheetHeightRef.current,
+  });
+  const resetSwipe = swipe.reset;
+  useEffect(() => {
+    if (!visible) resetSwipe();
+  }, [visible, resetSwipe]);
+
   // Disabled or hidden closes at once, with no exit animation.
   if (off && (open || mounted)) {
     setOpen(false);
@@ -160,10 +176,13 @@ export function AddEntryMenu({
   // alone. The sheet's own bottom padding then drops its inset share. iOS is unchanged.
   const keyboardLift = Platform.OS === 'android' && keyboard.visible ? keyboard.height : 0;
   const fabBottom = keyboardLift + bottomInset + spacing.md;
-  const translateY = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [sheetHeight || FALLBACK_SHEET_HEIGHT, 0],
-  });
+  const translateY = Animated.add(
+    progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [sheetHeight || FALLBACK_SHEET_HEIGHT, 0],
+    }),
+    swipe.dragY,
+  );
 
   if (hidden) return null;
 
@@ -192,6 +211,7 @@ export function AddEntryMenu({
             />
           </Animated.View>
           <Animated.View
+            {...swipe.panHandlers}
             onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
             style={[
               styles.sheet,

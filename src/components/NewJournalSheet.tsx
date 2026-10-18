@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   BackHandler,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
+import { useSheetDismiss } from '../hooks/useSheetDismiss';
 import { JournalError } from '../services/journalStorage';
 import { colors, fonts, spacing } from '../theme';
 import {
@@ -154,6 +157,18 @@ function Sheet({
     if (!savingRef.current) onClose();
   };
 
+  // Swipe down on the grabber and the title dismisses the sheet (and the keyboard) like Cancel. The
+  // input below is not wired, so text selection and its touches are untouched.
+  const sheetHeight = useRef(0);
+  const swipe = useSheetDismiss({
+    onDismiss: () => {
+      Keyboard.dismiss();
+      cancel();
+    },
+    enabled: !saving,
+    getHeight: () => sheetHeight.current,
+  });
+
   // Android only: edge-to-edge means the window does not resize for the keyboard, so
   // KeyboardAvoidingView does nothing there and the IME would cover the sheet. Lift it by the
   // keyboard height plus the system bar inset (the rule AddEntryMenu uses); the sheet's own bottom
@@ -177,14 +192,20 @@ function Sheet({
         ]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View
+        <Animated.View
+          onLayout={(e) => {
+            sheetHeight.current = e.nativeEvent.layout.height;
+          }}
           style={[
             styles.sheet,
             { paddingBottom: (keyboardLift > 0 ? 0 : insets.bottom) + spacing.lg },
+            { transform: [{ translateY: swipe.dragY }] },
           ]}
         >
-          <View style={styles.grabber} importantForAccessibility="no" />
-          <Text style={styles.title} accessibilityRole="header">
+          <View testID="sheet-grabber" style={styles.grabberTarget} {...swipe.panHandlers}>
+            <View style={styles.grabber} importantForAccessibility="no" />
+          </View>
+          <Text style={styles.title} accessibilityRole="header" {...swipe.panHandlers}>
             {title}
           </Text>
           <TextInput
@@ -234,7 +255,7 @@ function Sheet({
               <Text style={styles.submitText}>{submitLabel}</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -253,6 +274,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
+  // A taller touch target around the 4 px bar; the negative margin keeps the layout unchanged.
+  grabberTarget: { paddingVertical: 12, marginVertical: -12 },
   grabber: {
     alignSelf: 'center',
     width: 36,

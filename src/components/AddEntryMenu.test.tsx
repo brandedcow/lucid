@@ -1,4 +1,13 @@
-import { AccessibilityInfo, BackHandler, Keyboard, Platform, StyleSheet, Text } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  BackHandler,
+  Keyboard,
+  PanResponder,
+  Platform,
+  StyleSheet,
+  Text,
+} from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { AddEntryMenu, FAB_SIZE, fabListClearance } from './AddEntryMenu';
 import { fakeKeyboard } from '../test/fakeKeyboard';
@@ -314,5 +323,115 @@ describe('AddEntryMenu', () => {
       expect(sheetStyle()).toMatchObject({ bottom: 0, paddingBottom: 34 + 24 });
       expect(fabStyle().bottom).toBe(34 + 16);
     });
+  });
+});
+
+describe('AddEntryMenu swipe down to dismiss', () => {
+  type Config = Parameters<typeof PanResponder.create>[0];
+  let config: Config;
+  beforeEach(() => {
+    const create = PanResponder.create.bind(PanResponder);
+    jest.spyOn(PanResponder, 'create').mockImplementation((c) => {
+      config = c;
+      return create(c);
+    });
+  });
+  afterEach(() => (PanResponder.create as jest.Mock).mockRestore());
+
+  const g = (dy: number, vy = 0) => ({ dx: 0, dy, vy }) as never;
+  const swipe = async (dy: number, vy = 0) => {
+    expect(config.onMoveShouldSetPanResponder?.({} as never, g(dy))).toBe(dy > 10);
+    await act(async () => {
+      config.onPanResponderGrant?.({} as never, g(0));
+      config.onPanResponderMove?.({} as never, g(dy));
+      config.onPanResponderRelease?.({} as never, g(dy, vy));
+    });
+    await finishAnimation();
+  };
+
+  it('a long swipe down on the sheet closes it like the backdrop tap', async () => {
+    const onPick = jest.fn();
+    await renderMenu({ onPick });
+    await open();
+    await finishAnimation();
+    await swipe(120);
+    expect(screen.queryByRole('menuitem')).toBeNull();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(fab().props.accessibilityState).toMatchObject({ expanded: false });
+    // It can open again afterwards.
+    await open();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+  });
+
+  it('a fast fling closes it; a short slow drag leaves it open', async () => {
+    await renderMenu();
+    await open();
+    await finishAnimation();
+    await swipe(30);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    await swipe(30, 1);
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('the pan handlers are on the whole sheet, not the backdrop', async () => {
+    await renderMenu({ onNewJournal: jest.fn() });
+    await open();
+    let sheet = screen.getByRole('header', { name: 'Add entry' }).parent;
+    while (sheet && !sheet.props.onResponderRelease) sheet = sheet.parent;
+    expect(sheet).toBeTruthy();
+    expect(within(sheet!).getAllByRole('menuitem')).toHaveLength(2);
+    expect(within(sheet!).getByRole('button', { name: 'New journal' })).toBeTruthy();
+    expect(within(sheet!).queryByLabelText('Close menu')).toBeNull();
+  });
+
+  it('claims nothing once the menu is closing or disabled', async () => {
+    const view = await renderMenu();
+    await open();
+    expect(config.onMoveShouldSetPanResponder?.({} as never, g(200))).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    expect(config.onMoveShouldSetPanResponder?.({} as never, g(200))).toBe(false);
+    await finishAnimation();
+    await view.rerender(<AddEntryMenu journals={BUILT_IN_JOURNALS} onPick={jest.fn()} disabled />);
+    expect(config.onMoveShouldSetPanResponder?.({} as never, g(200))).toBe(false);
+  });
+
+  it('with Reduce Motion it closes on release without sliding', async () => {
+    reduceSpy.mockResolvedValue(true);
+    await renderMenu();
+    await open();
+    await swipe(120);
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('after a swipe-dismiss it reopens at its open position, not still dragged away', async () => {
+    await renderMenu();
+    await open();
+    await finishAnimation();
+    const ty = () =>
+      StyleSheet.flatten(screen.getAllByRole('menuitem')[0].parent!.parent!.props.style)
+        .transform?.[0].translateY;
+    // Jest does not advance natively driven values, so compare with the value before the swipe.
+    const before = ty();
+    await swipe(120);
+    expect(screen.queryByRole('menuitem')).toBeNull();
+    await open();
+    await finishAnimation();
+    expect(ty()).toBe(before);
+  });
+
+  it('slides the dismissed sheet by its measured height, not the fallback', async () => {
+    const timing = jest.spyOn(Animated, 'timing');
+    await renderMenu();
+    await open();
+    await finishAnimation();
+    let sheet = screen.getAllByRole('menuitem')[0].parent;
+    while (sheet && !sheet.props.onLayout) sheet = sheet.parent;
+    await act(async () => sheet!.props.onLayout({ nativeEvent: { layout: { height: 333 } } }));
+    timing.mockClear();
+    await swipe(120);
+    expect(timing).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ toValue: 333 }),
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { BackHandler, Platform, StyleSheet } from 'react-native';
+import { BackHandler, Keyboard, PanResponder, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { fakeKeyboard } from '../test/fakeKeyboard';
@@ -267,5 +267,83 @@ describe('NewJournalSheet', () => {
       expect(avoiderStyle().paddingBottom ?? 0).toBe(0);
       expect(sheetStyle()).toMatchObject({ paddingBottom: 34 + 24 });
     });
+  });
+});
+
+describe('NewJournalSheet swipe down to dismiss', () => {
+  type Config = Parameters<typeof PanResponder.create>[0];
+  let config: Config;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    const create = PanResponder.create.bind(PanResponder);
+    jest.spyOn(PanResponder, 'create').mockImplementation((c) => {
+      config = c;
+      return create(c);
+    });
+  });
+  afterEach(() => {
+    (PanResponder.create as jest.Mock).mockRestore();
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const g = (dy: number, vy = 0) => ({ dx: 0, dy, vy }) as never;
+  const swipe = async (dy: number, vy = 0) => {
+    await act(async () => {
+      config.onPanResponderGrant?.({} as never, g(0));
+      config.onPanResponderMove?.({} as never, g(dy));
+      config.onPanResponderRelease?.({} as never, g(dy, vy));
+    });
+    await act(() => jest.advanceTimersByTime(600));
+  };
+
+  it('a long swipe closes the sheet like Cancel and dismisses the keyboard', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    const { onClose, onSubmit } = await setup();
+    await swipe(120);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('a short slow drag does nothing', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    const { onClose } = await setup();
+    await swipe(30);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
+  it('works for the rename wording too', async () => {
+    const { onClose } = await setup({
+      title: 'Rename journal',
+      submitLabel: 'Save',
+      initialName: 'Gratitude',
+      excludeId: 'j_a',
+    });
+    await swipe(120);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('is wired to the grabber and title only, not the text input or buttons', async () => {
+    await setup();
+    expect(screen.getByTestId('sheet-grabber')).toHaveProp('onResponderRelease');
+    expect(screen.getByRole('header', { name: 'New journal' })).toHaveProp('onResponderRelease');
+    expect(input().props.onResponderRelease).toBeUndefined();
+    expect(screen.getByRole('button', { name: 'Cancel' }).props.onResponderRelease).not.toBe(
+      screen.getByTestId('sheet-grabber').props.onResponderRelease,
+    );
+  });
+
+  it('is inert while saving', async () => {
+    let finish: () => void = () => {};
+    const onSubmit = jest.fn(() => new Promise<void>((r) => (finish = r)));
+    const { onClose } = await setup({}, onSubmit);
+    await type('Dreams 2');
+    await fireEvent.press(create());
+    expect(config.onMoveShouldSetPanResponder?.({} as never, g(200))).toBe(false);
+    await swipe(120);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => finish());
   });
 });
