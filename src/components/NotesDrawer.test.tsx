@@ -157,11 +157,16 @@ describe('NotesDrawer content', () => {
     expect(screen.getAllByLabelText(/^#t\d\d, 1$/)).toHaveLength(80);
   });
 
-  it('shows Recently Deleted with its count only above zero, and it opens trash', async () => {
+  it('always shows Recently Deleted, with its count only above zero, and it opens trash', async () => {
     const onOpenTrash = jest.fn();
     const view = await render(drawer({ onOpenTrash }));
-    expect(screen.queryByLabelText(/^Recently Deleted/)).toBeNull();
+    expect(screen.getByLabelText('Recently Deleted')).toBeTruthy();
+    expect(screen.queryByLabelText(/^Recently Deleted, /)).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Recently Deleted'));
+    expect(onOpenTrash).toHaveBeenCalledTimes(1);
+    onOpenTrash.mockClear();
     await view.rerender(drawer({ onOpenTrash, trashedCount: 3 }));
+    expect(screen.queryByLabelText('Recently Deleted')).toBeNull();
     await fireEvent.press(screen.getByLabelText('Recently Deleted, 3'));
     expect(onOpenTrash).toHaveBeenCalledTimes(1);
   });

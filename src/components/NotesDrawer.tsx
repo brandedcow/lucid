@@ -26,7 +26,7 @@ import { NoteView, TagCount } from '../utils/noteViews';
  * - `view`: the current view. The dropdown shows it when it is a smart view; a tag is highlighted.
  * - `onSelectView(view)`: a smart view or a tag was chosen. The parent closes the drawer.
  * - `tags`: every tag with its live-note count, alphabetical (as `tagCounts` returns).
- * - `trashedCount`: notes in Recently Deleted; the count shows when above zero.
+ * - `trashedCount`: notes in Recently Deleted. The row is always there; the count shows when above zero.
  * - `onOpenTrash()`, `onOpenSettings()`: the rows were tapped.
  * - `unreadable`: the notes could not be read; the tag list is replaced by a message.
  */
@@ -216,17 +216,17 @@ export function NotesDrawer({
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.sm }]}>
-            {trashedCount > 0 && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Recently Deleted, ${trashedCount}`}
-                onPress={onOpenTrash}
-                style={styles.row}
-              >
-                <Text style={styles.rowText}>Recently Deleted</Text>
-                <Text style={styles.count}>{trashedCount}</Text>
-              </Pressable>
-            )}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                trashedCount > 0 ? `Recently Deleted, ${trashedCount}` : 'Recently Deleted'
+              }
+              onPress={onOpenTrash}
+              style={styles.row}
+            >
+              <Text style={styles.rowText}>Recently Deleted</Text>
+              {trashedCount > 0 && <Text style={styles.count}>{trashedCount}</Text>}
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Settings"
