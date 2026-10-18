@@ -7,10 +7,16 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useState, type ComponentType } from 'react';
 import { colors } from '../theme';
 
-// `Main` renders Today, the logs, Search and Settings through the app's own screen switch (they
-// become routes in a later chunk). `Add` is the add-entry page, pushed over `Main`, so the screen it
-// was opened from stays mounted underneath. No deep linking and no navigation-state persistence.
-export type RootStackParamList = { Main: undefined; Add: undefined };
+// `Main` renders Today and the logs through the app's own screen switch (they become routes in a
+// later chunk). `Settings` and `Search` are pushed over it. `Add` is the add-entry page, pushed over
+// whatever is showing, so the screen it was opened from stays mounted underneath. No deep linking
+// and no navigation-state persistence.
+export type RootStackParamList = {
+  Main: undefined;
+  Settings: undefined;
+  Search: undefined;
+  Add: undefined;
+};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -22,6 +28,8 @@ const theme = {
 
 export function RootNavigator({
   main,
+  settings,
+  search,
   add,
   navigationRef,
   startInAdd = false,
@@ -29,6 +37,8 @@ export function RootNavigator({
   onStateChange,
 }: {
   main: ComponentType;
+  settings: ComponentType;
+  search: ComponentType;
   add: ComponentType;
   navigationRef?: NavigationContainerRefWithCurrent<RootStackParamList>;
   /** Mount with `Add` already on top of `Main` (the launch page). Read once, at mount. */
@@ -58,6 +68,17 @@ export function RootNavigator({
         }}
       >
         <Stack.Screen name="Main" component={main} />
+        {/* Pushed from Today: the default push, and the native swipe back (iOS) pops to Today. */}
+        <Stack.Screen
+          name="Settings"
+          component={settings}
+          options={{ animation: 'default', gestureEnabled: true }}
+        />
+        <Stack.Screen
+          name="Search"
+          component={search}
+          options={{ animation: 'default', gestureEnabled: true }}
+        />
         <Stack.Screen
           name="Add"
           component={add}

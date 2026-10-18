@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { createNavigationContainerRef } from '@react-navigation/native';
+import { StackActions, createNavigationContainerRef } from '@react-navigation/native';
 import { Alert, BackHandler, Keyboard } from 'react-native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { useDreamLibrary } from '../hooks/useDreamLibrary';
@@ -59,7 +59,9 @@ import {
 } from '../utils/sessionNavigation';
 import { dayStatus, launchScreen } from '../utils/today';
 
-export type Screen = 'add' | 'log' | 'search' | 'today' | 'settings';
+// Search and Settings are routes of their own; this is what the `Main` route switches between (and
+// 'add' while the Add route is on top).
+export type Screen = 'add' | 'log' | 'today';
 
 // How long the launch waits for stored data before opening the Dreams page anyway: speed on waking
 // outranks the launch rule.
@@ -88,6 +90,9 @@ function useAppFlowValue() {
   // True while the Add route is on top of the stack. Set when it is pushed and re-read from the
   // container's state on every change; `current` derives from it.
   const [addOpen, setAddOpen] = useState(false);
+  // The route in focus, re-read from the container on every change (like `addOpen`). Settings and
+  // Search are routes over `Main`, so `current` no longer says when one of them is showing.
+  const [routeName, setRouteName] = useState<keyof RootStackParamList>('Main');
   // Set just before the app itself pops the Add route, so the route's `beforeRemove` guard lets
   // that one removal through (every other removal goes to `backFromAdd`).
   const allowLeaveRef = useRef(false);
@@ -109,9 +114,23 @@ function useAppFlowValue() {
     navigationRef.navigate('Add');
     setAddOpen(true);
   };
-  // Re-reads from the container whether Add is on top (after any push or pop, from any source).
+  // Pushes Settings or Search over Today. Does nothing before the container is ready or when
+  // Today is not the route in focus (a second tap never stacks a second one).
+  const pushRoute = (name: 'Settings' | 'Search') => {
+    if (!navigationRef.isReady() || navigationRef.getCurrentRoute()?.name !== 'Main') return;
+    navigationRef.navigate(name);
+  };
+  const openSettings = () => pushRoute('Settings');
+  // The drawer closes before the push, so it is never left open behind Search.
+  const openSearch = () => {
+    setJournalsOpen(false);
+    pushRoute('Search');
+  };
+  // Re-reads from the container the focused route (after any push or pop, from any source).
   const syncAddOpen = () => {
-    const onAdd = navigationRef.getCurrentRoute()?.name === 'Add';
+    const name = navigationRef.getCurrentRoute()?.name;
+    if (name) setRouteName(name);
+    const onAdd = name === 'Add';
     // Once Add is gone the one-shot permission to leave is spent.
     if (!onAdd) resetAllowLeave();
     setAddOpen(onAdd);
@@ -249,6 +268,7 @@ function useAppFlowValue() {
   // Everything the resume rule reads, as of the latest render (never stale).
   const resumeInputs = useRef({
     screen: current,
+    routeName,
     ready,
     dreams: library.dreams,
     noDreamDate: dayMarker.noDreamDate,
@@ -259,6 +279,7 @@ function useAppFlowValue() {
   useEffect(() => {
     resumeInputs.current = {
       screen: current,
+      routeName,
       ready,
       dreams: library.dreams,
       noDreamDate: dayMarker.noDreamDate,
@@ -280,7 +301,16 @@ function useAppFlowValue() {
     setLaunchPage(true);
     // Back from the launch page lands on Today whatever screen the user was on.
     setScreen('today');
-    openAdd();
+    if (r.routeName === 'Settings' || r.routeName === 'Search') {
+      // Settings or Search is in the stack: replace it, so back from the launch page lands on Today.
+      // Search starts fresh next time (the reset may not run its `beforeRemove`).
+      searchView.clearFilters();
+      resetAllowLeave();
+      navigationRef.reset({ index: 1, routes: [{ name: 'Main' }, { name: 'Add' }] });
+      setAddOpen(true);
+    } else {
+      openAdd();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the token only; the rest is read fresh
   }, [resumeNewDayToken]);
 
@@ -302,11 +332,11 @@ function useAppFlowValue() {
   );
 
   // The drawer is never left open behind another screen.
-  if (journalsOpen && current !== 'today') setJournalsOpen(false);
+  if (journalsOpen && (current !== 'today' || routeName !== 'Main')) setJournalsOpen(false);
   // A journal delete that sent the open entry away wants the drawer open on Today. The page pops a
   // render after the delete (see `leaveFlow`), so the drawer opens once Today is what shows.
   const [drawerAfterLeave, setDrawerAfterLeave] = useState(false);
-  if (drawerAfterLeave && current === 'today') {
+  if (drawerAfterLeave && current === 'today' && routeName === 'Main') {
     setDrawerAfterLeave(false);
     setJournalsOpen(true);
   }
@@ -339,6 +369,7 @@ function useAppFlowValue() {
   if (
     renamingJournalId &&
     (current !== 'today' ||
+      routeName !== 'Main' ||
       !journalsOpen ||
       !renamingJournal ||
       deletingJournalId === renamingJournalId)
@@ -362,6 +393,10 @@ function useAppFlowValue() {
     if (id !== nav.current.journalId) view.clearFilters();
     setJournalId(id);
     setScreen('log');
+    // From Settings or Search (the shared "+" menu's New journal): back to the screen that shows logs.
+    const showing = navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined;
+    if (showing === 'Settings' || showing === 'Search')
+      navigationRef.dispatch(StackActions.popToTop());
   };
 
   // Where a flow ends: the screen it started from, which is still mounted under the Add route (so a
@@ -689,8 +724,6 @@ function useAppFlowValue() {
         view.closeSearch();
         return true;
       case 'today':
-        // Leaving Search starts it fresh next time.
-        if (current === 'search') searchView.clearFilters();
         setScreen('today');
         return true;
       case 'none':
@@ -708,19 +741,20 @@ function useAppFlowValue() {
   };
 
   // Android hardware back always calls the latest `performBack` (through the ref), so it never sees
-  // stale screen, session or search state. It is registered only while the Add route is NOT on top:
+  // stale screen, session or search state. It is registered only while the `Main` route is in focus
+  // (so a Log with its search open underneath cannot grab back from Settings, Search or Add):
   // listeners run newest first and the container's, registered at its mount, would otherwise run
-  // after this one. With Add up, the container's handler alone pops the route, which the route's
-  // `beforeRemove` guard turns into `backFromAdd`.
+  // after this one. With another route up, the container's handler alone pops it (Add's
+  // `beforeRemove` guard turns that into `backFromAdd`).
   const performBackRef = useRef(performBack);
   useEffect(() => {
     performBackRef.current = performBack;
   });
   useEffect(() => {
-    if (addOpen) return;
+    if (addOpen || routeName !== 'Main') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => performBackRef.current());
     return () => sub.remove();
-  }, [addOpen]);
+  }, [addOpen, routeName]);
 
   const logJournal = journalFor(journalId);
 
@@ -769,6 +803,9 @@ function useAppFlowValue() {
   return {
     current,
     screen,
+    routeName,
+    openSettings,
+    openSearch,
     navigationRef,
     allowLeaveRef,
     allowLeave,

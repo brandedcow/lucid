@@ -3400,7 +3400,8 @@ describe('App Add route', () => {
       await press('stub-add-set-title');
       await press('stub-add-save');
       expect(screen.getByRole('header', { name: 'Settings' })).toBeTruthy();
-      expect(routeNames()).toEqual(['Main']);
+      // Settings is a route of its own: the stack underneath Add is [Main, Settings].
+      expect(routeNames()).toEqual(['Main', 'Settings']);
     });
 
     it('Search keeps its query after an entry opened from it is left', async () => {
@@ -3413,5 +3414,156 @@ describe('App Add route', () => {
       expect(screen.getByText('search-screen')).toBeTruthy();
       expect(screen.getByText('search-query:hall')).toBeTruthy();
     });
+  });
+});
+
+// ---- Settings and Search as stack routes ----
+
+describe('App Settings and Search routes', () => {
+  const routeNames = (): string[] => mockNav.current.getRootState().routes.map((r: any) => r.name);
+  const drawerShown = () =>
+    screen.queryByText('journals-drawer', { includeHiddenElements: true }) !== null;
+  const openSearchRoute = async () => {
+    await pressLabel('Open Journals');
+    await press('stub-journals-search');
+  };
+
+  beforeEach(() => {
+    mockLibrary.dreams = [todayDream, finishedDream];
+    putSettings(false);
+  });
+
+  it('the gear pushes Settings over Today; the arrow, Android back and goBack pop it', async () => {
+    await renderApp();
+    await pressLabel('Open Settings');
+    expect(routeNames()).toEqual(['Main', 'Settings']);
+    await pressLabel('Back to Today');
+    expect(routeNames()).toEqual(['Main']);
+    await pressLabel('Open Settings');
+    expect(await hardwareBack()).toBe(true);
+    expect(routeNames()).toEqual(['Main']);
+    await pressLabel('Open Settings');
+    await act(async () => {
+      mockNav.current.goBack();
+    });
+    expect(routeNames()).toEqual(['Main']);
+    expect(drawerShown()).toBe(false);
+  });
+
+  it('a second tap on the gear does not stack a second Settings', async () => {
+    await renderApp();
+    const gear = screen.getByLabelText('Open Settings');
+    await fireEvent.press(gear);
+    await fireEvent.press(gear);
+    expect(routeNames()).toEqual(['Main', 'Settings']);
+  });
+
+  it('the drawer search pushes Search with the drawer closed; every way back lands on Today, drawer closed', async () => {
+    await renderApp();
+    await openSearchRoute();
+    expect(routeNames()).toEqual(['Main', 'Search']);
+    expect(drawerShown()).toBe(false);
+    await press('stub-search-back');
+    expect(routeNames()).toEqual(['Main']);
+    expect(drawerShown()).toBe(false);
+    await openSearchRoute();
+    expect(await hardwareBack()).toBe(true);
+    expect(routeNames()).toEqual(['Main']);
+    expect(drawerShown()).toBe(false);
+    await openSearchRoute();
+    await act(async () => {
+      mockNav.current.goBack();
+    });
+    expect(routeNames()).toEqual(['Main']);
+    expect(drawerShown()).toBe(false);
+  });
+
+  it('Search filters are cleared when it is removed by a plain pop (the native swipe)', async () => {
+    await renderApp();
+    await openSearchRoute();
+    await press('stub-search-set-query');
+    expect(screen.getByText('search-query:hall')).toBeTruthy();
+    await act(async () => {
+      mockNav.current.goBack();
+    });
+    await openSearchRoute();
+    expect(screen.getByText('search-query:')).toBeTruthy();
+  });
+
+  it('Search keeps its filters while an entry opened from it is on top', async () => {
+    await renderApp();
+    await openSearchRoute();
+    await press('stub-search-set-query');
+    await press('stub-search-open');
+    expect(routeNames()).toEqual(['Main', 'Search', 'Add']);
+    await press('stub-add-back');
+    expect(routeNames()).toEqual(['Main', 'Search']);
+    expect(screen.getByText('search-query:hall')).toBeTruthy();
+  });
+
+  it('Add from Settings returns to Settings; the shared button is hidden on Add and visible on Settings', async () => {
+    await renderApp();
+    await pressLabel('Open Settings');
+    expect(screen.queryAllByLabelText('Add entry')).toHaveLength(1);
+    await addEntry('Dreams');
+    expect(routeNames()).toEqual(['Main', 'Settings', 'Add']);
+    expect(screen.queryAllByLabelText('Add entry')).toHaveLength(0);
+    await press('stub-add-back');
+    expect(routeNames()).toEqual(['Main', 'Settings']);
+    expect(screen.queryAllByLabelText('Add entry')).toHaveLength(1);
+  });
+
+  it('Android back from Add over Settings follows backFromAdd (the leave prompt), not a plain pop', async () => {
+    await renderApp();
+    await pressLabel('Open Settings');
+    await addEntry('Dreams');
+    await press('stub-add-set-title');
+    expect(await hardwareBack()).toBe(true);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Save a draft?',
+      expect.any(String),
+      expect.any(Array),
+    );
+    expect(routeNames()).toEqual(['Main', 'Settings', 'Add']);
+  });
+
+  it('the app back handler is registered only while Main is in focus', async () => {
+    await renderApp();
+    const onMain = liveBackHandlers.length;
+    await pressLabel('Open Settings');
+    expect(liveBackHandlers.length).toBe(onMain - 1);
+    await addEntry('Dreams');
+    expect(liveBackHandlers.length).toBe(onMain - 1);
+    await press('stub-add-back');
+    await pressLabel('Back to Today');
+    expect(liveBackHandlers.length).toBe(onMain);
+    await openSearchRoute();
+    expect(liveBackHandlers.length).toBe(onMain - 1);
+  });
+
+  it('a Log with its search open underneath does not grab back from Add: Add is popped, the search stays', async () => {
+    await renderApp();
+    await pressLabel('Open Journals');
+    await press('stub-open-dreams');
+    await press('stub-open-search');
+    expect(screen.getByText('searching:true')).toBeTruthy();
+    const onLog = liveBackHandlers.length;
+    await addEntry('Dreams');
+    expect(liveBackHandlers.length).toBe(onLog - 1);
+    expect(await hardwareBack()).toBe(true);
+    expect(routeNames()).toEqual(['Main']);
+    expect(screen.getByText('searching:true')).toBeTruthy();
+  });
+
+  it('New journal from the shared menu on Settings opens the new log on Today, not under Settings', async () => {
+    await renderApp();
+    await pressLabel('Open Settings');
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    await fireEvent.changeText(screen.getByLabelText('Journal name'), 'Gratitude');
+    await fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    await flush();
+    expect(routeNames()).toEqual(['Main']);
+    expect(screen.getByText('log-screen')).toBeTruthy();
   });
 });

@@ -7,10 +7,9 @@ import { AppFlowProvider, useAppFlow } from './src/app/AppFlowProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AddEntryMenu } from './src/components/AddEntryMenu';
 import { AddRoute } from './src/navigation/AddRoute';
+import { SearchRoute, SettingsRoute } from './src/navigation/routes';
 import { DreamLogScreen } from './src/screens/DreamLogScreen';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
-import { SearchScreen } from './src/screens/SearchScreen';
-import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { colors } from './src/theme';
 
@@ -21,20 +20,19 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
   return <AddEntryMenu {...props} bottomInset={insets.bottom} />;
 }
 
-// Temporary screen switch for Today, the logs, Search and Settings (they become routes later). The
-// add page is its own route over this one; this keeps showing the screen it was opened from.
+// Temporary screen switch for Today and the logs (they become routes later). Settings, Search and
+// the add page are routes over this one; it keeps showing the screen they were opened from.
 function MainRoute() {
   const {
     screen,
-    setScreen,
+    openSettings,
+    openSearch,
     journals,
     journalFor,
-    settings,
     library,
     dayMarker,
     todayKey,
     view,
-    searchView,
     journalsOpen,
     setJournalsOpen,
     setNamingJournal,
@@ -88,7 +86,7 @@ function MainRoute() {
           onOpenJournals={() => {
             if (!journalsLocked) setJournalsOpen(true);
           }}
-          onOpenSettings={() => setScreen('settings')}
+          onOpenSettings={openSettings}
           journalsOpen={journalsOpen}
           onCloseJournals={() => setJournalsOpen(false)}
           journalsDisabled={journalsLocked}
@@ -100,10 +98,7 @@ function MainRoute() {
               setJournalsOpen(false);
               showLog(id);
             },
-            onSearch: () => {
-              setJournalsOpen(false);
-              setScreen('search');
-            },
+            onSearch: openSearch,
             onNewJournal: () => {
               setRenamingJournalId(null);
               setNamingJournal(true);
@@ -112,25 +107,6 @@ function MainRoute() {
             onRenameJournal: requestRenameJournal,
             deletingId: deletingJournalId,
           }}
-        />
-      )}
-      {screen === 'settings' && (
-        <SettingsScreen
-          autoOpenDreamCapture={settings.autoOpenDreamCapture}
-          onChangeAutoOpenDreamCapture={settings.setAutoOpenDreamCapture}
-          onlineTranscription={settings.onlineTranscription}
-          onChangeOnlineTranscription={settings.setOnlineTranscription}
-          onBack={() => void performBack()}
-        />
-      )}
-      {screen === 'search' && (
-        <SearchScreen
-          journals={visibleJournals}
-          records={visibleRecords}
-          indexStatus={library.indexStatus}
-          view={searchView}
-          onBack={() => void performBack()}
-          onOpenDream={(id) => openEntryById(id)}
         />
       )}
     </>
@@ -217,6 +193,8 @@ function AppNavigator() {
     <>
       <RootNavigator
         main={MainRoute}
+        settings={SettingsRoute}
+        search={SearchRoute}
         add={AddRoute}
         navigationRef={navigationRef}
         startInAdd={current === 'add'}

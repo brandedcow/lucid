@@ -46,18 +46,14 @@ describe('discardChangesMessage', () => {
 });
 
 describe('backTarget', () => {
-  it('Today exits, Settings goes to Today', () => {
+  it('Today exits', () => {
     expect(backTarget({ screen: 'today', journalId: 'dreams' })).toEqual({ to: 'exit' });
-    expect(backTarget({ screen: 'settings', journalId: 'dreams' })).toEqual({ to: 'today' });
   });
   it('a log closes its search first, otherwise goes to Today', () => {
     expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
       to: 'closeSearch',
     });
     expect(backTarget({ screen: 'log', journalId: 'life' })).toEqual({ to: 'today' });
-  });
-  it('Search goes to Today', () => {
-    expect(backTarget({ screen: 'search', journalId: 'dreams' })).toEqual({ to: 'today' });
   });
   it('the add-entry page keeps its own chain, whatever journal it holds', () => {
     // The page decides in App (`backFromAdd`): leave prompts, recording discard, No dream.
