@@ -100,3 +100,29 @@ describe('useDayMarker', () => {
     errorSpy.mockRestore();
   });
 });
+
+describe('useDayMarker aliases', () => {
+  it('doneDate mirrors noDreamDate once loaded', async () => {
+    mockRead.mockResolvedValue('2026-10-09');
+    const { result } = await renderHook(() => useDayMarker());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.doneDate).toBe('2026-10-09');
+    expect(result.current.doneDate).toBe(result.current.noDreamDate);
+  });
+
+  it('markDayDone updates both names and writes the marker', async () => {
+    const { result } = await renderHook(() => useDayMarker());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => {
+      result.current.markDayDone('2026-10-18');
+    });
+    expect(result.current.doneDate).toBe('2026-10-18');
+    expect(result.current.noDreamDate).toBe('2026-10-18');
+    expect(mockWrite).toHaveBeenCalledWith('2026-10-18');
+  });
+
+  it('markDayDone is the same function as markNoDream', async () => {
+    const { result } = await renderHook(() => useDayMarker());
+    expect(result.current.markDayDone).toBe(result.current.markNoDream);
+  });
+});

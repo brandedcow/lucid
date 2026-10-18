@@ -118,3 +118,33 @@ describe('onlineTranscription', () => {
     expect(result.current.autoOpenDreamCapture).toBe(false);
   });
 });
+
+describe('autoOpenNewNote aliases', () => {
+  it('mirror the stored value and the old name', async () => {
+    mockRead.mockResolvedValue({ autoOpenDreamCapture: false, onlineTranscription: false });
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.autoOpenNewNote).toBe(false);
+    expect(result.current.autoOpenNewNote).toBe(result.current.autoOpenDreamCapture);
+  });
+
+  it('setAutoOpenNewNote updates both names and writes the on-disk key', async () => {
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => {
+      result.current.setAutoOpenNewNote(false);
+    });
+    expect(result.current.autoOpenNewNote).toBe(false);
+    expect(result.current.autoOpenDreamCapture).toBe(false);
+    expect(mockWrite).toHaveBeenCalledWith({ autoOpenDreamCapture: false });
+  });
+
+  it('the old setter updates the new name too', async () => {
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => {
+      result.current.setAutoOpenDreamCapture(false);
+    });
+    expect(result.current.autoOpenNewNote).toBe(false);
+  });
+});

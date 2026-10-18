@@ -33,5 +33,7 @@ export function useDayMarker() {
     writeNoDreamDate(dateKey).catch(() => {});
   }, []);
 
-  return { loaded, noDreamDate, markNoDream };
+  // `doneDate` and `markDayDone` are the new names for the same state and function; the old names
+  // stay until the old app is removed.
+  return { loaded, noDreamDate, markNoDream, doneDate: noDreamDate, markDayDone: markNoDream };
 }
