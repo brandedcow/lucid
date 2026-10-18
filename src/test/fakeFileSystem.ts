@@ -22,10 +22,22 @@ type Leave = { leave?: 'empty' | 'partial' | 'missing' };
 type Failure = { error: Error; leave?: Leave['leave'] };
 const failOnce = new Map<Op, Failure>();
 const failPredicates: { op: Op; predicate: (uri: string) => boolean; failure: Failure }[] = [];
+const failCounted: { op: Op; remaining: number; failure: Failure }[] = [];
 const copyLog: { from: string; to: string }[] = [];
 
 /** The failure to inject for this call, if any. A one-shot failure is consumed. */
 function injected(op: Op, uri: string): Failure | undefined {
+  // failNth rules count every call of their op, whichever failure ends up applying.
+  let counted: Failure | undefined;
+  for (const rule of [...failCounted]) {
+    if (rule.op !== op) continue;
+    rule.remaining -= 1;
+    if (rule.remaining === 0) {
+      failCounted.splice(failCounted.indexOf(rule), 1);
+      counted ??= rule.failure;
+    }
+  }
+  if (counted) return counted;
   const once = failOnce.get(op);
   if (once) {
     failOnce.delete(op);
@@ -207,7 +219,15 @@ export const __fs = {
   ) => {
     failPredicates.push({ op, predicate, failure: { error, leave: opts.leave } });
   },
+  /**
+   * Fail only the n-th call (1-based, counted from now) of this operation, once; the calls before
+   * and after it succeed. `leave` is as for failNext.
+   */
+  failNth: (op: Op, n: number, error: Error = new Error(`${op} failed`), opts: Leave = {}) => {
+    failCounted.push({ op, remaining: n, failure: { error, leave: opts.leave } });
+  },
   clearFailures: () => {
+    failCounted.length = 0;
     failOnce.clear();
     failPredicates.length = 0;
   },
