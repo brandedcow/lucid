@@ -1,5 +1,6 @@
 import * as fakeFs from '../test/fakeFileSystem';
 import {
+  INDEX_UNREADABLE,
   Note,
   NOTE_NOT_IN_TRASH,
   deletableAudioFiles,
@@ -12,7 +13,7 @@ import {
 
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
-const { __fs } = fakeFs;
+const { __fs, File } = fakeFs;
 const INDEX = 'file:///document/notes.json';
 const TMP = 'file:///document/notes.json.tmp';
 const BAK = 'file:///document/notes.json.bak';
@@ -365,14 +366,57 @@ describe('deleteNoteForever', () => {
       expect(textFiles()).toEqual([]);
     });
 
-    it('stops with everything in place when the backup can be neither overwritten nor removed', async () => {
+    it('audio gone but the backup can be neither overwritten nor removed: throws, note stays listed, a retry finishes', async () => {
       setup([trashed()]);
       __fs.put(BAK, __fs.read(INDEX) as string);
       __fs.failWhen('write', (uri) => uri === BAK);
       __fs.failWhen('delete', (uri) => uri === BAK);
       await expect(deleteNoteForever('1')).rejects.toThrow();
-      expect(__fs.has(audio('a.m4a'))).toBe(true);
+      expect(__fs.has(audio('a.m4a'))).toBe(false); // audio goes first
+      expect(__fs.has(audio('b.m4a'))).toBe(false);
       expect(await find('1')).toBeDefined();
+      expect(__fs.read(INDEX)).toContain('SECRET'); // index untouched
+      __fs.clearFailures();
+      await deleteNoteForever('1');
+      expect(await find('1')).toBeUndefined();
+      expect(textFiles()).toEqual([]);
+    });
+
+    it('a missing index recovered from .tmp/.bak: a failing audio delete leaves both copies unchanged and the note listed; a retry deletes it', async () => {
+      setup([trashed(), note('2')]);
+      const copy = __fs.read(INDEX) as string;
+      __fs.put(TMP, copy);
+      __fs.put(BAK, copy);
+      new File(INDEX).delete();
+      __fs.failWhen('delete', (uri) => uri === audio('b.m4a'), new Error('disk'));
+      await expect(deleteNoteForever('1')).rejects.toThrow('disk');
+      expect(__fs.read(TMP)).toBe(copy);
+      expect(__fs.read(BAK)).toBe(copy);
+      expect(await find('1')).toBeDefined(); // recovered from the copies
+      __fs.clearFailures();
+      await deleteNoteForever('1');
+      expect(await find('1')).toBeUndefined();
+      expect(await find('2')).toBeDefined();
+      expect(__fs.has(audio('b.m4a'))).toBe(false);
+      expect(textFiles()).toEqual([]);
+    });
+
+    it('a failed final commit after the scrub: .bak holds the new list, .tmp the previous one, the note stays listed', async () => {
+      setup([trashed(), note('2')]);
+      __fs.put(BAK, __fs.read(INDEX) as string);
+      __fs.put(TMP, __fs.read(INDEX) as string);
+      __fs.failWhen('move', (uri) => uri === TMP, new Error('move failed'));
+      await expect(deleteNoteForever('1')).rejects.toThrow('move failed');
+      __fs.clearFailures();
+      const ids = (uri: string) =>
+        (JSON.parse(__fs.read(uri) as string).notes as Note[]).map((n) => n.id);
+      expect(ids(BAK)).toEqual(['2']); // scrubbed
+      expect(ids(TMP)).toEqual(['1', '2']); // rewritten with the previous list (the note is still listed)
+      expect(ids(INDEX)).toEqual(['1', '2']);
+      expect(await find('1')).toBeDefined();
+      await deleteNoteForever('1');
+      expect(await find('1')).toBeUndefined();
+      expect(textFiles()).toEqual([]);
     });
   });
 });
@@ -415,6 +459,18 @@ describe('emptyRecentlyDeleted', () => {
     expect(await stored()).toEqual([]);
   });
 
+  it('an index write failure part-way keeps earlier deletions, reports the failing note, and a rerun finishes', async () => {
+    setup([trashed('1', ['a.m4a']), trashed('2', ['b.m4a']), trashed('3', ['c.m4a'])]);
+    __fs.failNth('move', 2, new Error('move failed'));
+    expect(await emptyRecentlyDeleted()).toEqual({ deleted: 1, failedId: '2' });
+    expect((await stored()).map((n) => n.id)).toEqual(['2', '3']);
+    expect(__fs.has(audio('a.m4a'))).toBe(false);
+    expect(__fs.has(audio('b.m4a'))).toBe(false); // audio of the failing note is already gone
+    expect(__fs.has(audio('c.m4a'))).toBe(true); // third never started
+    expect(await emptyRecentlyDeleted()).toEqual({ deleted: 2 });
+    expect(await stored()).toEqual([]);
+  });
+
   it('keeps a file shared with a note that stays, and a legacy file', async () => {
     setup([
       trashed('1', ['a.m4a']),
@@ -425,5 +481,41 @@ describe('emptyRecentlyDeleted', () => {
     expect(__fs.has(audio('a.m4a'))).toBe(true);
     expect(__fs.has(legacyAudio('old.m4a'))).toBe(true);
     expect((await stored()).map((n) => n.id)).toEqual(['2']);
+  });
+});
+
+describe('unreadable index', () => {
+  const damaged = '{"version":1,"notes":[{"id":"1","body":"cut off';
+  const snapshot = () =>
+    Object.fromEntries(
+      __fs
+        .list()
+        .filter((u) => !/notes\.corrupt-/.test(u))
+        .map((u) => [u, __fs.read(u)]),
+    );
+
+  beforeEach(() => {
+    setup([
+      note('1', {
+        deletedAt: TRASHED,
+        recordings: [rec('a.m4a'), rec('b.m4a', { heldAt: HELD })],
+      }),
+    ]);
+    __fs.put(INDEX, damaged);
+  });
+
+  it.each([
+    ['discardHeld', () => discardHeld('1')],
+    ['deleteNoteForever', () => deleteNoteForever('1')],
+    ['emptyRecentlyDeleted', () => emptyRecentlyDeleted()],
+  ])('%s refuses with INDEX_UNREADABLE and writes and deletes nothing', async (_name, run) => {
+    const before = snapshot();
+    expect(await codeOf(run())).toBe(INDEX_UNREADABLE);
+    expect(snapshot()).toEqual(before); // nothing written or deleted
+    expect(__fs.read(INDEX)).toBe(damaged);
+    expect(__fs.has(audio('a.m4a'))).toBe(true);
+    expect(__fs.has(audio('b.m4a'))).toBe(true);
+    expect(__fs.has(TMP)).toBe(false);
+    expect(__fs.has(BAK)).toBe(false);
   });
 });

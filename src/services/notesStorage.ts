@@ -225,7 +225,9 @@ async function rewindToPrevious(previous: Note[]) {
 /**
  * The commit. This function itself deletes nothing: (1) write notes.json.tmp, (2) read it back and check it
  * parses with the same count, (3) copy a content-bearing current index to the backup (a failure
- * does not block the save), (4) move the temp file over notes.json. The old index stays whole
+ * does not block the save); when `scrubbed` is set (Delete forever) step 3 is instead a write of
+ * the new list to the backup, because the current index still holds the removed note,
+ * (4) move the temp file over notes.json. The old index stays whole
  * until step 4; if step 4 leaves it missing or damaged, recovery reads the temp file or backup.
  */
 async function commitIndex(list: Note[], previous: Note[], opts?: { scrubbed?: boolean }) {
@@ -741,21 +743,26 @@ function scrubCopy(file: File, content: string) {
 /** One Delete forever step sequence. `notes` is the current index; returns the list without `note`. */
 async function foreverLocked(notes: Note[], note: Note): Promise<Note[]> {
   const remaining = notes.filter((n) => n !== note);
-  // 1. Scrub the note's text from the leftover copies (temp file and backup). Idempotent.
+  // 1. Audio first. A failure leaves the note listed (in Recently Deleted) and the leftover
+  // copies untouched; running again finishes. Audio is never deleted from a state recovered
+  // only from copies that a scrub has already rewritten.
+  const { failure } = deleteAudioFiles(deletableAudioFiles(note, notes));
+  if (failure !== undefined) throw failure;
+  // 2. Scrub the note's text from the leftover copies (temp file and backup). Idempotent. Throws
+  // if a copy can be neither overwritten nor removed; the note then stays listed, so a rerun
+  // retries the scrub (its audio is already gone).
   const content = indexContent(remaining);
   scrubCopy(backupFile(), content);
   scrubCopy(tempFile(), content);
-  // 2. Audio. A failure leaves the note listed (in Recently Deleted); running again finishes.
-  const { failure } = deleteAudioFiles(deletableAudioFiles(note, notes));
-  if (failure !== undefined) throw failure;
-  // 3. Index last, so a note is never unlisted while its audio remains.
+  // 3. Index last. `scrubbed` makes the commit write the new list to the backup instead of
+  // copying the current index (which still holds the note) there.
   await commitIndex(remaining, notes, { scrubbed: true });
   return remaining;
 }
 
 /**
- * Permanently deletes one note from Recently Deleted: its text is scrubbed from `.bak` and `.tmp`,
- * then its audio (see `deletableFiles`), then the index entry is removed. An unknown id does
+ * Permanently deletes one note from Recently Deleted: its audio (see `deletableFiles`), then its
+ * text is scrubbed from `.bak` and `.tmp`, then the index entry is removed. An unknown id does
  * nothing; a note that is not in Recently Deleted throws NOTE_NOT_IN_TRASH. `notes.corrupt-*`
  * copies are left alone.
  */
