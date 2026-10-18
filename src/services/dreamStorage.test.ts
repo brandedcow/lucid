@@ -1,7 +1,6 @@
 import * as fakeFs from '../test/fakeFileSystem';
 import { hasAudio, isDraft } from '../types/dream';
 import {
-  discardRecording,
   dreamAudioUri,
   getIndexStatus,
   isIndexUnreadableError,
@@ -406,17 +405,6 @@ describe('listEmotions', () => {
     await make('joy', 'saved');
 
     expect(await listEmotions()).toEqual(['calm', 'a bit lost', 'joy', 'uneasy']);
-  });
-});
-
-describe('discardRecording', () => {
-  it('deletes an unsaved recording', () => {
-    discardRecording(RECORDING);
-    expect(__fs.has(RECORDING)).toBe(false);
-  });
-
-  it('does nothing if the file is already gone', () => {
-    discardRecording('file:///cache/missing.m4a');
   });
 });
 

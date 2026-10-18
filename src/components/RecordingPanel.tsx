@@ -1,7 +1,7 @@
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
 import { Alert, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
-import { discardRecording } from '../services/dreamStorage';
+import { discardRecording } from '../services/recordingFiles';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
 import { downsamplePeaks } from '../utils/waveform';

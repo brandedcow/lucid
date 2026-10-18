@@ -15,9 +15,10 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
 
+jest.mock('../services/recordingFiles', () => ({ discardRecording: jest.fn() }));
+
 jest.mock('../services/dreamStorage', () => ({
   saveDream: jest.fn(),
-  discardRecording: jest.fn(),
   recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   isIndexUnreadableError: () => false,
 }));
