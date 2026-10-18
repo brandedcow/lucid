@@ -4,7 +4,8 @@ import App from './App';
 import { runBackChain } from './src/test/hardwareBackChain';
 import { __fs } from './src/test/fakeFileSystem';
 import { localDateKey } from './src/utils/today';
-import { discardRecording, saveDream } from './src/services/dreamStorage';
+import { saveDream } from './src/services/dreamStorage';
+import { discardRecording } from './src/services/recordingFiles';
 import {
   DISCARD_CHANGES_DISCARD,
   DISCARD_CHANGES_KEEP,
@@ -43,8 +44,9 @@ jest.mock('./src/services/journalStorage', () => {
     loadJournals: () => (mockLoadJournals ? mockLoadJournals() : actual.loadJournals()),
   };
 });
+jest.mock('./src/services/recordingFiles', () => ({ discardRecording: jest.fn() }));
+
 jest.mock('./src/services/dreamStorage', () => ({
-  discardRecording: jest.fn(),
   dreamAudioUri: jest.fn(),
   recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   saveDream: jest.fn(),

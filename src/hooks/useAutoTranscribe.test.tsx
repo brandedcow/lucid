@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { createFakeTranscription, FakeTranscription } from '../test/fakeTranscription';
-import { SessionRecording } from './useEntrySession';
+import { SessionRecording } from '../types/recording';
 import { useAutoTranscribe } from './useAutoTranscribe';
 
 const rec = (id: string, extra: Partial<SessionRecording> = {}): SessionRecording => ({

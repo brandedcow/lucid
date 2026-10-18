@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect } from 'react';
 import { Alert, AlertButton, BackHandler, Keyboard, StyleSheet, TextInput } from 'react-native';
 import { entryHasEdits, useEntrySession } from '../hooks/useEntrySession';
-import { discardRecording, saveDream } from '../services/dreamStorage';
+import { saveDream } from '../services/dreamStorage';
+import { discardRecording } from '../services/recordingFiles';
 import { shareRecording } from '../services/shareRecording';
 import { createFakeTranscription, FakeTranscription } from '../test/fakeTranscription';
 import { fakeKeyboard } from '../test/fakeKeyboard';
@@ -17,9 +18,10 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
 
+jest.mock('../services/recordingFiles', () => ({ discardRecording: jest.fn() }));
+
 jest.mock('../services/dreamStorage', () => ({
   saveDream: jest.fn(),
-  discardRecording: jest.fn(),
   recordingUri: (r: { fileName: string }) => `file:///document/dreams/${r.fileName}`,
   isIndexUnreadableError: () => false,
 }));

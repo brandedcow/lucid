@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
-import {
-  discardRecording,
-  isIndexUnreadableError,
-  recordingUri,
-  saveDream,
-} from '../services/dreamStorage';
+import { isIndexUnreadableError, recordingUri, saveDream } from '../services/dreamStorage';
+import { discardRecording } from '../services/recordingFiles';
 import { Dream, recordingsOf } from '../types/dream';
 import { DREAMS_JOURNAL, JournalId } from '../types/entry';
+import { SessionRecording } from '../types/recording';
 import {
   BUILT_IN_JOURNALS,
   Journal,
@@ -18,29 +15,6 @@ import {
 } from '../utils/journals';
 import { inlineTags, materializeTags } from '../utils/inlineTags';
 import { sanitizeWaveform } from '../utils/waveform';
-
-/**
- * One voice recording attached to an entry on the page. `id` is a stable local id (it survives a
- * save, so undo steps can name the recording). `persisted` false is a new recording still in the
- * cache; true is a stored one (`fileName` is its name inside the dreams directory). `removed` is the
- * session's mark that the user closed the card: nothing is deleted or forgotten when it is set, so
- * it can be undone.
- */
-export type SessionRecording = {
-  id: string;
-  uri: string;
-  /** Stored file name; set when `persisted`. */
-  fileName?: string;
-  persisted: boolean;
-  removed: boolean;
-  durationMs: number;
-  /** Loudness peaks (0..1) for the card; absent on old entries. */
-  waveform?: number[];
-  /** On-device transcript of this recording; absent = none, '' = transcribed, nothing heard. */
-  voiceTranscript?: string;
-  /** The transcript as stored (set when `persisted`), to tell whether it changed. */
-  baseVoiceTranscript?: string;
-};
 
 let recordingCounter = 0;
 /** A fresh local id for a recording made on the page. */

@@ -5,7 +5,7 @@ import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { VoiceNoteCarousel } from '../components/VoiceNoteCarousel';
 import { VoiceNoteSheet } from '../components/VoiceNoteSheet';
-import { SessionRecording } from '../hooks/useEntrySession';
+import { SessionRecording } from '../types/recording';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
 import { useEntryHistory } from '../hooks/useEntryHistory';
 import {

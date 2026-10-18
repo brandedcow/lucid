@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton } from 'react-native';
-import { discardRecording } from '../services/dreamStorage';
+import { discardRecording } from '../services/recordingFiles';
 import { LEVEL_SAMPLE_MS, RecordingPanel } from './RecordingPanel';
 
-jest.mock('../services/dreamStorage', () => ({ discardRecording: jest.fn() }));
+jest.mock('../services/recordingFiles', () => ({ discardRecording: jest.fn() }));
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
 jest.mock('../hooks/useDreamRecorder', () => ({
