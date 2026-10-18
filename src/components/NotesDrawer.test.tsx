@@ -1,0 +1,214 @@
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo, BackHandler, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import type { NoteView } from '../utils/noteViews';
+import { NotesDrawer } from './NotesDrawer';
+
+const METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 800 },
+  insets: { top: 0, left: 0, right: 0, bottom: 34 },
+};
+const TAGS = [
+  { tag: 'dream', count: 12 },
+  { tag: 'idea', count: 1 },
+];
+
+type Props = Partial<Parameters<typeof NotesDrawer>[0]>;
+
+function drawer(props: Props = {}) {
+  return (
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <NotesDrawer
+        open
+        onClose={jest.fn()}
+        view={{ kind: 'all' }}
+        onSelectView={jest.fn()}
+        tags={TAGS}
+        trashedCount={0}
+        onOpenTrash={jest.fn()}
+        onOpenSettings={jest.fn()}
+        {...props}
+      />
+    </SafeAreaProvider>
+  );
+}
+
+let backHandlers: (() => boolean | null | undefined)[];
+const removeBack = jest.fn();
+let reduceSpy: jest.SpyInstance;
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  backHandlers = [];
+  removeBack.mockClear();
+  reduceSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
+    backHandlers.push(handler as () => boolean);
+    return { remove: removeBack };
+  });
+});
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
+
+const finishAnimation = () => act(() => jest.advanceTimersByTime(400));
+const translateX = () =>
+  StyleSheet.flatten(screen.getByTestId('notes-drawer-panel').props.style).transform[0].translateX;
+
+describe('NotesDrawer open and close', () => {
+  it('renders nothing while closed and never registers a back handler', async () => {
+    await render(drawer({ open: false }));
+    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+    expect(backHandlers).toHaveLength(0);
+  });
+
+  it('is a modal layer (not a Modal) capped at 360 wide, on the left', async () => {
+    await render(drawer());
+    expect(screen.getByTestId('notes-drawer').props.accessibilityViewIsModal).toBe(true);
+    const panel = StyleSheet.flatten(screen.getByTestId('notes-drawer-panel').props.style);
+    expect(panel.width).toBe(360);
+    expect(panel.left).toBe(0);
+    expect(JSON.stringify(screen.toJSON())).not.toMatch(/"type":"Modal"/);
+  });
+
+  it('slides in and out, then unmounts', async () => {
+    const view = await render(drawer());
+    expect(translateX()).toBe(-360);
+    await finishAnimation();
+    await view.rerender(drawer({ open: false }));
+    expect(screen.getByTestId('notes-drawer')).toBeTruthy();
+    await finishAnimation();
+    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+  });
+
+  it('with Reduce Motion it appears and disappears at once', async () => {
+    reduceSpy.mockResolvedValue(true);
+    const view = await render(drawer({ open: false }));
+    await act(async () => {});
+    await view.rerender(drawer({ open: true }));
+    expect(translateX()).toBe(0);
+    await view.rerender(drawer({ open: false }));
+    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+  });
+
+  it('a backdrop tap closes it', async () => {
+    const onClose = jest.fn();
+    await render(drawer({ onClose }));
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android Back closes it, is handled, and is removed on close', async () => {
+    const onClose = jest.fn();
+    const view = await render(drawer({ onClose }));
+    expect(backHandlers).toHaveLength(1);
+    expect(backHandlers[0]()).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await view.rerender(drawer({ onClose, open: false }));
+    expect(removeBack).toHaveBeenCalled();
+  });
+});
+
+describe('NotesDrawer content', () => {
+  it('shows tags with counts, in the order given', async () => {
+    await render(drawer());
+    expect(screen.getByRole('header', { name: 'Tags' })).toBeOnTheScreen();
+    expect(screen.getByText('#dream')).toBeOnTheScreen();
+    expect(screen.getByText('12')).toBeOnTheScreen();
+    expect(screen.getByText('1')).toBeOnTheScreen();
+    const rows = screen.getAllByLabelText(/^#/);
+    expect(rows.map((r) => r.props.accessibilityLabel)).toEqual(['#dream, 12', '#idea, 1']);
+  });
+
+  it('selecting a tag calls onSelectView with the tag view', async () => {
+    const onSelectView = jest.fn();
+    await render(drawer({ onSelectView }));
+    await fireEvent.press(screen.getByLabelText('#idea, 1'));
+    expect(onSelectView).toHaveBeenCalledWith({ kind: 'tag', tag: 'idea' });
+  });
+
+  it('marks only the selected tag as selected', async () => {
+    await render(drawer({ view: { kind: 'tag', tag: 'idea' } }));
+    expect(screen.getByLabelText('#idea, 1').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByLabelText('#dream, 12').props.accessibilityState).toMatchObject({
+      selected: false,
+    });
+  });
+
+  it('shows the no-tags text, and a message instead of tags when unreadable', async () => {
+    const view = await render(drawer({ tags: [] }));
+    expect(screen.getByText('No tags yet. Write #word in a note to make one.')).toBeOnTheScreen();
+    await view.rerender(drawer({ unreadable: true }));
+    expect(screen.queryByText('#dream')).toBeNull();
+    expect(
+      screen.getByText('Your notes could not be read. Nothing was changed.'),
+    ).toBeOnTheScreen();
+  });
+
+  it('lists every tag, however many', async () => {
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      tag: `t${String(i).padStart(2, '0')}`,
+      count: 1,
+    }));
+    await render(drawer({ tags: many }));
+    expect(screen.getAllByLabelText(/^#t\d\d, 1$/)).toHaveLength(80);
+  });
+
+  it('shows Recently Deleted with its count only above zero, and it opens trash', async () => {
+    const onOpenTrash = jest.fn();
+    const view = await render(drawer({ onOpenTrash }));
+    expect(screen.queryByLabelText(/^Recently Deleted/)).toBeNull();
+    await view.rerender(drawer({ onOpenTrash, trashedCount: 3 }));
+    await fireEvent.press(screen.getByLabelText('Recently Deleted, 3'));
+    expect(onOpenTrash).toHaveBeenCalledTimes(1);
+  });
+
+  it('the Settings row opens settings', async () => {
+    const onOpenSettings = jest.fn();
+    await render(drawer({ onOpenSettings }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Settings' }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('NotesDrawer view dropdown', () => {
+  it('is collapsed with expanded=false and shows the current view', async () => {
+    await render(drawer({ view: { kind: 'todo' } }));
+    const button = screen.getByLabelText('View, Todo');
+    expect(button.props.accessibilityState).toMatchObject({ expanded: false });
+    expect(screen.queryByLabelText('Untagged')).toBeNull();
+  });
+
+  it('expands to the five smart views and marks the current one', async () => {
+    await render(drawer({ view: { kind: 'pinned' } }));
+    await fireEvent.press(screen.getByLabelText('View, Pinned'));
+    expect(screen.getByLabelText('View, Pinned').props.accessibilityState).toMatchObject({
+      expanded: true,
+    });
+    for (const name of ['All Notes', 'Today', 'Todo', 'Untagged', 'Pinned']) {
+      expect(screen.getByLabelText(name)).toBeOnTheScreen();
+    }
+    expect(screen.getByLabelText('Pinned').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByLabelText('Today').props.accessibilityState).toMatchObject({
+      selected: false,
+    });
+  });
+
+  it('choosing an option calls onSelectView', async () => {
+    const onSelectView = jest.fn();
+    await render(drawer({ onSelectView }));
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    await fireEvent.press(screen.getByLabelText('Untagged'));
+    expect(onSelectView).toHaveBeenCalledWith({ kind: 'untagged' } satisfies NoteView);
+  });
+
+  it('shows All Notes in the dropdown while a tag is selected', async () => {
+    await render(drawer({ view: { kind: 'tag', tag: 'idea' } }));
+    expect(screen.getByLabelText('View, All Notes')).toBeOnTheScreen();
+  });
+});
