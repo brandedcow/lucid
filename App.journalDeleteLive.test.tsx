@@ -28,6 +28,21 @@ jest.mock('expo-audio', () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
+// The navigation container's ref, to read the stack (no stale Log may remain).
+const mockNav: { current: any } = { current: null };
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    createNavigationContainerRef: () => {
+      const ref = actual.createNavigationContainerRef();
+      mockNav.current = ref;
+      return ref;
+    },
+  };
+});
+const routeNames = (): string[] => mockNav.current.getRootState().routes.map((r: any) => r.name);
+
 jest.mock('./src/screens/AddEntryScreen', () => {
   const { Pressable, Text } = require('react-native');
   return {
@@ -324,7 +339,9 @@ describe('App journal delete live guards', () => {
       await fireEvent.press(screen.getByLabelText('Open Journals'));
       await press('open-j_g1');
       expect(screen.getByText('Thankful for tea')).toBeTruthy();
+      expect(routeNames()).toEqual(['Main', 'Log']);
       await startFrom();
+      expect(routeNames()).toEqual(['Main']);
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(screen.getByText('deleting:j_g1')).toBeTruthy();
       expect(screen.queryByText('Thankful for tea')).toBeNull();
@@ -354,11 +371,13 @@ describe('App journal delete live guards', () => {
       await press('open-j_g1');
       await fireEvent.press(screen.getByText('Thankful for tea'));
       expect(screen.getByText('stub-done')).toBeTruthy();
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
       await startFrom();
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       await act(async () => open());
       await waitFor(() => expect(mockRemoveJournalCalls).toHaveLength(1));
       await settle();
+      expect(routeNames()).toEqual(['Main']);
       expect(screen.getByText('journals-drawer')).toBeTruthy();
       expect(storedIds()).toEqual(['d1', 'd2', 'l1', 't1']);
     });

@@ -2011,6 +2011,25 @@ describe('App resume on a new day', () => {
     expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
   });
 
+  it.each([false, true])(
+    'from a log (search open: %s), backing out of the jump lands on Today (not the log)',
+    async (searching) => {
+      await launch();
+      await pressLabel('Open Journals');
+      await press('stub-open-dreams');
+      if (searching) await press('stub-open-search');
+      await awayUntil(DAY2);
+      expectLaunchCapture();
+      expect(mockNav.current.getRootState().routes.map((r: any) => r.name)).toEqual([
+        'Main',
+        'Add',
+      ]);
+      await press('stub-add-back');
+      expectToday();
+      expect(screen.queryByText('log-screen')).toBeNull();
+    },
+  );
+
   it('the jump is a launch page: saving returns to Today', async () => {
     await launch();
     await awayUntil(DAY2);
@@ -2952,12 +2971,12 @@ describe('App Add route', () => {
       await renderApp();
       await openDreamLog();
       await press('stub-open-draft');
-      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
       await press('stub-add-back');
       await choose('Discard');
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
       await press('stub-open-dream');
-      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
     });
 
     it('opening an entry again while the page is up does not stack a second page', async () => {
@@ -2966,9 +2985,9 @@ describe('App Add route', () => {
       await press('stub-open-dream');
       // The log is hidden under the page; a stray second open still arrives from it.
       await fireEvent.press(screen.getByText('stub-open-dream', { includeHiddenElements: true }));
-      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
       await press('stub-add-back');
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
     });
 
     it("keeps Today mounted under the page (its state is the stack's, not a copy)", async () => {
@@ -3132,10 +3151,10 @@ describe('App Add route', () => {
       await alertDelete();
       expect(gesture()).toBe(false);
       await directGoBack();
-      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
       await act(async () => release());
       await flush();
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
     });
 
     it('for an edit: unchanged leaves silently, changed asks to discard (Keep editing stays)', async () => {
@@ -3149,9 +3168,9 @@ describe('App Add route', () => {
       expect(alertCount()).toBe(1);
       expect(lastAlertButtons().map((b) => b.text)).toEqual(['Keep editing', 'Discard']);
       await choose('Keep editing');
-      expect(routeNames()).toEqual(['Main', 'Add']);
+      expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
       await choose('Discard');
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
     });
 
     it('a clean launch page: the swipe pops once and counts as No dream', async () => {
@@ -3225,9 +3244,10 @@ describe('App Add route', () => {
       await setup();
       expect(gesture()).toBe(!asks);
       jest.mocked(Alert.alert).mockClear();
+      const stackBefore = routeNames().length;
       await directGoBack();
       expect(alertCount()).toBe(asks ? 1 : 0);
-      expect(routeNames().length).toBe(asks ? 2 : 1);
+      expect(routeNames().length).toBe(asks ? stackBefore : stackBefore - 1);
     });
   });
 
@@ -3249,7 +3269,7 @@ describe('App Add route', () => {
       await press('stub-add-delete');
       await alertDelete();
       await flush();
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
       expect(screen.getByText('log-screen')).toBeTruthy();
       expect(Alert.alert).not.toHaveBeenCalledWith(
         'Discard changes?',
@@ -3347,7 +3367,7 @@ describe('App Add route', () => {
       await alertDelete();
       await flush();
       expect(pops).toBe(1);
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
     });
 
     it('No dream on the launch page pops exactly once (arrow)', async () => {
@@ -3382,7 +3402,7 @@ describe('App Add route', () => {
       await newEntryIn('Dreams');
       await press('stub-add-set-title');
       await press('stub-add-save');
-      expect(routeNames()).toEqual(['Main']);
+      expect(routeNames()).toEqual(['Main', 'Log']);
       expect(screen.getByText('log-screen')).toBeTruthy();
       expect(screen.getByText('query:hall')).toBeTruthy();
       await newEntryIn('Dreams');
@@ -3551,7 +3571,7 @@ describe('App Settings and Search routes', () => {
     await addEntry('Dreams');
     expect(liveBackHandlers.length).toBe(onLog - 1);
     expect(await hardwareBack()).toBe(true);
-    expect(routeNames()).toEqual(['Main']);
+    expect(routeNames()).toEqual(['Main', 'Log']);
     expect(screen.getByText('searching:true')).toBeTruthy();
   });
 
@@ -3563,7 +3583,152 @@ describe('App Settings and Search routes', () => {
     await fireEvent.changeText(screen.getByLabelText('Journal name'), 'Gratitude');
     await fireEvent.press(screen.getByRole('button', { name: 'Create' }));
     await flush();
-    expect(routeNames()).toEqual(['Main']);
+    expect(routeNames()).toEqual(['Main', 'Log']);
     expect(screen.getByText('log-screen')).toBeTruthy();
+  });
+});
+
+// ---- The Log as a stack route ----
+
+describe('App Log route', () => {
+  const routeNames = (): string[] => mockNav.current.getRootState().routes.map((r: any) => r.name);
+  const gesture = (): boolean | undefined => mockNav.current.getCurrentOptions()?.gestureEnabled;
+  const drawerShown = () =>
+    screen.queryByText('journals-drawer', { includeHiddenElements: true }) !== null;
+  const openLog = async (stub: 'stub-open-dreams' | 'stub-open-life' = 'stub-open-dreams') => {
+    await pressLabel('Open Journals');
+    await press(stub);
+  };
+
+  beforeEach(() => {
+    mockLibrary.dreams = [todayDream, finishedDream];
+    putSettings(false);
+  });
+
+  it('a journal from the drawer pushes Log with the drawer closed; the arrow, Android back and goBack land on Today', async () => {
+    await renderApp();
+    await openLog();
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+    expect(drawerShown()).toBe(false);
+    await press('stub-log-back');
+    expect(routeNames()).toEqual(['Main']);
+    expectToday();
+    expect(drawerShown()).toBe(false);
+
+    await openLog('stub-open-life');
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+    expect(await hardwareBack()).toBe(true);
+    expect(routeNames()).toEqual(['Main']);
+    expect(drawerShown()).toBe(false);
+
+    await openLog();
+    await act(async () => {
+      mockNav.current.goBack();
+    });
+    expect(routeNames()).toEqual(['Main']);
+    expectToday();
+    expect(drawerShown()).toBe(false);
+    // Today is the root: the next Android back leaves the app.
+    expect(await hardwareBack()).toBe(false);
+  });
+
+  it('the drawer is already closed when the log is pushed (New journal created over the open drawer)', async () => {
+    await renderApp();
+    await pressLabel('Open Journals');
+    await press('stub-journals-new');
+    expect(drawerShown()).toBe(true);
+    const seen: boolean[] = [];
+    const off = mockNav.current.addListener('state', () => {
+      if (routeNames().includes('Log')) seen.push(drawerShown());
+    });
+    await fireEvent.changeText(screen.getByLabelText('Journal name'), 'Gratitude');
+    await fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    await flush();
+    off();
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((shown) => !shown)).toBe(true);
+  });
+
+  it('while searching the swipe is off and back closes the search first; a second back pops', async () => {
+    await renderApp();
+    await openLog();
+    expect(gesture()).toBe(true);
+    await press('stub-open-search');
+    expect(screen.getByText('searching:true')).toBeTruthy();
+    expect(gesture()).toBe(false);
+    // A removal from any source is prevented and closes the search instead.
+    await act(async () => {
+      mockNav.current.goBack();
+    });
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    expect(screen.getByText('searching:false')).toBeTruthy();
+    expect(gesture()).toBe(true);
+
+    // The arrow closes the search first, then pops.
+    await press('stub-open-search');
+    await press('stub-log-back');
+    expect(screen.getByText('searching:false')).toBeTruthy();
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    await press('stub-log-back');
+    expect(routeNames()).toEqual(['Main']);
+
+    // Android back: same order.
+    await openLog();
+    await press('stub-open-search');
+    expect(await hardwareBack()).toBe(true);
+    expect(screen.getByText('searching:false')).toBeTruthy();
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    expect(await hardwareBack()).toBe(true);
+    expect(routeNames()).toEqual(['Main']);
+  });
+
+  it('another journal clears the log filters; the same journal keeps them', async () => {
+    await renderApp();
+    await openLog();
+    await press('stub-set-query');
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    await press('stub-log-back');
+    await openLog();
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    await press('stub-log-back');
+    await openLog('stub-open-life');
+    expect(screen.getByText('query:')).toBeTruthy();
+    await press('stub-set-query');
+    await press('stub-log-back');
+    await openLog();
+    expect(screen.getByText('log-journal:dreams')).toBeTruthy();
+    expect(screen.getByText('query:')).toBeTruthy();
+  });
+
+  it('Add from a log returns to that log with its filters, and the + shows on Log but not on Add', async () => {
+    await renderApp();
+    await openLog('stub-open-life');
+    await press('stub-set-query');
+    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+    await newEntryIn('Life');
+    expect(routeNames()).toEqual(['Main', 'Log', 'Add']);
+    expect(screen.queryByLabelText('Add entry')).toBeNull();
+    await press('stub-add-back');
+    expect(routeNames()).toEqual(['Main', 'Log']);
+    expect(screen.getByText('log-journal:life')).toBeTruthy();
+    expect(screen.getByText('query:hall')).toBeTruthy();
+    expect(screen.getByLabelText('Add entry')).toBeTruthy();
+  });
+
+  it('New journal from the shared menu on a log opens the new log in place of it, still one step from Today', async () => {
+    await renderApp();
+    await openLog();
+    await fireEvent.press(screen.getByLabelText('Add entry'));
+    await fireEvent.press(screen.getByRole('button', { name: 'New journal' }));
+    await fireEvent.changeText(screen.getByLabelText('Journal name'), 'Gratitude');
+    await fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    await flush();
+    expect(screen.getByText('log-screen')).toBeTruthy();
+    expect(screen.queryByText('log-journal:dreams')).toBeNull();
+    await press('stub-log-back');
+    expect(routeNames()).toEqual(['Main']);
+    expectToday();
   });
 });

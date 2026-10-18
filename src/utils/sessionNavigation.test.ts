@@ -47,31 +47,23 @@ describe('discardChangesMessage', () => {
 
 describe('backTarget', () => {
   it('Today exits', () => {
-    expect(backTarget({ screen: 'today', journalId: 'dreams' })).toEqual({ to: 'exit' });
-  });
-  it('a log closes its search first, otherwise goes to Today', () => {
-    expect(backTarget({ screen: 'log', journalId: 'life', searchOpen: true })).toEqual({
-      to: 'closeSearch',
-    });
-    expect(backTarget({ screen: 'log', journalId: 'life' })).toEqual({ to: 'today' });
+    expect(backTarget({ screen: 'today' })).toEqual({ to: 'exit' });
   });
   it('the add-entry page keeps its own chain, whatever journal it holds', () => {
     // The page decides in App (`backFromAdd`): leave prompts, recording discard, No dream.
-    expect(backTarget({ screen: 'add', journalId: 'dreams' })).toEqual({ to: 'chain' });
-    expect(backTarget({ screen: 'add', journalId: 'life' })).toEqual({ to: 'chain' });
+    expect(backTarget({ screen: 'add' })).toEqual({ to: 'chain' });
+    expect(backTarget({ screen: 'add' })).toEqual({ to: 'chain' });
   });
   it('ignores Back on the add-entry page while its entry is being deleted', () => {
-    expect(backTarget({ screen: 'add', journalId: 'dreams', entryDeleting: true })).toEqual({
+    expect(backTarget({ screen: 'add', entryDeleting: true })).toEqual({
       to: 'none',
     });
-    expect(backTarget({ screen: 'add', journalId: 'dreams', entryDeleting: false })).toEqual({
+    expect(backTarget({ screen: 'add', entryDeleting: false })).toEqual({
       to: 'chain',
     });
   });
-  it('entryDeleting changes nothing on other screens', () => {
-    expect(backTarget({ screen: 'log', journalId: 'dreams', entryDeleting: true })).toEqual({
-      to: 'today',
-    });
+  it('entryDeleting changes nothing on Today', () => {
+    expect(backTarget({ screen: 'today', entryDeleting: true })).toEqual({ to: 'exit' });
   });
 });
 

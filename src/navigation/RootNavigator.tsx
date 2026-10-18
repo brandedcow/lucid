@@ -7,12 +7,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useState, type ComponentType } from 'react';
 import { colors } from '../theme';
 
-// `Main` renders Today and the logs through the app's own screen switch (they become routes in a
-// later chunk). `Settings` and `Search` are pushed over it. `Add` is the add-entry page, pushed over
+// `Main` renders Today through the app's own screen switch (it becomes the `Today` route in a later
+// chunk). `Log` (one journal's log), `Settings` and `Search` are pushed over it. `Add` is the add-entry page, pushed over
 // whatever is showing, so the screen it was opened from stays mounted underneath. No deep linking
 // and no navigation-state persistence.
 export type RootStackParamList = {
   Main: undefined;
+  Log: { journalId: string };
   Settings: undefined;
   Search: undefined;
   Add: undefined;
@@ -28,6 +29,7 @@ const theme = {
 
 export function RootNavigator({
   main,
+  log,
   settings,
   search,
   add,
@@ -37,6 +39,7 @@ export function RootNavigator({
   onStateChange,
 }: {
   main: ComponentType;
+  log: ComponentType;
   settings: ComponentType;
   search: ComponentType;
   add: ComponentType;
@@ -68,7 +71,13 @@ export function RootNavigator({
         }}
       >
         <Stack.Screen name="Main" component={main} />
-        {/* Pushed from Today: the default push, and the native swipe back (iOS) pops to Today. */}
+        {/* Pushed from Today: the default push, and the native swipe back (iOS) pops to Today. The
+            log turns its swipe off while its search field is open (see `LogRoute`). */}
+        <Stack.Screen
+          name="Log"
+          component={log}
+          options={{ animation: 'default', gestureEnabled: true }}
+        />
         <Stack.Screen
           name="Settings"
           component={settings}

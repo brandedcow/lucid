@@ -195,6 +195,8 @@ describe('App Journals drawer on Today', () => {
     await openJournals();
     await fireEvent.press(screen.getByLabelText('Travel, 1 entry'));
     expect(await hardwareBack()).toBe(true);
+    // Today stays mounted under the log, so the drawer's slide-out finishes there.
+    await drawerGone();
     expectToday();
     expect(screen.queryByTestId('journals-drawer')).toBeNull();
     expect(await hardwareBack()).toBe(false);
@@ -264,6 +266,7 @@ describe('App Journals drawer on Today', () => {
     expect(screen.queryByLabelText('Journal name')).toBeNull();
     expect(screen.queryByTestId('journals-drawer')).toBeNull();
     await fireEvent.press(screen.getByLabelText('Back'));
+    await drawerGone();
     expectToday();
     expect(screen.queryByTestId('journals-drawer')).toBeNull();
   });

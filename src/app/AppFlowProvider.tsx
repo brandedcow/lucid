@@ -59,9 +59,9 @@ import {
 } from '../utils/sessionNavigation';
 import { dayStatus, launchScreen } from '../utils/today';
 
-// Search and Settings are routes of their own; this is what the `Main` route switches between (and
-// 'add' while the Add route is on top).
-export type Screen = 'add' | 'log' | 'today';
+// Log, Search and Settings are routes of their own; this is what remains of the `Main` route's switch
+// ('add' while the Add route is on top).
+export type Screen = 'add' | 'today';
 
 // How long the launch waits for stored data before opening the Dreams page anyway: speed on waking
 // outranks the launch rule.
@@ -80,8 +80,6 @@ const JOURNAL_UNREADABLE_MESSAGE = 'Your saved entries could not be read, so not
 // unchanged from the old AppScreen; the screens' render stays in App.tsx (MainRoute).
 function useAppFlowValue() {
   const [screen, setScreen] = useState<Screen | null>(null);
-  // The journal whose log is open (or was last open): Dreams or Life.
-  const [journalId, setJournalId] = useState<JournalId>(DREAMS_JOURNAL);
   // True for the add-entry page opened by the launch rule (Dreams, new): backing out of it while
   // it is empty counts as No dream.
   const [launchPage, setLaunchPage] = useState(false);
@@ -197,11 +195,9 @@ function useAppFlowValue() {
   // True while any delete (an entry's or a journal's) runs, readable synchronously: a second delete
   // is ignored.
   const deleting = useRef(false);
-  // The latest open log, for `showLog` to compare against.
-  const nav = useRef({ journalId });
-  useEffect(() => {
-    nav.current = { journalId };
-  });
+  // The journal whose log was opened last, for `showLog` to compare against (the log itself is the
+  // `Log` route, whose param holds the journal).
+  const lastLogJournal = useRef<JournalId>(DREAMS_JOURNAL);
   // The latest stored records and journals, for a journal delete confirmed after a dialog.
   const live = useRef({
     records: library.dreams,
@@ -269,6 +265,7 @@ function useAppFlowValue() {
   const resumeInputs = useRef({
     screen: current,
     routeName,
+    searching: view.searching,
     ready,
     dreams: library.dreams,
     noDreamDate: dayMarker.noDreamDate,
@@ -280,6 +277,7 @@ function useAppFlowValue() {
     resumeInputs.current = {
       screen: current,
       routeName,
+      searching: view.searching,
       ready,
       dreams: library.dreams,
       noDreamDate: dayMarker.noDreamDate,
@@ -288,6 +286,18 @@ function useAppFlowValue() {
       deleteRunning: deletingDream !== null,
     };
   });
+  // Set by the resume jump from a log whose search is open; the reset waits for the search to close.
+  const [pendingLaunchReset, setPendingLaunchReset] = useState(false);
+  useEffect(() => {
+    if (!pendingLaunchReset || view.searching) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setPendingLaunchReset(false);
+    resetAllowLeave();
+    navigationRef.reset({ index: 1, routes: [{ name: 'Main' }, { name: 'Add' }] });
+    setAddOpen(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on these two only
+  }, [pendingLaunchReset, view.searching]);
   useEffect(() => {
     if (resumeNewDayToken === 0) return;
     const r = resumeInputs.current;
@@ -301,13 +311,20 @@ function useAppFlowValue() {
     setLaunchPage(true);
     // Back from the launch page lands on Today whatever screen the user was on.
     setScreen('today');
-    if (r.routeName === 'Settings' || r.routeName === 'Search') {
-      // Settings or Search is in the stack: replace it, so back from the launch page lands on Today.
-      // Search starts fresh next time (the reset may not run its `beforeRemove`).
+    if (r.routeName === 'Settings' || r.routeName === 'Search' || r.routeName === 'Log') {
+      // Log, Settings or Search is in the stack: replace it, so back from the launch page lands on
+      // Today. Search starts fresh next time (the reset may not run its `beforeRemove`).
       searchView.clearFilters();
-      resetAllowLeave();
-      navigationRef.reset({ index: 1, routes: [{ name: 'Main' }, { name: 'Add' }] });
-      setAddOpen(true);
+      if (r.searching) {
+        // A log with its search open prevents its own removal: the search closes first and the
+        // reset follows from the effect above, once that has rendered.
+        view.closeSearch();
+        setPendingLaunchReset(true);
+      } else {
+        resetAllowLeave();
+        navigationRef.reset({ index: 1, routes: [{ name: 'Main' }, { name: 'Add' }] });
+        setAddOpen(true);
+      }
     } else {
       openAdd();
     }
@@ -341,14 +358,10 @@ function useAppFlowValue() {
     setJournalsOpen(true);
   }
 
-  // A screen showing the journal that is being deleted (its log, or one of its entries open on the
-  // add-entry page) goes back to Today with the Journals drawer open (where the delete shows) instead
-  // of showing something that no longer exists.
+  // An entry of the journal that is being deleted, open on the add-entry page, goes back to Today
+  // with the Journals drawer open (where the delete shows) instead of showing something that no
+  // longer exists. (The journal's log does the same itself, see `LogRoute`.)
   const sessionId = entry.session?.id;
-  if (deletingJournalId && screen === 'log' && journalId === deletingJournalId) {
-    setScreen('today');
-    setJournalsOpen(true);
-  }
 
   // The add page can leave its keyboard up; no other screen has an input to keep it for.
   const prevScreen = useRef(current);
@@ -377,35 +390,34 @@ function useAppFlowValue() {
     setRenamingJournalId(null);
   }
 
-  // Each log shows only its own journal's entries (drafts included), whatever else is stored.
-  const logEntries = useMemo(
-    () => (visibleRecords ? entriesFor(visibleRecords, journalId) : null),
-    [visibleRecords, journalId],
-  );
   const counts = useMemo(
     () => (library.dreams ? journalCounts(journals, library.dreams) : null),
     [journals, library.dreams],
   );
 
-  // Opens a journal's log. The log's filter, search and scroll belong to one journal at a time, so
-  // they start fresh when the open log changes.
+  // Opens a journal's log (a `Log` route pushed over Today). The log's filter, search and scroll
+  // belong to one journal at a time, so they start fresh when the open log changes. The drawer
+  // closes first, so it is never left open behind the log.
   const showLog = (id: JournalId) => {
-    if (id !== nav.current.journalId) view.clearFilters();
-    setJournalId(id);
-    setScreen('log');
-    // From Settings or Search (the shared "+" menu's New journal): back to the screen that shows logs.
-    const showing = navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined;
+    if (id !== lastLogJournal.current) view.clearFilters();
+    lastLogJournal.current = id;
+    setJournalsOpen(false);
+    if (!navigationRef.isReady()) return;
+    // From Settings or Search (the shared "+" menu's New journal): back to Today first, so the log
+    // is pushed over Today and back from it lands there.
+    const showing = navigationRef.getCurrentRoute()?.name;
     if (showing === 'Settings' || showing === 'Search')
       navigationRef.dispatch(StackActions.popToTop());
+    navigationRef.navigate('Log', { journalId: id });
   };
 
   // Where a flow ends: the screen it started from, which is still mounted under the Add route (so a
-  // log keeps `journalId`, its filter, search and scroll; Today, Search and Settings keep theirs).
-  // If a log's journal was deleted meanwhile, Today. It does not pop: it raises the allow flag (ref
-  // and state), the Add route stops preventing removal in that render, and its effect then pops
-  // once. A pop made in the same tick would still meet the prevention of the previous render.
+  // log keeps its filter, search and scroll; Today, Search and Settings keep theirs). A log whose
+  // journal was deleted meanwhile pops itself to Today (see `LogRoute`). It does not pop: it raises
+  // the allow flag (ref and state), the Add route stops preventing removal in that render, and its
+  // effect then pops once. A pop made in the same tick would still meet the prevention of the
+  // previous render.
   const leaveFlow = () => {
-    if (screen === 'log' && !visibleJournals.some((j) => j.id === journalId)) setScreen('today');
     if (!navigationRef.isReady() || navigationRef.getCurrentRoute()?.name !== 'Add') return;
     allowLeaveRef.current = true;
     setAllowLeave(true);
@@ -453,7 +465,6 @@ function useAppFlowValue() {
     /* eslint-disable react-hooks/set-state-in-effect */
     entry.clear();
     leaveFlow();
-    setScreen('today');
     setDrawerAfterLeave(true);
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the condition turns true
@@ -712,20 +723,11 @@ function useAppFlowValue() {
     if (current === null) return false;
     const target = backTarget({
       screen: current,
-      journalId,
-      searchOpen: view.searching,
       entryDeleting: entryDeleting.current,
     });
     switch (target.to) {
       case 'exit':
         return false;
-      case 'closeSearch':
-        // Same transition as leaving the search field: the log view state is kept.
-        view.closeSearch();
-        return true;
-      case 'today':
-        setScreen('today');
-        return true;
       case 'none':
         // The open entry is being deleted: Back is handled and does nothing.
         return true;
@@ -755,8 +757,6 @@ function useAppFlowValue() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => performBackRef.current());
     return () => sub.remove();
   }, [addOpen, routeName]);
-
-  const logJournal = journalFor(journalId);
 
   // Starts a new entry on the add-entry page from Today or a log; only the launch page is
   // `launchPage`.
@@ -839,9 +839,8 @@ function useAppFlowValue() {
     visibleRecords,
     visibleJournals,
     knownTags,
-    logEntries,
     counts,
-    logJournal,
+    setDrawerAfterLeave,
     entryDate,
     journalsLocked,
     showLog,

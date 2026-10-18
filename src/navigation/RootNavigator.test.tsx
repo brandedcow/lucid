@@ -65,14 +65,22 @@ function AddPage() {
 
 describe('RootNavigator', () => {
   it('mounts and renders the main component', async () => {
-    await render(<RootNavigator main={Plain} settings={Plain} search={Plain} add={AddPage} />);
+    await render(
+      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
     expect(screen.getByText('the-app')).toBeTruthy();
   });
 
   it('lets hardware back reach the app handler, which is not consumed or doubled', async () => {
     const onBack = jest.fn(() => true);
     await render(
-      <RootNavigator main={mainWith(onBack)} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator
+        main={mainWith(onBack)}
+        log={Plain}
+        settings={Plain}
+        search={Plain}
+        add={AddPage}
+      />,
     );
     // The container registers a listener of its own, so the app's is not the only one ...
     expect(listeners.length).toBeGreaterThan(1);
@@ -88,6 +96,7 @@ describe('RootNavigator', () => {
     await render(
       <RootNavigator
         main={mainWith(onBack)}
+        log={Plain}
         settings={Plain}
         search={Plain}
         add={AddPage}
@@ -106,7 +115,13 @@ describe('RootNavigator', () => {
   it('reports back as unhandled (the system exits) when the app handler declines', async () => {
     const onBack = jest.fn(() => false);
     await render(
-      <RootNavigator main={mainWith(onBack)} settings={Plain} search={Plain} add={AddPage} />,
+      <RootNavigator
+        main={mainWith(onBack)}
+        log={Plain}
+        settings={Plain}
+        search={Plain}
+        add={AddPage}
+      />,
     );
     expect(await pressBack()).toBe(false);
     expect(onBack).toHaveBeenCalledTimes(1);
@@ -114,29 +129,51 @@ describe('RootNavigator', () => {
 
   it('has the Main route (no chrome, no transition, no swipe) and an Add route with a push and the swipe off until the page allows it', async () => {
     mockNavigatorProps.current = null;
-    await render(<RootNavigator main={Plain} settings={Plain} search={Plain} add={AddPage} />);
+    await render(
+      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
     const props = mockNavigatorProps.current as unknown as {
       initialRouteName: string;
       screenOptions: Record<string, unknown>;
       children: { props: { name: string; options?: Record<string, unknown> } }[];
     };
     expect(props.initialRouteName).toBe('Main');
-    expect(props.children.map((c) => c.props.name)).toEqual(['Main', 'Settings', 'Search', 'Add']);
+    expect(props.children.map((c) => c.props.name)).toEqual([
+      'Main',
+      'Log',
+      'Settings',
+      'Search',
+      'Add',
+    ]);
     expect(props.screenOptions).toEqual(
       expect.objectContaining({ headerShown: false, gestureEnabled: false, animation: 'none' }),
     );
     // Main keeps the stack defaults; Add overrides only the animation (a real push) and starts
     // with the swipe off (the page turns it on while leaving needs no prompt).
     expect(props.children[0].props.options).toBeUndefined();
-    expect(props.children[3].props.options).toEqual({
+    expect(props.children[4].props.options).toEqual({
       animation: 'default',
       gestureEnabled: false,
     });
   });
 
+  it('has Log as a push with the native swipe back on (the log turns it off while searching)', async () => {
+    mockNavigatorProps.current = null;
+    await render(
+      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
+    const props = mockNavigatorProps.current as unknown as {
+      children: { props: { name: string; options?: Record<string, unknown> } }[];
+    };
+    const route = props.children.find((c) => c.props.name === 'Log');
+    expect(route?.props.options).toEqual({ animation: 'default', gestureEnabled: true });
+  });
+
   it('has Settings and Search as pushes with the native swipe back on', async () => {
     mockNavigatorProps.current = null;
-    await render(<RootNavigator main={Plain} settings={Plain} search={Plain} add={AddPage} />);
+    await render(
+      <RootNavigator main={Plain} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
     const props = mockNavigatorProps.current as unknown as {
       children: { props: { name: string; options?: Record<string, unknown> } }[];
     };
@@ -154,7 +191,9 @@ describe('RootNavigator', () => {
           ?.routes.map((r) => r.name) ?? [];
       return <Text>{`routes:${routes.join(',')}`}</Text>;
     }
-    await render(<RootNavigator main={Main} settings={Plain} search={Plain} add={AddPage} />);
+    await render(
+      <RootNavigator main={Main} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
     expect(screen.getByText('routes:Main')).toBeTruthy();
     expect(screen.queryByText('the-add-page')).toBeNull();
   });
@@ -164,7 +203,14 @@ describe('RootNavigator', () => {
       return <Text>the-main</Text>;
     }
     const view = await render(
-      <RootNavigator main={Main} settings={Plain} search={Plain} add={AddPage} startInAdd />,
+      <RootNavigator
+        main={Main}
+        log={Plain}
+        settings={Plain}
+        search={Plain}
+        add={AddPage}
+        startInAdd
+      />,
     );
     expect(screen.getByText('the-add-page')).toBeTruthy();
     // Main stays mounted underneath.
@@ -173,6 +219,7 @@ describe('RootNavigator', () => {
     await view.rerender(
       <RootNavigator
         main={Main}
+        log={Plain}
         settings={Plain}
         search={Plain}
         add={AddPage}
@@ -187,7 +234,9 @@ describe('RootNavigator', () => {
       const theme = useTheme();
       return <Text>{`theme:${theme.dark}:${theme.colors.background}:${theme.colors.card}`}</Text>;
     }
-    await render(<RootNavigator main={Main} settings={Plain} search={Plain} add={AddPage} />);
+    await render(
+      <RootNavigator main={Main} log={Plain} settings={Plain} search={Plain} add={AddPage} />,
+    );
     expect(colors.background).toBe('#0D1017');
     expect(screen.getByText('theme:true:#0D1017:#0D1017')).toBeTruthy();
   });

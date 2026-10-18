@@ -7,8 +7,7 @@ import { AppFlowProvider, useAppFlow } from './src/app/AppFlowProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AddEntryMenu } from './src/components/AddEntryMenu';
 import { AddRoute } from './src/navigation/AddRoute';
-import { SearchRoute, SettingsRoute } from './src/navigation/routes';
-import { DreamLogScreen } from './src/screens/DreamLogScreen';
+import { LogRoute, SearchRoute, SettingsRoute } from './src/navigation/routes';
 import { NewJournalSheet } from './src/components/NewJournalSheet';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { colors } from './src/theme';
@@ -20,8 +19,8 @@ function SharedAddEntry(props: ComponentProps<typeof AddEntryMenu>) {
   return <AddEntryMenu {...props} bottomInset={insets.bottom} />;
 }
 
-// Temporary screen switch for Today and the logs (they become routes later). Settings, Search and
-// the add page are routes over this one; it keeps showing the screen they were opened from.
+// Temporary screen switch holding Today (it becomes a plain route later). The logs, Settings, Search
+// and the add page are routes over this one.
 function MainRoute() {
   const {
     screen,
@@ -41,15 +40,12 @@ function MainRoute() {
     deletingJournalId,
     visibleRecords,
     visibleJournals,
-    logEntries,
     counts,
-    logJournal,
     journalsLocked,
     showLog,
     deleteDreamFor,
     requestRenameJournal,
     requestDeleteJournal,
-    performBack,
     openDraft,
     openEntryForEdit,
     openEntryById,
@@ -59,19 +55,6 @@ function MainRoute() {
 
   return (
     <>
-      {screen === 'log' && (
-        <DreamLogScreen
-          journal={logJournal}
-          onBack={() => void performBack()}
-          dreams={logEntries}
-          indexStatus={library.indexStatus}
-          view={view}
-          onOpenDream={(id) => openEntryById(id)}
-          onOpenDraft={(draft) => openDraft(draft)}
-          onDeleteDream={(d) => void deleteDreamFor(d)}
-          deletingId={deletingDream?.id ?? null}
-        />
-      )}
       {screen === 'today' && (
         <TodayScreen
           journals={visibleJournals}
@@ -193,6 +176,7 @@ function AppNavigator() {
     <>
       <RootNavigator
         main={MainRoute}
+        log={LogRoute}
         settings={SettingsRoute}
         search={SearchRoute}
         add={AddRoute}
