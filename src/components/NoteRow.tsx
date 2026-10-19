@@ -1,11 +1,21 @@
 import { memo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityActionEvent,
+  AccessibilityActionInfo,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { colors, fonts, spacing } from '../theme';
 import { NoteRowData } from '../utils/noteRow';
 
 type Props = {
   row: NoteRowData;
   onOpen: (id: string) => void;
+  /** Screen-reader actions (the swipe row's Pin and Delete). Omitted = none. */
+  accessibilityActions?: AccessibilityActionInfo[];
+  onAccessibilityAction?: (e: AccessibilityActionEvent) => void;
 };
 
 /** A small pin drawn with Views (no icon library). Hidden from screen readers; the row's label says "Pinned". */
@@ -28,11 +38,13 @@ function PinGlyph() {
  * its right; the preview (two lines, muted) and the tags (accent) below. No fixed heights, so
  * large text wraps. Tapping calls `onOpen(id)`.
  */
-function NoteRowImpl({ row, onOpen }: Props) {
+function NoteRowImpl({ row, onOpen, accessibilityActions, onAccessibilityAction }: Props) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={row.a11yLabel}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       onPress={() => onOpen(row.id)}
       style={styles.row}
     >

@@ -57,3 +57,26 @@ describe('NoteRow', () => {
     expect(screen.queryByText('#sea')).toBeNull();
   });
 });
+
+describe('NoteRow accessibility actions', () => {
+  it('has none by default', async () => {
+    await render(<NoteRow row={row()} onOpen={jest.fn()} />);
+    expect(screen.getByRole('button').props.accessibilityActions).toBeUndefined();
+  });
+
+  it('passes the actions and handler to the row button', async () => {
+    const onAction = jest.fn();
+    await render(
+      <NoteRow
+        row={row()}
+        onOpen={jest.fn()}
+        accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
+        onAccessibilityAction={onAction}
+      />,
+    );
+    const btn = screen.getByRole('button');
+    expect(btn.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+    await fireEvent(btn, 'accessibilityAction', { nativeEvent: { actionName: 'delete' } });
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+});
