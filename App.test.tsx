@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import App from './App';
 import { resetLegacyImportForTests } from './src/services/legacyImport';
 import { resetCorruptCopyGuard } from './src/services/notesStorage';
@@ -45,5 +45,15 @@ describe('App (notes shell)', () => {
     await render(<App />);
     await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
     expect(screen.queryByTestId('note-page')).toBeNull();
+  });
+
+  it('the search icon opens Search, and back returns to the list', async () => {
+    await writeSettings({ autoOpenDreamCapture: false });
+    await render(<App />);
+    await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Search notes' }));
+    expect(await screen.findByText('Search your notes by words or #tags.')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back to notes'));
+    await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
   });
 });

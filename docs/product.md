@@ -120,10 +120,10 @@ Status: **Built** (7b-3): Delete, Recently Deleted, Restore, Delete forever and 
 
 ### Search
 
-Status: **Built** under the older concept (search by words and tags); **Planned** for notes.
+Status: **Built** (since 7c-3; not verified on a device).
 
 - One field for words and tags, with tag chips under it. It looks in the body (so the title and tags too) of every note, and a result must have all selected tags. Results are newest first, grouped by month. Opening a result and going back returns to the results with the query and chips kept. It is plain text matching on the device, not analysis or interpretation.
-- Recently Deleted notes are not searched. Open: where Search is entered from (the note list or the drawer).
+- Recently Deleted notes are not searched. Search opens from a magnifier icon at the right of the note list header (default; the drawer is the alternative). It is a screen of its own: Android back or the arrow returns to the list, and the query and chips are cleared when it closes.
 
 ### Settings
 
@@ -135,10 +135,10 @@ Status: **Built** (since the 7a cutover, with the label "Open a new note on laun
 
 ### Navigation
 
-Status: **Built**. The routes are Notes (the list, root), Editor, Settings and Recently Deleted (a stub until 7b), on the native stack.
+Status: **Built**. The routes are Notes (the list, root), Editor, Settings, Recently Deleted and Search, on the native stack.
 
 - Android back on the note list exits the app. Back from any other screen returns to where the user came from.
-- Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. Settings and Recently Deleted open from the drawer and go back to the list.
+- Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. It also closes whenever another screen is pushed over the list. Settings and Recently Deleted open from the drawer and go back to the list.
 - Bottom sheets (the recording panel, the expanded voice note view) close by dragging down, tapping the dimmed backdrop, or Android back.
 - Leaving a recording asks "Discard this recording?" ("Your recording will be deleted." with "Keep recording" and "Discard"). Discard stops the recording, deletes the unsaved recording, then leaves as it would have. If the recording cannot be stopped, the "Could not finish recording" alert shows and the user stays.
 - Back is ignored while a delete started from the editor is in progress.
@@ -196,5 +196,5 @@ These are undecided. Ask before assuming an answer.
 
 - How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
 - How markdown is shown in the editor, and whether there is also a rendered reading view with tap-to-toggle checkboxes (a technical decision for the architect).
-- Whether the drawer shows every tag, and where Search is entered from.
+- Whether the drawer shows every tag. (Search is entered from the list header icon, by default; change it if you prefer the drawer.)
 - Whether transcribing a voice note into text after recording works well enough on device (needs a device test).

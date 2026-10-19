@@ -8,7 +8,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { PanResponder, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Note } from '../services/notesStorage';
-import { EditorRoute, NotesRoute, NotesSettingsRoute, RecentlyDeletedRoute } from './notesRoutes';
+import {
+  EditorRoute,
+  NotesRoute,
+  NotesSettingsRoute,
+  RecentlyDeletedRoute,
+  SearchRoute,
+} from './notesRoutes';
 
 // The routes in isolation, with the flow faked: what each route reads from the provider and what
 // it hands back is exercised directly. The provider itself is tested in AppFlowProvider.test.tsx.
@@ -94,6 +100,7 @@ type Params = {
   Editor: undefined;
   Settings: undefined;
   RecentlyDeleted: undefined;
+  Search: undefined;
 };
 const Stack = createNativeStackNavigator<Params>();
 const METRICS = {
@@ -142,6 +149,7 @@ function setFlow(patch: Record<string, unknown> = {}) {
     notes: {
       loaded: true,
       visible: [note('a', 'First note'), note('b', 'Second note')],
+      all: [note('a', 'First note #night'), note('b', 'Second note')],
       tags: [{ tag: 'night', count: 2 }],
       trashed: [],
       indexStatus: 'ok',
@@ -196,6 +204,7 @@ function Tree({ initial }: { initial: (keyof Params)[] }) {
           <Stack.Screen name="Editor" component={EditorRoute} options={{ gestureEnabled: false }} />
           <Stack.Screen name="Settings" component={NotesSettingsRoute} />
           <Stack.Screen name="RecentlyDeleted" component={RecentlyDeletedRoute} />
+          <Stack.Screen name="Search" component={SearchRoute} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
@@ -531,5 +540,124 @@ describe('RecentlyDeletedRoute and NotesSettingsRoute', () => {
     expect(fn.setAutoOpenNewNote).toHaveBeenCalledWith(false);
     await fireEvent.press(screen.getByLabelText('Back to notes'));
     expect(names()).toEqual(['Notes']);
+  });
+});
+
+describe('Search wiring', () => {
+  // No open session, so the editor over Search does not prevent its own removal.
+  beforeEach(() => setFlow({ session: null }));
+  const openSearch = () => fireEvent.press(screen.getByLabelText('Search notes'));
+  const field = () => screen.getByLabelText('Search notes', { includeHiddenElements: false });
+
+  it('the header search icon pushes Search, once', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Search notes', includeHiddenElements: true }),
+    );
+    expect(names()).toEqual(['Notes', 'Search']);
+    expect(screen.getByText('Search your notes by words or #tags.')).toBeTruthy();
+  });
+
+  it('hides the icon when the index is unreadable', async () => {
+    setFlow({
+      notes: {
+        loaded: true,
+        visible: [],
+        all: [],
+        tags: [],
+        trashed: [],
+        indexStatus: 'unreadable',
+      },
+    });
+    await render(<Tree initial={['Notes']} />);
+    expect(screen.queryByLabelText('Search notes')).toBeNull();
+  });
+
+  it('typing filters, a chip narrows, and a trashed note never appears', async () => {
+    const trashed = { ...note('t', 'Second trashed'), deletedAt: '2026-10-18T10:00:00.000Z' };
+    setFlow({
+      notes: {
+        loaded: true,
+        visible: [],
+        all: [note('a', 'First note #night'), note('b', 'Second note'), trashed],
+        tags: [{ tag: 'night', count: 1 }],
+        trashed: [trashed],
+        indexStatus: 'ok',
+      },
+    });
+    await render(<Tree initial={['Notes', 'Search']} />);
+    await fireEvent.changeText(field(), 'note');
+    expect(screen.getByLabelText(/First note/)).toBeTruthy();
+    expect(screen.getByLabelText(/Second note/)).toBeTruthy();
+    await fireEvent.changeText(field(), 'second');
+    expect(screen.queryByLabelText(/Second trashed/)).toBeNull();
+    expect(screen.getByLabelText(/Second note/)).toBeTruthy();
+    await fireEvent.changeText(field(), '');
+    await fireEvent.press(screen.getByLabelText('#night'));
+    expect(screen.getByLabelText(/First note/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Second note/)).toBeNull();
+  });
+
+  it('shows the count and the sections from the same results', async () => {
+    await render(<Tree initial={['Notes', 'Search']} />);
+    await fireEvent.changeText(field(), 'zzz');
+    expect(screen.getByText('No notes found.')).toBeTruthy();
+    await fireEvent.changeText(field(), 'note');
+    expect(screen.getByText('OCTOBER')).toBeTruthy();
+  });
+
+  it('opening a result hands the id to the provider; the query is kept while the editor is over Search', async () => {
+    await render(<Tree initial={['Notes', 'Search']} />);
+    await fireEvent.changeText(field(), 'second');
+    await fireEvent.press(screen.getByLabelText(/Second note/));
+    expect(fn.openNote).toHaveBeenCalledWith('b');
+    // The provider pushes Editor; leaving pops back to the same Search route instance.
+    await act(async () => ref.navigate('Editor'));
+    expect(names()).toEqual(['Notes', 'Search', 'Editor']);
+    await act(async () => ref.goBack());
+    expect(names()).toEqual(['Notes', 'Search']);
+    expect(field().props.value).toBe('second');
+  });
+
+  it('a note edited meanwhile shows its new text in the result row', async () => {
+    await render(<Tree initial={['Notes', 'Search']} />);
+    await fireEvent.changeText(field(), 'note');
+    await act(async () => ref.navigate('Editor'));
+    await update({
+      notes: {
+        ...(mockFlow.current.notes as object),
+        all: [note('a', 'First note edited'), note('b', 'Second note')],
+      },
+    });
+    await act(async () => ref.goBack());
+    expect(screen.getByLabelText(/First note edited/)).toBeTruthy();
+  });
+
+  it('the query is gone once Search is popped and opened again', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await fireEvent.changeText(field(), 'note');
+    await act(async () => ref.goBack());
+    await openSearch();
+    expect(field().props.value).toBe('');
+  });
+
+  it('the back arrow and Android back return to the list', async () => {
+    await render(<Tree initial={['Notes', 'Search']} />);
+    await fireEvent.press(screen.getByLabelText('Back to notes'));
+    expect(names()).toEqual(['Notes']);
+    await act(async () => ref.navigate('Search'));
+    await act(async () => ref.goBack());
+    expect(names()).toEqual(['Notes']);
+  });
+
+  it('the drawer is closed when the list loses focus by any route', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    expect(await screen.findByLabelText('Settings')).toBeTruthy();
+    await act(async () => ref.navigate('Search'));
+    await act(async () => ref.goBack());
+    await drawerGone();
   });
 });

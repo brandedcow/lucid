@@ -48,12 +48,13 @@ const mountPlain = (props: Partial<React.ComponentProps<typeof NotesNavigator>> 
       editor={EditorPage}
       settings={Other}
       recentlyDeleted={Other}
+      search={Other}
       {...props}
     />,
   );
 
 describe('NotesNavigator', () => {
-  it('has exactly the approved routes: Notes (root), Editor, Settings, RecentlyDeleted', async () => {
+  it('has exactly the approved routes: Notes (root), Editor, Settings, RecentlyDeleted, Search', async () => {
     mockNavigatorProps.current = null;
     await mountPlain();
     const props = mockNavigatorProps.current as unknown as {
@@ -66,13 +67,14 @@ describe('NotesNavigator', () => {
       'Editor',
       'Settings',
       'RecentlyDeleted',
+      'Search',
     ]);
     expect(props.screenOptions).toEqual(
       expect.objectContaining({ headerShown: false, gestureEnabled: false, animation: 'none' }),
     );
   });
 
-  it('pushes Editor with the native swipe off, and Settings and Recently Deleted with it on', async () => {
+  it('pushes Editor with the native swipe off, and Settings, Recently Deleted and Search with it on', async () => {
     mockNavigatorProps.current = null;
     await mountPlain();
     const options = (name: string) => routes().find((c) => c.props.name === name)?.props.options;
@@ -80,6 +82,7 @@ describe('NotesNavigator', () => {
     expect(options('Editor')).toEqual({ animation: 'default', gestureEnabled: false });
     expect(options('Settings')).toEqual({ animation: 'default', gestureEnabled: true });
     expect(options('RecentlyDeleted')).toEqual({ animation: 'default', gestureEnabled: true });
+    expect(options('Search')).toEqual({ animation: 'default', gestureEnabled: true });
   });
 
   it('starts on Notes alone', async () => {
@@ -105,6 +108,7 @@ describe('NotesNavigator', () => {
         editor={EditorPage}
         settings={Other}
         recentlyDeleted={Other}
+        search={Other}
         startInEditor={false}
       />,
     );
