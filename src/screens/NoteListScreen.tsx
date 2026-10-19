@@ -1,8 +1,10 @@
-import { ReactNode, useCallback } from 'react';
+import { ReactNode, useCallback, useEffect } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NewNoteButton, listClearance } from '../components/NewNoteButton';
 import { NoteRow } from '../components/NoteRow';
+import { SwipeNoteRow } from '../components/SwipeNoteRow';
+import { useSingleOpenRow } from '../components/SwipeActionRow';
 import { useDrawerEdgeSwipe } from '../hooks/useDrawerEdgeSwipe';
 import { Note } from '../services/notesStorage';
 import { colors, fonts, spacing } from '../theme';
@@ -61,6 +63,12 @@ type Props = {
   rightSlot?: ReactNode;
   /** True while the drawer is open: the list is hidden from screen readers and the swipe is off. */
   drawerOpen?: boolean;
+  /** Swipe Pin: set a note's pinned state. Swipe rows need both this and `onDeleteNote`; without them rows do not swipe. */
+  onPinNote?: (id: string, pinned: boolean) => void;
+  /** Swipe Delete: move a note to Recently Deleted. No confirmation here; the caller decides. */
+  onDeleteNote?: (id: string) => void;
+  /** True while an action is in flight: rows cannot be swiped. */
+  swipeDisabled?: boolean;
 };
 
 /** Three bars drawn with Views. Hidden from screen readers; the button names it. */
@@ -118,16 +126,47 @@ export function NoteListScreen({
   newNoteDisabled = false,
   rightSlot,
   drawerOpen = false,
+  onPinNote,
+  onDeleteNote,
+  swipeDisabled = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const edge = useDrawerEdgeSwipe(onOpenMenu, drawerOpen);
 
+  const swipeEnabled = onPinNote !== undefined && onDeleteNote !== undefined;
+  const rowsInert = swipeDisabled || drawerOpen;
+  // At most one row is open; scrolling, opening a note or the drawer closes it.
+  const { onRowWillOpen, onRowClosed, closeOpenRow } = useSingleOpenRow();
+  useEffect(() => {
+    if (drawerOpen) closeOpenRow();
+  }, [drawerOpen, closeOpenRow]);
+  const handleOpen = useCallback(
+    (id: string) => {
+      closeOpenRow();
+      onOpenNote(id);
+    },
+    [closeOpenRow, onOpenNote],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: Note }) => {
       const row: NoteRowData = noteRow(item, now);
-      return <NoteRow row={row} onOpen={onOpenNote} />;
+      if (onPinNote === undefined || onDeleteNote === undefined) {
+        return <NoteRow row={row} onOpen={onOpenNote} />;
+      }
+      return (
+        <SwipeNoteRow
+          row={row}
+          onOpen={handleOpen}
+          onPin={onPinNote}
+          onDelete={onDeleteNote}
+          disabled={rowsInert}
+          onRowWillOpen={onRowWillOpen}
+          onRowClosed={onRowClosed}
+        />
+      );
     },
-    [now, onOpenNote],
+    [now, onOpenNote, handleOpen, onPinNote, onDeleteNote, rowsInert, onRowWillOpen, onRowClosed],
   );
   const keyExtractor = useCallback((n: Note) => n.id, []);
 
@@ -153,9 +192,10 @@ export function NoteListScreen({
       <FlatList
         testID="note-list"
         data={notes}
-        extraData={now}
+        extraData={[now, rowsInert]}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
+        onScrollBeginDrag={swipeEnabled ? closeOpenRow : undefined}
         initialNumToRender={12}
         windowSize={9}
         contentContainerStyle={{ paddingBottom: listClearance(insets.bottom) }}
