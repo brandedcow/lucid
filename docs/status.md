@@ -33,6 +33,14 @@ Built in 7b-1 to 7b-3 and mounted: the real Recently Deleted screen (`src/screen
 - **Device checks still open (7b):** the real `Swipeable` inside the list on both platforms (open, scroll, open another, open a note), the left-edge drawer swipe against an open row and Android gesture navigation, VoiceOver and TalkBack custom actions on rows, restore of a note with a voice note, Delete forever and Empty with real audio files (and a legacy-imported note: `dreams/` audio must stay), the "Restored" announcement.
 - **Known gaps:** no undo for row Delete (by decision); the delete dialog's voice-note wording does not say a file shared with another note is kept.
 
+## 7c search
+
+Built in 7c-1 and 7c-3 and mounted: the `Search` route (`SearchRoute` in `src/navigation/notesRoutes.tsx`) showing `NoteSearchScreen` over the pure `src/utils/noteSearch.ts`, and `SearchButton` (the magnifier in the list header, hidden when the index is unreadable). Nothing here is verified on a device (iOS untested).
+
+- **Where the state is.** The query and selected chips are `useState` of the route, so they survive a note being opened over Search and are gone when it is popped. Results and month sections come from one `useMemo` over `notes.all` (so `resultCount` and `sections` always agree); chips from `notes.tags`. No timers, no debounce. Recently Deleted notes are never searched.
+- **Navigation.** `Search` is the fifth approved route (user approval 2026-10-18, "Search returns in 7c"). Opening a result pushes `Editor` over Search; leaving returns to Search. `NotesRoute` now closes the drawer whenever it loses focus.
+- **Device checks still open (7c search):** keyboard on open and typing, chips, clear, open a result and back with query and scroll kept, accent folding on both platforms (`String.prototype.normalize` on Hermes is unverified; the code falls back to lowercase-only), typing latency with 300+ notes, Android back from Search, the drawer closed after returning from Search, screen-reader behaviour of chips and section headers.
+
 ## What works today
 
 The add-entry page and Dream log are built and covered by tests, but **mostly not yet verified on a physical device** (see Gaps):

@@ -9,6 +9,7 @@ import {
   NotesRoute,
   NotesSettingsRoute,
   RecentlyDeletedRoute,
+  SearchRoute,
 } from './src/navigation/notesRoutes';
 import { colors } from './src/theme';
 import { EditorSpikeScreen } from './src/dev/EditorSpikeScreen';
@@ -24,6 +25,7 @@ function AppNavigator() {
       editor={EditorRoute}
       settings={NotesSettingsRoute}
       recentlyDeleted={RecentlyDeletedRoute}
+      search={SearchRoute}
       navigationRef={navigationRef}
       startInEditor={startInEditor}
     />
