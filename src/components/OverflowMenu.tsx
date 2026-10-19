@@ -12,10 +12,10 @@ import { colors, iconCircle, spacing } from '../theme';
  *
  * - items: extra menu items shown before Delete (`label` is the accessibility label, `text` the
  *   visible text, default the label). The menu closes before an item's onPress runs.
- * - onDelete is optional; the menu shows only the items it is given (the add-entry page gives only
+ * - onDelete is optional; the menu shows only the items it is given (the note editor gives only
  *   onDelete).
- * - top / right: where the button sits (a circle of `iconCircle`, the same size as the add-entry
- *   check; the add-entry page puts it left of its check). The card follows the button.
+ * - top / right: where the button sits (a circle of `iconCircle`, the same size as the editor's
+ *   check; the editor puts it left of its check). The card follows the button.
  * - disabled: items are disabled and the menu closes (the screen is busy deleting).
  * - deleteDisabled: only the Delete item is disabled and dimmed (default false); the button stays
  *   usable.
@@ -33,7 +33,7 @@ type Props = {
   onDelete?: () => void;
   disabled?: boolean;
   deleteDisabled?: boolean;
-  /** Wording for the item label; defaults to the Dream wording ("Delete dream"). */
+  /** Wording for the item label; defaults to "Delete note". */
   deleteLabel?: string;
   /** The visible text of the Delete item; defaults to "Delete". */
   deleteText?: string;
@@ -47,7 +47,7 @@ export function OverflowMenu({
   onDelete,
   disabled = false,
   deleteDisabled = false,
-  deleteLabel = 'Delete dream',
+  deleteLabel = 'Delete note',
   deleteText = 'Delete',
   top = BAR_TOP,
   right = BAR_RIGHT,

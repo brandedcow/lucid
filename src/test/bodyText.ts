@@ -1,6 +1,6 @@
 /**
- * The text of the add-entry page's body input. The input has no `value` prop (its text is its
- * nested <Text> children, see TaggedBodyInput), so tests read the text from the children.
+ * The text of a body input that has no `value` prop (its text is its nested <Text> children), so
+ * tests read the text from the children.
  */
 export function bodyText(input: { props: { children?: unknown } }): string {
   const flat = (node: unknown): string => {

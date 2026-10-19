@@ -6,8 +6,8 @@ import { LEVEL_SAMPLE_MS, RecordingPanel } from './RecordingPanel';
 jest.mock('../services/recordingFiles', () => ({ discardRecording: jest.fn() }));
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
-jest.mock('../hooks/useDreamRecorder', () => ({
-  useDreamRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
+jest.mock('../hooks/useVoiceRecorder', () => ({
+  useVoiceRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
 }));
 
 const CACHE = 'file:///cache/p1.m4a';

@@ -74,7 +74,7 @@ describe('OverflowMenu', () => {
     const onDelete = jest.fn();
     await render(<OverflowMenu onDelete={onDelete} />);
     await open();
-    await fireEvent.press(screen.getByLabelText('Delete dream'));
+    await fireEvent.press(screen.getByLabelText('Delete note'));
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
@@ -121,11 +121,11 @@ describe('OverflowMenu', () => {
     const onDelete = jest.fn();
     await render(<OverflowMenu onDelete={onDelete} deleteDisabled />);
     await open();
-    expect(screen.getByLabelText('Delete dream').props.accessibilityState).toMatchObject({
+    expect(screen.getByLabelText('Delete note').props.accessibilityState).toMatchObject({
       disabled: true,
     });
     expect(screen.getByText('Delete')).toHaveStyle({ opacity: 0.4 });
-    await fireEvent.press(screen.getByLabelText('Delete dream'));
+    await fireEvent.press(screen.getByLabelText('Delete note'));
     expect(onDelete).not.toHaveBeenCalled();
   });
 
@@ -192,7 +192,7 @@ describe('OverflowMenu labels', () => {
       expect(items.map((i) => i.props.accessibilityLabel)).toEqual([
         'Copy transcript',
         'Add it',
-        'Delete dream',
+        'Delete note',
       ]);
       expect(screen.getByText('Copy transcript')).toBeTruthy();
       expect(screen.getByText('Add to entry')).toBeTruthy();

@@ -18,8 +18,8 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
-jest.mock('../hooks/useDreamRecorder', () => ({
-  useDreamRecorder: () => ({
+jest.mock('../hooks/useVoiceRecorder', () => ({
+  useVoiceRecorder: () => ({
     ...mockRec,
     pause: jest.fn(),
     resume: jest.fn(),

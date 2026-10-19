@@ -11,7 +11,7 @@ beforeEach(() => __fs.reset());
 describe('readSettings', () => {
   it('defaults to on (capture) and off (online transcription) when the file is missing', async () => {
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: true,
+      autoOpenNewNote: true,
       onlineTranscription: false,
     });
   });
@@ -29,7 +29,7 @@ describe('readSettings', () => {
   ])('defaults to true for %s', async (_name, content) => {
     __fs.put(FILE, content);
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: true,
+      autoOpenNewNote: true,
       onlineTranscription: false,
     });
   });
@@ -38,7 +38,7 @@ describe('readSettings', () => {
     __fs.put(FILE, '{"autoOpenDreamCapture":false}');
     __fs.failNext('json');
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: true,
+      autoOpenNewNote: true,
       onlineTranscription: false,
     });
   });
@@ -46,7 +46,7 @@ describe('readSettings', () => {
   it('reads a stored false', async () => {
     __fs.put(FILE, '{"autoOpenDreamCapture":false}');
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: false,
+      autoOpenNewNote: false,
       onlineTranscription: false,
     });
   });
@@ -54,21 +54,21 @@ describe('readSettings', () => {
 
 describe('writeSettings', () => {
   it('round trips true and false', async () => {
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: false,
+      autoOpenNewNote: false,
       onlineTranscription: false,
     });
-    await writeSettings({ autoOpenDreamCapture: true });
+    await writeSettings({ autoOpenNewNote: true });
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: true,
+      autoOpenNewNote: true,
       onlineTranscription: false,
     });
   });
 
   it('preserves unknown keys in a valid file', async () => {
     __fs.put(FILE, '{"autoOpenDreamCapture":true,"later":{"a":1}}');
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
       autoOpenDreamCapture: false,
       later: { a: 1 },
@@ -77,17 +77,27 @@ describe('writeSettings', () => {
 
   it('writes only the patched keys over a corrupt file', async () => {
     __fs.put(FILE, '{"autoOpen');
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
       autoOpenDreamCapture: false,
     });
   });
 
+  it('keeps the legacy on-disk key autoOpenDreamCapture (existing users keep their toggle)', async () => {
+    await writeSettings({ autoOpenNewNote: false });
+    const raw = JSON.parse(__fs.read(FILE) ?? '');
+    expect(raw).toEqual({ autoOpenDreamCapture: false });
+    expect(raw).not.toHaveProperty('autoOpenNewNote');
+    // And a file written by an earlier build is read through the new name.
+    __fs.put(FILE, '{"autoOpenDreamCapture":false}');
+    expect((await readSettings()).autoOpenNewNote).toBe(false);
+  });
+
   it('writes over a zero-length file', async () => {
     __fs.put(FILE, '');
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: false,
+      autoOpenNewNote: false,
       onlineTranscription: false,
     });
   });
@@ -96,9 +106,9 @@ describe('writeSettings', () => {
     const del = jest.spyOn(File.prototype, 'delete');
     __fs.put(FILE, '{"autoOpenDreamCapture":false}');
     __fs.failNext('write', new Error('disk full'), { leave: 'empty' });
-    await writeSettings({ autoOpenDreamCapture: true });
+    await writeSettings({ autoOpenNewNote: true });
     expect(__fs.has(FILE)).toBe(true);
-    await writeSettings({ autoOpenDreamCapture: true });
+    await writeSettings({ autoOpenNewNote: true });
     expect(__fs.has(FILE)).toBe(true);
     expect(del).not.toHaveBeenCalled();
     del.mockRestore();
@@ -106,25 +116,25 @@ describe('writeSettings', () => {
 
   it('swallows a write failure and a read failure', async () => {
     __fs.failNext('write');
-    await expect(writeSettings({ autoOpenDreamCapture: false })).resolves.toBeUndefined();
+    await expect(writeSettings({ autoOpenNewNote: false })).resolves.toBeUndefined();
     __fs.put(FILE, '{}');
     __fs.failNext('json');
-    await expect(writeSettings({ autoOpenDreamCapture: false })).resolves.toBeUndefined();
+    await expect(writeSettings({ autoOpenNewNote: false })).resolves.toBeUndefined();
   });
 
   it('ends on the last value after two quick writes', async () => {
-    const first = writeSettings({ autoOpenDreamCapture: false });
-    const second = writeSettings({ autoOpenDreamCapture: true });
+    const first = writeSettings({ autoOpenNewNote: false });
+    const second = writeSettings({ autoOpenNewNote: true });
     await Promise.all([first, second]);
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: true,
+      autoOpenNewNote: true,
       onlineTranscription: false,
     });
-    const a = writeSettings({ autoOpenDreamCapture: true });
-    const b = writeSettings({ autoOpenDreamCapture: false });
+    const a = writeSettings({ autoOpenNewNote: true });
+    const b = writeSettings({ autoOpenNewNote: false });
     await Promise.all([a, b]);
     expect(await readSettings()).toEqual({
-      autoOpenDreamCapture: false,
+      autoOpenNewNote: false,
       onlineTranscription: false,
     });
   });
@@ -156,9 +166,9 @@ describe('onlineTranscription', () => {
 
   it('write then read persists, and each key is validated on its own', async () => {
     await writeSettings({ onlineTranscription: true });
-    expect(await readSettings()).toEqual({ autoOpenDreamCapture: true, onlineTranscription: true });
+    expect(await readSettings()).toEqual({ autoOpenNewNote: true, onlineTranscription: true });
     __fs.put(FILE, '{"autoOpenDreamCapture":"x","onlineTranscription":true}');
-    expect(await readSettings()).toEqual({ autoOpenDreamCapture: true, onlineTranscription: true });
+    expect(await readSettings()).toEqual({ autoOpenNewNote: true, onlineTranscription: true });
     await writeSettings({ onlineTranscription: false });
     expect((await readSettings()).onlineTranscription).toBe(false);
   });

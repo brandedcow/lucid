@@ -6,8 +6,8 @@ import { File, Paths } from 'expo-file-system';
  * Apple or Google when the user taps Transcribe), it does not send anything by itself.
  */
 export type Settings = {
-  /** Open Dream capture on the morning prompt. Defaults to on. */
-  autoOpenDreamCapture: boolean;
+  /** Open a new note on the launch prompt (first open of the day). Defaults to on. */
+  autoOpenNewNote: boolean;
   /**
    * Allow online (server) transcription when this phone cannot transcribe a voice note itself.
    * Defaults to OFF and fails closed: a missing, damaged or non-boolean value is false.
@@ -15,8 +15,14 @@ export type Settings = {
   onlineTranscription: boolean;
 };
 
+/**
+ * Legacy on-disk key of `autoOpenNewNote`. Kept on purpose: renaming it would reset every existing
+ * user's toggle to the default and lose it on a build downgrade.
+ */
+const AUTO_OPEN_KEY = 'autoOpenDreamCapture';
+
 export const DEFAULT_SETTINGS: Settings = {
-  autoOpenDreamCapture: true,
+  autoOpenNewNote: true,
   onlineTranscription: false,
 };
 
@@ -40,17 +46,17 @@ async function readRaw(): Promise<Record<string, unknown> | null> {
 
 /**
  * The settings, each key validated on its own. Anything missing, damaged or of the wrong type
- * falls back to its default (autoOpenDreamCapture on, so a damaged file never silences the morning
+ * falls back to its default (autoOpenNewNote on, so a damaged file never silences the morning
  * prompt; onlineTranscription off, so a damaged file never allows audio to leave the phone).
  * Never throws.
  */
 export async function readSettings(): Promise<Settings> {
   const raw = await readRaw();
   return {
-    autoOpenDreamCapture:
-      typeof raw?.autoOpenDreamCapture === 'boolean'
-        ? raw.autoOpenDreamCapture
-        : DEFAULT_SETTINGS.autoOpenDreamCapture,
+    autoOpenNewNote:
+      typeof raw?.[AUTO_OPEN_KEY] === 'boolean'
+        ? raw[AUTO_OPEN_KEY]
+        : DEFAULT_SETTINGS.autoOpenNewNote,
     onlineTranscription:
       typeof raw?.onlineTranscription === 'boolean'
         ? raw.onlineTranscription
@@ -65,8 +71,8 @@ async function writeNow(patch: Partial<Settings>): Promise<void> {
   try {
     // Keep keys this version does not know about; a damaged file is replaced by the patch alone.
     const next: Record<string, unknown> = { ...(await readRaw()) };
-    if (patch.autoOpenDreamCapture !== undefined) {
-      next.autoOpenDreamCapture = patch.autoOpenDreamCapture;
+    if (patch.autoOpenNewNote !== undefined) {
+      next[AUTO_OPEN_KEY] = patch.autoOpenNewNote;
     }
     if (patch.onlineTranscription !== undefined) {
       next.onlineTranscription = patch.onlineTranscription;

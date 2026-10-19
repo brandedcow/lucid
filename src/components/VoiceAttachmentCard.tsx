@@ -23,7 +23,7 @@ type Props = {
 const WAVE_HEIGHT = 32;
 
 /**
- * The voice attachment above an entry's title: play/pause, a static waveform that fills left to
+ * The voice attachment above a note's body: play/pause, a static waveform that fills left to
  * right as playback advances (a plain progress bar when there is no waveform; it is a display, not
  * seekable), the length and, when `onRemove` is given, a close button. When `onOpen` is given the
  * rest of the card is a button ("Open voice note N of M"). Closing only reports the tap; deleting

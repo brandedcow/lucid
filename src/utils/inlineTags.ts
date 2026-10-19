@@ -1,7 +1,7 @@
 import { normalizeTag } from './tags';
 
 /**
- * Inline "#tag" parsing for dream text. Pure functions, hand-written scanner
+ * Inline "#tag" parsing for note text. Pure functions, hand-written scanner
  * (no lookbehind, no \p{} escapes: Hermes support is unverified).
  *
  * Grammar: a tag is "#" followed by 1 to 40 tag characters (counted in code

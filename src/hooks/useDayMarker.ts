@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { readNoDreamDate, writeNoDreamDate } from '../services/dayMarker';
+import { readDoneDate, writeDoneDate } from '../services/dayMarker';
 
 /**
- * The latest day the user marked "No dream". `loaded` turns true once the first read finishes
- * (also when it fails, which reads as no marker). `markNoDream` updates state first, then writes
+ * The latest day the user finished or skipped the launch note. `loaded` turns true once the first read finishes
+ * (also when it fails, which reads as no marker). `markDayDone` updates state first, then writes
  * in the background; a failed write keeps the value for the session and shows nothing. A read that
- * finishes after `markNoDream` never overwrites the newer value, and nothing updates after unmount.
+ * finishes after `markDayDone` never overwrites the newer value, and nothing updates after unmount.
  */
 export function useDayMarker() {
   const [loaded, setLoaded] = useState(false);
-  const [noDreamDate, setNoDreamDate] = useState<string | null>(null);
+  const [doneDate, setDoneDate] = useState<string | null>(null);
   const marked = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
-    readNoDreamDate()
+    readDoneDate()
       .catch(() => null)
       .then((date) => {
         if (!mounted.current) return;
-        if (!marked.current) setNoDreamDate(date);
+        if (!marked.current) setDoneDate(date);
         setLoaded(true);
       });
     return () => {
@@ -27,13 +27,11 @@ export function useDayMarker() {
     };
   }, []);
 
-  const markNoDream = useCallback((dateKey: string) => {
+  const markDayDone = useCallback((dateKey: string) => {
     marked.current = true;
-    if (mounted.current) setNoDreamDate(dateKey);
-    writeNoDreamDate(dateKey).catch(() => {});
+    if (mounted.current) setDoneDate(dateKey);
+    writeDoneDate(dateKey).catch(() => {});
   }, []);
 
-  // `doneDate` and `markDayDone` are the new names for the same state and function; the old names
-  // stay until the old app is removed.
-  return { loaded, noDreamDate, markNoDream, doneDate: noDreamDate, markDayDone: markNoDream };
+  return { loaded, doneDate, markDayDone };
 }

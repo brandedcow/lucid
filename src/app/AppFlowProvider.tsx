@@ -74,7 +74,7 @@ const codeOf = (error: unknown): string | undefined => {
 };
 
 // All app state and handlers, held above the navigator so any route can reach them. The open note
-// lives here (not in route params), as the add-entry page's session did.
+// lives here (not in route params), as the old add-entry page's session did.
 function useAppFlowValue() {
   const settings = useSettings();
   const dayMarker = useDayMarker();
