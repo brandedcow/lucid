@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NewNoteButton, listClearance } from '../components/NewNoteButton';
@@ -169,6 +169,12 @@ export function NoteListScreen({
     [now, onOpenNote, handleOpen, onPinNote, onDeleteNote, rowsInert, onRowWillOpen, onRowClosed],
   );
   const keyExtractor = useCallback((n: Note) => n.id, []);
+  // Stable between renders so the list re-renders its rows only when `now` or the inert flag changes.
+  const contentStyle = useMemo(
+    () => ({ paddingBottom: listClearance(insets.bottom) }),
+    [insets.bottom],
+  );
+  const extraData = useMemo(() => ({ now, rowsInert }), [now, rowsInert]);
 
   let body: ReactNode = null;
   if (indexStatus === 'unreadable') {
@@ -192,13 +198,13 @@ export function NoteListScreen({
       <FlatList
         testID="note-list"
         data={notes}
-        extraData={[now, rowsInert]}
+        extraData={extraData}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         onScrollBeginDrag={swipeEnabled ? closeOpenRow : undefined}
         initialNumToRender={12}
         windowSize={9}
-        contentContainerStyle={{ paddingBottom: listClearance(insets.bottom) }}
+        contentContainerStyle={contentStyle}
       />
     );
   }

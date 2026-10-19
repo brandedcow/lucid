@@ -22,6 +22,17 @@ This section is current; the sections below still describe the older dream and j
 
 **Device checks still open (all of 7a):** cold launch into a new note and into the list; launch with a large legacy library (cap and the "Bringing in your earlier notes..." line); the migration lines; editor keyboard, caret and drawer gestures on iOS and Android; Android back (drawer, editor, Settings); the iOS swipe-back on Settings; voice notes in the editor; the Settings switch persisting across launches.
 
+## 7b state (trash, restore, delete forever, row swipe)
+
+Built in 7b-1 to 7b-3 and mounted: the real Recently Deleted screen (`src/screens/RecentlyDeletedScreen.tsx`, replacing the 7a stub; it keeps `RECENTLY_DELETED_COPY`), `DeletedNoteRow`, `deletedRow` / `noteHasDeletableAudio`, the two confirm dialogs (`src/utils/confirmForever.ts`, copy in `CONFIRM_FOREVER_COPY`) and the list's row swipe (`SwipeNoteRow`). Nothing here is verified on a device (iOS untested).
+
+- **Where the logic is.** `AppFlowProvider` owns `restoreNote`, `requestDeleteForever`, `requestEmptyTrash`, `pinNote` and `trashNote`, the `trashBusy` guard (a ref plus state, held from the first tap through the confirm and the operation, and refused while a note is open, a leave is running or the index is unreadable), and `trashNotice` / `clearTrashNotice`. Wording is in `TRASH_COPY` (exported from the provider). The routes only pass these through; `RecentlyDeletedRoute` clears the notice on blur and unmount.
+- **Deletion allow-list.** Only the provider calls `deleteForever` and `emptyTrash`, and only after the dialog's Delete forever / Empty button. `src/app/trashActions.audit.test.ts` pins this and that no screen, component or route imports a write function from `notesStorage`. Every action goes through the `useNotes` wrappers, which refresh the list after every outcome.
+- **Behaviour.** Row swipe Delete moves the note to Recently Deleted at once (no confirm, no undo). Restore keeps the user on Recently Deleted with a `Restored "title".` line and a screen-reader "Restored"; the note is not opened and keeps its old position in the list. The Empty dialog mentions voice notes when any trashed note has deletable (non-legacy) audio. An Empty that reports 0 deleted with no failed id is treated as a failure.
+- **Cleanups.** `NoteListScreen` memoizes `extraData` and the content style (a re-render test pins it); the swipe screen test wraps its fake `open()` calls in `act`.
+- **Device checks still open (7b):** the real `Swipeable` inside the list on both platforms (open, scroll, open another, open a note), the left-edge drawer swipe against an open row and Android gesture navigation, VoiceOver and TalkBack custom actions on rows, restore of a note with a voice note, Delete forever and Empty with real audio files (and a legacy-imported note: `dreams/` audio must stay), the "Restored" announcement.
+- **Known gaps:** no undo for row Delete (by decision); the delete dialog's voice-note wording does not say a file shared with another note is kept.
+
 ## What works today
 
 The add-entry page and Dream log are built and covered by tests, but **mostly not yet verified on a physical device** (see Gaps):

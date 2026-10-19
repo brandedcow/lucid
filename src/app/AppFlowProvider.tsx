@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -20,8 +21,11 @@ import { useRecordingTranscription } from '../hooks/useRecordingTranscription';
 import { useSettings } from '../hooks/useSettings';
 import { useToday } from '../hooks/useToday';
 import { INDEX_UNREADABLE, NOTE_IN_TRASH, type Note } from '../services/notesStorage';
+import { confirmDeleteForever, confirmEmptyTrash } from '../utils/confirmForever';
+import { noteHasDeletableAudio } from '../utils/deletedRow';
 import { migrationNotice } from '../utils/migrationNotice';
 import { LAUNCH_CAP_MS, noteLaunchTarget } from '../utils/noteLaunch';
+import { noteTitle } from '../utils/noteTitle';
 import { tagsByUse } from '../utils/noteViewLabels';
 import { dayDone, type NoteView } from '../utils/noteViews';
 import { localDateKey } from '../utils/today';
@@ -40,6 +44,25 @@ export const FLOW_COPY = {
   deleteFailedTitle: "Couldn't delete this note.",
   deleteFailedMessage: 'Nothing was changed.',
   movedToTrash: 'Moved to Recently Deleted',
+} as const;
+
+/** Copy for the trash, restore, pin and delete-forever actions (one place to edit the wording). */
+export const TRASH_COPY = {
+  restored: (title: string) => `Restored "${title}".`,
+  restoredAnnouncement: 'Restored',
+  restoreFailedTitle: "Couldn't restore this note.",
+  restoreFailedMessage: 'It is still in Recently Deleted.',
+  deletedForeverAnnouncement: 'Deleted forever',
+  deleteForeverFailedTitle: "Couldn't delete this note.",
+  deleteForeverFailedMessage: 'It is still in Recently Deleted. Try again.',
+  emptiedAnnouncement: 'Recently Deleted emptied',
+  emptyFailedTitle: "Couldn't delete everything.",
+  emptyFailedMessage: 'Some notes are still in Recently Deleted. Try again.',
+  pinned: 'Pinned',
+  unpinned: 'Unpinned',
+  pinFailedTitle: "Couldn't pin this note.",
+  unpinFailedTitle: "Couldn't unpin this note.",
+  pinFailedMessage: 'Nothing was changed.',
 } as const;
 
 const ALL: ListView = { kind: 'all' };
@@ -321,6 +344,156 @@ function useAppFlowValue() {
     else banner = { kind: 'saveError', ...bannerActions };
   }
 
+  // Trash, restore, delete forever, empty and the list's row pin/delete. One guard (`trashBusy`;
+  // the ref is the synchronous half, the state locks the screens) covers a confirm that is open as
+  // well as a running operation. Everything goes through the `useNotes` actions, which refresh the
+  // list after every outcome; nothing here touches storage.
+  const trashBusyRef = useRef(false);
+  const [trashBusy, setTrashBusy] = useState(false);
+  const [trashNotice, setTrashNotice] = useState<string | null>(null);
+  const clearTrashNotice = useCallback(() => {
+    if (mounted.current) setTrashNotice(null);
+  }, []);
+  /** Takes the guard; false (do nothing) while another action, a leave or an open note holds it. */
+  const beginTrash = () => {
+    if (trashBusyRef.current || busy.current || session || !mounted.current) return false;
+    if (notes.indexStatus === 'unreadable') return false;
+    trashBusyRef.current = true;
+    setTrashBusy(true);
+    setTrashNotice(null);
+    return true;
+  };
+  const holdTrash = () => {
+    trashBusyRef.current = true;
+    setTrashBusy(true);
+  };
+  const endTrash = () => {
+    trashBusyRef.current = false;
+    if (mounted.current) setTrashBusy(false);
+  };
+  const tell = (title: string, message: string) => {
+    if (mounted.current) Alert.alert(title, message, [{ text: FLOW_COPY.ok }]);
+  };
+  const announce = (text: string) => {
+    if (mounted.current) AccessibilityInfo.announceForAccessibility(text);
+  };
+
+  /** Restore from Recently Deleted: the user stays on that screen; the note is not opened. */
+  const restoreNote = async (id: string) => {
+    const note = notes.trashed.find((n) => n.id === id);
+    if (!note || !beginTrash()) return;
+    try {
+      const ok = await notes.restore(id);
+      notes.clearError();
+      if (!mounted.current) return;
+      if (ok) {
+        setTrashNotice(TRASH_COPY.restored(noteTitle(note.body)));
+        announce(TRASH_COPY.restoredAnnouncement);
+      } else {
+        tell(TRASH_COPY.restoreFailedTitle, TRASH_COPY.restoreFailedMessage);
+      }
+    } finally {
+      endTrash();
+    }
+  };
+
+  // Runs after the confirm closed (synchronously, so nothing can slip in between).
+  const runDeleteForever = async (id: string) => {
+    holdTrash();
+    try {
+      const ok = await notes.deleteForever(id);
+      notes.clearError();
+      if (!mounted.current) return;
+      if (ok) announce(TRASH_COPY.deletedForeverAnnouncement);
+      else tell(TRASH_COPY.deleteForeverFailedTitle, TRASH_COPY.deleteForeverFailedMessage);
+    } finally {
+      endTrash();
+    }
+  };
+
+  /** Delete forever: asks first; Keep or dismissing the dialog changes nothing. */
+  const requestDeleteForever = (id: string) => {
+    const note = notes.trashed.find((n) => n.id === id);
+    if (!note || !beginTrash()) return;
+    let released = false;
+    confirmDeleteForever({
+      hasAudio: noteHasDeletableAudio(note),
+      onClose: () => {
+        if (released) return;
+        released = true;
+        endTrash();
+      },
+      onConfirm: () => void runDeleteForever(id),
+    });
+  };
+
+  const runEmptyTrash = async () => {
+    holdTrash();
+    try {
+      const result = await notes.emptyTrash();
+      notes.clearError();
+      if (!mounted.current) return;
+      // A read failure before anything was deleted reports 0 deleted and no failed id; the list
+      // was not empty when the user confirmed, so that is a failure too.
+      if (result.failedId !== undefined || result.deleted === 0) {
+        tell(TRASH_COPY.emptyFailedTitle, TRASH_COPY.emptyFailedMessage);
+      } else {
+        announce(TRASH_COPY.emptiedAnnouncement);
+      }
+    } finally {
+      endTrash();
+    }
+  };
+
+  /** Empty Recently Deleted: asks first; Keep or dismissing the dialog changes nothing. */
+  const requestEmptyTrash = () => {
+    const count = notes.trashed.length;
+    if (count === 0 || !beginTrash()) return;
+    let released = false;
+    confirmEmptyTrash({
+      count,
+      hasAudio: notes.trashed.some(noteHasDeletableAudio),
+      onClose: () => {
+        if (released) return;
+        released = true;
+        endTrash();
+      },
+      onConfirm: () => void runEmptyTrash(),
+    });
+  };
+
+  /** Swipe Pin / Unpin on a list row. */
+  const pinNote = async (id: string, pinned: boolean) => {
+    if (!beginTrash()) return;
+    try {
+      const ok = await notes.pin(id, pinned);
+      notes.clearError();
+      if (!mounted.current) return;
+      if (ok) announce(pinned ? TRASH_COPY.pinned : TRASH_COPY.unpinned);
+      else
+        tell(
+          pinned ? TRASH_COPY.pinFailedTitle : TRASH_COPY.unpinFailedTitle,
+          TRASH_COPY.pinFailedMessage,
+        );
+    } finally {
+      endTrash();
+    }
+  };
+
+  /** Swipe Delete on a list row: to Recently Deleted, no confirm and no undo. */
+  const trashNote = async (id: string) => {
+    if (!beginTrash()) return;
+    try {
+      const ok = await notes.trash(id);
+      notes.clearError();
+      if (!mounted.current) return;
+      if (ok) announce(FLOW_COPY.movedToTrash);
+      else tell(FLOW_COPY.deleteFailedTitle, FLOW_COPY.deleteFailedMessage);
+    } finally {
+      endTrash();
+    }
+  };
+
   const knownTags = useMemo(() => tagsByUse(notes.tags).map((t) => t.tag), [notes.tags]);
 
   const notice = migrationNotice({
@@ -360,6 +533,14 @@ function useAppFlowValue() {
     allowLeave,
     resetAllowLeave,
     settings,
+    trashBusy,
+    trashNotice,
+    clearTrashNotice,
+    restoreNote,
+    requestDeleteForever,
+    requestEmptyTrash,
+    pinNote,
+    trashNote,
   };
 }
 

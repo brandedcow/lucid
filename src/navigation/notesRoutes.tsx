@@ -22,7 +22,17 @@ import type { NotesStackParamList } from './NotesNavigator';
 // the list otherwise back exits the app.
 export function NotesRoute() {
   const navigation = useNavigation<NativeStackNavigationProp<NotesStackParamList>>();
-  const { notes, view, setView, migrationNotice, openNote, openNewNote } = useAppFlow();
+  const {
+    notes,
+    view,
+    setView,
+    migrationNotice,
+    openNote,
+    openNewNote,
+    pinNote,
+    trashNote,
+    trashBusy,
+  } = useAppFlow();
   const now = useNow();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
@@ -58,6 +68,9 @@ export function NotesRoute() {
         onOpenMenu={() => setDrawerOpen(true)}
         newNoteDisabled={unreadable}
         drawerOpen={drawerOpen}
+        onPinNote={(id, pinned) => void pinNote(id, pinned)}
+        onDeleteNote={(id) => void trashNote(id)}
+        swipeDisabled={trashBusy}
       />
       <NotesDrawer
         open={drawerOpen}
@@ -155,10 +168,40 @@ export function EditorRoute() {
   );
 }
 
-// Recently Deleted: a stub in 7a (7b builds the list).
+// Recently Deleted. The provider holds the actions, the busy flag and the "Restored" line; the
+// line is cleared when the screen loses focus or unmounts.
 export function RecentlyDeletedRoute() {
   const navigation = useNavigation();
-  return <RecentlyDeletedScreen onBack={() => navigation.goBack()} />;
+  const {
+    notes,
+    trashBusy,
+    trashNotice,
+    clearTrashNotice,
+    restoreNote,
+    requestDeleteForever,
+    requestEmptyTrash,
+  } = useAppFlow();
+  const now = useNow();
+  useEffect(() => {
+    const off = navigation.addListener('blur', clearTrashNotice);
+    return () => {
+      off();
+      clearTrashNotice();
+    };
+  }, [navigation, clearTrashNotice]);
+  return (
+    <RecentlyDeletedScreen
+      notes={notes.loaded ? notes.trashed : null}
+      now={now}
+      indexStatus={notes.indexStatus}
+      busy={trashBusy}
+      notice={trashNotice}
+      onBack={() => navigation.goBack()}
+      onRestore={(id) => void restoreNote(id)}
+      onDeleteForever={requestDeleteForever}
+      onEmpty={requestEmptyTrash}
+    />
+  );
 }
 
 // Settings as a route of its own. The arrow, Android back and (iOS) the native swipe pop it.

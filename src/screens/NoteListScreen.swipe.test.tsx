@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Note } from '../services/notesStorage';
 import { NoteListScreen } from './NoteListScreen';
@@ -108,8 +108,12 @@ describe('NoteListScreen swipe', () => {
   it('keeps one row open: opening a second closes the first', async () => {
     const { ui } = tree();
     await render(ui);
-    mockRows[0].open();
-    mockRows[1].open();
+    await act(async () => {
+      mockRows[0].open();
+    });
+    await act(async () => {
+      mockRows[1].open();
+    });
     expect(mockRows[0].closeCount).toBe(1);
     expect(mockRows[1].closeCount).toBe(0);
   });
@@ -117,7 +121,9 @@ describe('NoteListScreen swipe', () => {
   it('closes the open row when the list starts scrolling', async () => {
     const { ui } = tree();
     await render(ui);
-    mockRows[0].open();
+    await act(async () => {
+      mockRows[0].open();
+    });
     await fireEvent(screen.getByTestId('note-list'), 'scrollBeginDrag');
     expect(mockRows[0].closeCount).toBe(1);
   });
@@ -125,7 +131,9 @@ describe('NoteListScreen swipe', () => {
   it('closes the open row when a note is opened', async () => {
     const { props, ui } = tree();
     await render(ui);
-    mockRows[0].open();
+    await act(async () => {
+      mockRows[0].open();
+    });
     await fireEvent.press(screen.getByRole('button', { name: /^Note 1\./ }));
     expect(mockRows[0].closeCount).toBe(1);
     expect(props.onOpenNote).toHaveBeenCalledWith('n1');
@@ -134,7 +142,9 @@ describe('NoteListScreen swipe', () => {
   it('closes the open row and goes inert when the drawer opens', async () => {
     const { props, ui } = tree();
     const view = await render(ui);
-    mockRows[0].open();
+    await act(async () => {
+      mockRows[0].open();
+    });
     const next = tree({ ...props, drawerOpen: true });
     await view.rerender(next.ui);
     expect(mockRows[0].closeCount).toBeGreaterThanOrEqual(1);
