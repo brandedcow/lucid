@@ -89,15 +89,15 @@ Status: **Built** (since the 7a cutover; resume on a new day is **Planned**, chu
 
 ### Note list and drawer
 
-Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is All Notes); swipe actions are **Planned** (7b). Not yet verified on a device.
+Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is All Notes); row swipe actions (Pin, Delete) are **Built** (7b-3). Not yet verified on a device.
 
 - The main screen is a note list: each row shows the title, a short preview of the body and a relative time in full words ("2 seconds ago", "37 minutes ago", "3 hours ago", "2 days ago", then a short date from 7 days on; "Just now" for under a second). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
 - A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view, the list of tags, **Recently Deleted**, and **Settings**.
 - **Smart views** (chosen from the dropdown): **Today** (notes created today), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
 - Tags in the drawer are flat, shown with how many notes use them, sorted alphabetically. Open: whether the drawer shows every tag or only the most used.
 - Which day a note belongs to follows when it was first stored, in the device's local time.
-- Rows swipe to delete (this moves the note to Recently Deleted). Screen readers get a "Delete" action on every row instead of the swipe.
-- Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row (the swipe directions are to be designed). Pinning does not change a note's order in the main list, which stays by edit time (**Planned**).
+- Rows swipe left to reveal **Pin** (or **Unpin**) and, in red, **Delete** (this moves the note to Recently Deleted at once, with no confirmation and no undo; Recently Deleted is the way back). Screen readers get "Pin"/"Unpin" and "Delete" actions on every row instead of the swipe. Rows do not swipe while another trash action is running (**Built**).
+- Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row. Pinning does not change a note's order in the main list, which stays by edit time (**Built**).
 
 ### Opening a saved note
 
@@ -108,10 +108,10 @@ Status: **Built** under the older concept (a saved item opens on the editable pa
 
 ### Deleting notes
 
-Status: **Planned**. The app today deletes permanently with no trash.
+Status: **Built** (7b-3): Delete, Recently Deleted, Restore, Delete forever and Empty. Not yet verified on a device.
 
 - **Delete** (in the "..." menu, or by swiping a row) moves the note to **Recently Deleted**. Its voice notes are kept with it. Nothing is removed from the phone at this point. When deleted from the editor, the app returns to where the note was opened, with no prompt.
-- In Recently Deleted the user can **Restore** a note (it returns to the list with its voice notes) or **Delete forever**.
+- In Recently Deleted the user can **Restore** a note (it returns to the list with its voice notes, in its old position, since restoring does not change its edit time) or **Delete forever**. After a restore the user stays on Recently Deleted: the note leaves the list, a line says `Restored "title".` and screen readers hear "Restored". The note is not opened.
 - **Delete forever** and **Empty Recently Deleted** are the only ways a whole note and its voice notes' audio are permanently removed, apart from one case: when the user leaves a note, voice notes they closed in it (held recordings) are permanently deleted from the phone. Both Delete forever and Empty Recently Deleted ask for confirmation first and say that they can't be undone.
 - **Safety copies.** Delete forever does not remove leftover safety copies named `notes.corrupt-...` (rare; they exist only after a storage damage event). It does remove the deleted note's text from the other backup copies.
 - Emptying an existing note (all text removed and no voice notes) moves it to Recently Deleted (**Planned**). A pinned note moved to Recently Deleted keeps its pin, so Restore brings it back pinned (**Planned**).

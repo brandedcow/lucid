@@ -129,6 +129,12 @@ const fn = {
   resetAllowLeave: jest.fn(),
   setAutoOpenNewNote: jest.fn(),
   setOnlineTranscription: jest.fn(),
+  pinNote: jest.fn(),
+  trashNote: jest.fn(),
+  restoreNote: jest.fn(),
+  requestDeleteForever: jest.fn(),
+  requestEmptyTrash: jest.fn(),
+  clearTrashNotice: jest.fn(),
 };
 const entryRecordingRef = { current: false };
 function setFlow(patch: Record<string, unknown> = {}) {
@@ -156,6 +162,14 @@ function setFlow(patch: Record<string, unknown> = {}) {
     leaveEditor: fn.leaveEditor,
     deleteOpenNote: fn.deleteOpenNote,
     togglePin: fn.togglePin,
+    pinNote: fn.pinNote,
+    trashNote: fn.trashNote,
+    restoreNote: fn.restoreNote,
+    requestDeleteForever: fn.requestDeleteForever,
+    requestEmptyTrash: fn.requestEmptyTrash,
+    clearTrashNotice: fn.clearTrashNotice,
+    trashBusy: false,
+    trashNotice: null,
     allowLeave: false,
     resetAllowLeave: fn.resetAllowLeave,
     settings: {
@@ -415,6 +429,87 @@ describe('EditorRoute', () => {
     setFlow({ session: null });
     await render(<Tree initial={['Notes', 'Editor']} />);
     expect(screen.queryByText(/^page:/)).toBeNull();
+  });
+});
+
+describe('NotesRoute row swipe', () => {
+  const hidden = { includeHiddenElements: true };
+
+  it('Pin and Delete on a row go to the provider wrappers', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getAllByLabelText('Pin note', hidden)[0]);
+    expect(fn.pinNote).toHaveBeenCalledWith('a', true);
+    await fireEvent.press(screen.getAllByLabelText('Delete note', hidden)[1]);
+    expect(fn.trashNote).toHaveBeenCalledWith('b');
+  });
+
+  it('rows are inert while a trash action is busy', async () => {
+    setFlow({ trashBusy: true });
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getAllByLabelText('Delete note', hidden)[0]);
+    await fireEvent.press(screen.getAllByLabelText('Pin note', hidden)[0]);
+    expect(fn.trashNote).not.toHaveBeenCalled();
+    expect(fn.pinNote).not.toHaveBeenCalled();
+  });
+});
+
+describe('RecentlyDeletedRoute', () => {
+  const trashedNotes = [
+    { ...note('t1', 'Old thought'), deletedAt: '2026-10-17T09:00:00.000Z' },
+    { ...note('t2', 'Older thought'), deletedAt: '2026-10-16T09:00:00.000Z' },
+  ];
+  const withTrash = (patch: Record<string, unknown> = {}) =>
+    setFlow({
+      notes: {
+        loaded: true,
+        visible: [],
+        tags: [],
+        trashed: trashedNotes,
+        indexStatus: 'ok',
+      },
+      ...patch,
+    });
+
+  it('lists the trashed notes and hands the actions to the provider', async () => {
+    withTrash({ trashNotice: 'Restored "Earlier".' });
+    await render(<Tree initial={['Notes', 'RecentlyDeleted']} />);
+    expect(screen.getByText('Restored "Earlier".')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Restore Old thought'));
+    expect(fn.restoreNote).toHaveBeenCalledWith('t1');
+    await fireEvent.press(screen.getByLabelText('Delete Older thought forever'));
+    expect(fn.requestDeleteForever).toHaveBeenCalledWith('t2');
+    await fireEvent.press(screen.getByLabelText('Empty Recently Deleted'));
+    expect(fn.requestEmptyTrash).toHaveBeenCalledTimes(1);
+  });
+
+  it('every action is off while busy', async () => {
+    withTrash({ trashBusy: true });
+    await render(<Tree initial={['Notes', 'RecentlyDeleted']} />);
+    await fireEvent.press(screen.getByLabelText('Restore Old thought'));
+    await fireEvent.press(screen.getByLabelText('Empty Recently Deleted'));
+    expect(fn.restoreNote).not.toHaveBeenCalled();
+    expect(fn.requestEmptyTrash).not.toHaveBeenCalled();
+  });
+
+  it('shows nothing while loading and the empty text when there is nothing', async () => {
+    setFlow({
+      notes: { loaded: false, visible: [], tags: [], trashed: [], indexStatus: 'ok' },
+    });
+    await render(<Tree initial={['Notes', 'RecentlyDeleted']} />);
+    expect(screen.queryByText('Deleted notes will appear here.')).toBeNull();
+    await update({
+      notes: { loaded: true, visible: [], tags: [], trashed: [], indexStatus: 'ok' },
+    });
+    expect(screen.getByText('Deleted notes will appear here.')).toBeTruthy();
+  });
+
+  it('clears the notice when the screen loses focus or goes away', async () => {
+    withTrash();
+    await render(<Tree initial={['Notes', 'RecentlyDeleted']} />);
+    fn.clearTrashNotice.mockClear();
+    await fireEvent.press(screen.getByLabelText('Back to notes'));
+    expect(names()).toEqual(['Notes']);
+    expect(fn.clearTrashNotice).toHaveBeenCalled();
   });
 });
 
