@@ -234,3 +234,10 @@ The add-entry page and Dream log are built and covered by tests, but **mostly no
 5. Device-verify custom journals (the list under Gaps); revisit Expo Router now that journals are built (the `App.tsx` switch stays until then; `backTarget` maps onto its leave guards).
 6. AI suggestions (for example "Also tagged") only later; AI features are out of scope for v1.
 7. Apply small copy tweaks when the user sends them from their own testing; the permission wording stays as is.
+
+## 7c resume
+
+- Resume on a new day is wired in `src/app/AppFlowProvider.tsx`. `useToday` raises `resumeNewDayToken` when the app returns on a different day; one effect consumes each new token (always, so a blocked resume is never retried later that day) and, if `shouldResumeNewDay` (`src/utils/noteResume.ts`) allows it, opens the launch note and pushes `Editor` over the current screen. Leaving returns to that screen. An empty resumed note marks the day done through the existing `finishLeave`.
+- The cold start and the resume share one `openLaunchNote(navigate)` (new empty note, launch flag, reset leave/pin/lock state). No new timers; the launch cap is unchanged and a resume never runs before the launch is decided.
+- Tests: `src/app/AppFlowProvider.resume.test.tsx` (replaces `useToday` with a controllable stand-in; the hook has its own tests).
+- Not verified on a device: backgrounding across midnight on iOS and Android, resuming from Settings, Recently Deleted and (after chunk 7c-3) Search. A resume while a leave or delete is running is covered by the predicate's table test only, not end to end.
