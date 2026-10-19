@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import { StoredRecording } from '../types/dream';
+import { StoredRecording } from '../types/recording';
 import { isValidWaveform, sanitizeWaveform } from '../utils/waveform';
 
 // Paths.document can change between app updates on iOS, so resolve it on every call

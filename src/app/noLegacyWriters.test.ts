@@ -1,7 +1,8 @@
 // Typed by hand, like the other source-audit tests: the project has no Node type definitions.
 const fs = jest.requireActual('fs') as {
   existsSync(path: string): boolean;
-  statSync(path: string): { isFile(): boolean };
+  readdirSync(path: string): string[];
+  statSync(path: string): { isFile(): boolean; isDirectory(): boolean };
   readFileSync(path: string, encoding: 'utf8'): string;
 };
 const path = jest.requireActual('path') as {
@@ -17,7 +18,7 @@ const path = jest.requireActual('path') as {
 const ROOT = process.cwd();
 const EXTENSIONS = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
 const IMPORT =
-  /(?:import|export)\s+(?:[^'"]*?\sfrom\s+)?['"](\.{1,2}\/[^'"]*)['"]|require\(\s*['"](\.{1,2}\/[^'"]*)['"]\s*\)/g;
+  /(?:import|export)\s+(?:[^'"]*?\sfrom\s+)?['"](\.{1,2}\/[^'"]*)['"]|(?:require|import)\(\s*['"](\.{1,2}\/[^'"]*)['"]\s*\)/g;
 
 function resolve(from: string, spec: string): string | null {
   const base = path.resolve(path.dirname(from), spec);
@@ -37,12 +38,22 @@ function closure(entry: string): Map<string, string> {
     const source = fs.readFileSync(file, 'utf8');
     seen.set(file, source);
     for (const match of source.matchAll(IMPORT)) {
-      const target = resolve(file, match[1] ?? match[2]);
+      const target = resolve(file, match[1] ?? match[2] ?? match[3]);
       // Only source files are followed; assets (images, json) are leaves.
       if (target && /\.tsx?$/.test(target)) queue.push(target);
     }
   }
   return seen;
+}
+
+/** Every non-test source file the app can ever load: App.tsx, index.ts and src/**, minus tests. */
+function sourceFiles(dir: string, out: string[] = []): string[] {
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (fs.statSync(full).isDirectory()) sourceFiles(full, out);
+    else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(full);
+  }
+  return out;
 }
 
 const rel = (file: string) => path.relative(ROOT, file).split(path.sep).join('/');
@@ -73,5 +84,49 @@ describe('nothing reachable from App.tsx writes dreams.json', () => {
       .filter(([, source]) => source.includes('dreams.json'))
       .map(([file]) => rel(file));
     expect(mentions).toEqual(['src/services/legacyImport.ts']);
+  });
+});
+
+describe('no source file anywhere in the repo can write the legacy stores', () => {
+  const all = [
+    path.join(ROOT, 'App.tsx'),
+    path.join(ROOT, 'index.ts'),
+    ...sourceFiles(path.join(ROOT, 'src')),
+  ].filter((file) => fs.existsSync(file));
+  const sources = all.map((file): [string, string] => [rel(file), fs.readFileSync(file, 'utf8')]);
+
+  it('scans a real set of files', () => {
+    const names = sources.map(([name]) => name);
+    expect(names).toContain('App.tsx');
+    expect(names).toContain('src/services/legacyImport.ts');
+    expect(names).toContain('src/services/notesStorage.ts');
+  });
+
+  it.each(['dreams.json', 'dreams.json.bak', 'dreams.corrupt', 'journals.json'])(
+    'mentions %s only in the read-only importer',
+    (legacyName) => {
+      const mentions = sources
+        .filter(([, source]) => source.includes(legacyName))
+        .map(([name]) => name);
+      // dreams.json.bak and dreams.corrupt are read nowhere; the importer is the sole mention.
+      expect(mentions.filter((name) => name !== 'src/services/legacyImport.ts')).toEqual([]);
+    },
+  );
+
+  it.each(['dreamStorage', 'journalStorage', 'useDreamLibrary', 'useEntrySession', 'useJournals'])(
+    'no source file refers to the removed module %s',
+    (legacyModule) => {
+      const mentions = sources
+        .filter(([, source]) => source.includes(legacyModule))
+        .map(([name]) => name);
+      expect(mentions).toEqual([]);
+    },
+  );
+
+  it('the import matcher also sees dynamic import() calls', () => {
+    const found = [
+      ...`await import('./x'); require('./y'); import z from './z';`.matchAll(IMPORT),
+    ].map((m) => m[1] ?? m[2] ?? m[3]);
+    expect(found).toEqual(['./x', './y', './z']);
   });
 });
