@@ -41,14 +41,14 @@ describe('App (notes shell)', () => {
   });
 
   it('with the setting off it opens to the note list', async () => {
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     await render(<App />);
     await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
     expect(screen.queryByTestId('note-page')).toBeNull();
   });
 
   it('the search icon opens Search, and back returns to the list', async () => {
-    await writeSettings({ autoOpenDreamCapture: false });
+    await writeSettings({ autoOpenNewNote: false });
     await render(<App />);
     await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: 'Search notes' }));

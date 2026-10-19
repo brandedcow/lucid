@@ -3,7 +3,7 @@ import { readSettings, writeSettings } from '../services/settingsStorage';
 import { useSettings } from './useSettings';
 
 jest.mock('../services/settingsStorage', () => ({
-  DEFAULT_SETTINGS: { autoOpenDreamCapture: true, onlineTranscription: false },
+  DEFAULT_SETTINGS: { autoOpenNewNote: true, onlineTranscription: false },
   readSettings: jest.fn(),
   writeSettings: jest.fn(),
 }));
@@ -20,73 +20,71 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
-  mockRead
-    .mockReset()
-    .mockResolvedValue({ autoOpenDreamCapture: true, onlineTranscription: false });
+  mockRead.mockReset().mockResolvedValue({ autoOpenNewNote: true, onlineTranscription: false });
   mockWrite.mockReset().mockResolvedValue(undefined);
 });
 
 it('starts unloaded with the default, then loads the stored value', async () => {
-  const read = deferred<{ autoOpenDreamCapture: boolean; onlineTranscription: boolean }>();
+  const read = deferred<{ autoOpenNewNote: boolean; onlineTranscription: boolean }>();
   mockRead.mockReturnValue(read.promise);
   const { result } = await renderHook(() => useSettings());
-  expect(result.current).toMatchObject({ loaded: false, autoOpenDreamCapture: true });
-  await act(async () => read.resolve({ autoOpenDreamCapture: false, onlineTranscription: false }));
+  expect(result.current).toMatchObject({ loaded: false, autoOpenNewNote: true });
+  await act(async () => read.resolve({ autoOpenNewNote: false, onlineTranscription: false }));
   expect(result.current.loaded).toBe(true);
-  expect(result.current.autoOpenDreamCapture).toBe(false);
+  expect(result.current.autoOpenNewNote).toBe(false);
 });
 
 it('is loaded with the default when the read fails', async () => {
   mockRead.mockRejectedValue(new Error('boom'));
   const { result } = await renderHook(() => useSettings());
   await waitFor(() => expect(result.current.loaded).toBe(true));
-  expect(result.current.autoOpenDreamCapture).toBe(true);
+  expect(result.current.autoOpenNewNote).toBe(true);
 });
 
 it('updates state at once and writes in the background', async () => {
   const { result } = await renderHook(() => useSettings());
   await waitFor(() => expect(result.current.loaded).toBe(true));
-  await act(async () => result.current.setAutoOpenDreamCapture(false));
-  expect(result.current.autoOpenDreamCapture).toBe(false);
-  expect(mockWrite).toHaveBeenCalledWith({ autoOpenDreamCapture: false });
+  await act(async () => result.current.setAutoOpenNewNote(false));
+  expect(result.current.autoOpenNewNote).toBe(false);
+  expect(mockWrite).toHaveBeenCalledWith({ autoOpenNewNote: false });
 });
 
 it('keeps the in-memory value when the write rejects', async () => {
   mockWrite.mockRejectedValue(new Error('disk full'));
   const { result } = await renderHook(() => useSettings());
   await waitFor(() => expect(result.current.loaded).toBe(true));
-  await act(async () => result.current.setAutoOpenDreamCapture(false));
-  expect(result.current.autoOpenDreamCapture).toBe(false);
+  await act(async () => result.current.setAutoOpenNewNote(false));
+  expect(result.current.autoOpenNewNote).toBe(false);
 });
 
 it('a read that finishes after a setter call does not overwrite the newer value', async () => {
-  const read = deferred<{ autoOpenDreamCapture: boolean; onlineTranscription: boolean }>();
+  const read = deferred<{ autoOpenNewNote: boolean; onlineTranscription: boolean }>();
   mockRead.mockReturnValue(read.promise);
   const { result } = await renderHook(() => useSettings());
-  await act(async () => result.current.setAutoOpenDreamCapture(false));
-  await act(async () => read.resolve({ autoOpenDreamCapture: true, onlineTranscription: false }));
+  await act(async () => result.current.setAutoOpenNewNote(false));
+  await act(async () => read.resolve({ autoOpenNewNote: true, onlineTranscription: false }));
   expect(result.current.loaded).toBe(true);
-  expect(result.current.autoOpenDreamCapture).toBe(false);
+  expect(result.current.autoOpenNewNote).toBe(false);
 });
 
 it('does not update after unmount', async () => {
-  const read = deferred<{ autoOpenDreamCapture: boolean; onlineTranscription: boolean }>();
+  const read = deferred<{ autoOpenNewNote: boolean; onlineTranscription: boolean }>();
   mockRead.mockReturnValue(read.promise);
   const error = jest.spyOn(console, 'error').mockImplementation(() => {});
   const { unmount } = await renderHook(() => useSettings());
   await unmount();
-  await act(async () => read.resolve({ autoOpenDreamCapture: false, onlineTranscription: false }));
+  await act(async () => read.resolve({ autoOpenNewNote: false, onlineTranscription: false }));
   expect(error).not.toHaveBeenCalled();
   error.mockRestore();
 });
 
 describe('onlineTranscription', () => {
   it('is false until loaded, then the stored value', async () => {
-    const read = deferred<{ autoOpenDreamCapture: boolean; onlineTranscription: boolean }>();
+    const read = deferred<{ autoOpenNewNote: boolean; onlineTranscription: boolean }>();
     mockRead.mockReturnValue(read.promise);
     const { result } = await renderHook(() => useSettings());
     expect(result.current.onlineTranscription).toBe(false);
-    await act(async () => read.resolve({ autoOpenDreamCapture: true, onlineTranscription: true }));
+    await act(async () => read.resolve({ autoOpenNewNote: true, onlineTranscription: true }));
     expect(result.current.onlineTranscription).toBe(true);
   });
 
@@ -107,25 +105,23 @@ describe('onlineTranscription', () => {
   });
 
   it('a late read does not overwrite a newer choice, and the other key is unaffected', async () => {
-    const read = deferred<{ autoOpenDreamCapture: boolean; onlineTranscription: boolean }>();
+    const read = deferred<{ autoOpenNewNote: boolean; onlineTranscription: boolean }>();
     mockRead.mockReturnValue(read.promise);
     const { result } = await renderHook(() => useSettings());
     await act(async () => result.current.setOnlineTranscription(true));
-    await act(async () =>
-      read.resolve({ autoOpenDreamCapture: false, onlineTranscription: false }),
-    );
+    await act(async () => read.resolve({ autoOpenNewNote: false, onlineTranscription: false }));
     expect(result.current.onlineTranscription).toBe(true);
-    expect(result.current.autoOpenDreamCapture).toBe(false);
+    expect(result.current.autoOpenNewNote).toBe(false);
   });
 });
 
 describe('autoOpenNewNote aliases', () => {
   it('mirror the stored value and the old name', async () => {
-    mockRead.mockResolvedValue({ autoOpenDreamCapture: false, onlineTranscription: false });
+    mockRead.mockResolvedValue({ autoOpenNewNote: false, onlineTranscription: false });
     const { result } = await renderHook(() => useSettings());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.autoOpenNewNote).toBe(false);
-    expect(result.current.autoOpenNewNote).toBe(result.current.autoOpenDreamCapture);
+    expect(result.current.autoOpenNewNote).toBe(result.current.autoOpenNewNote);
   });
 
   it('setAutoOpenNewNote updates both names and writes the on-disk key', async () => {
@@ -135,15 +131,15 @@ describe('autoOpenNewNote aliases', () => {
       result.current.setAutoOpenNewNote(false);
     });
     expect(result.current.autoOpenNewNote).toBe(false);
-    expect(result.current.autoOpenDreamCapture).toBe(false);
-    expect(mockWrite).toHaveBeenCalledWith({ autoOpenDreamCapture: false });
+    expect(result.current.autoOpenNewNote).toBe(false);
+    expect(mockWrite).toHaveBeenCalledWith({ autoOpenNewNote: false });
   });
 
   it('the old setter updates the new name too', async () => {
     const { result } = await renderHook(() => useSettings());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     await act(async () => {
-      result.current.setAutoOpenDreamCapture(false);
+      result.current.setAutoOpenNewNote(false);
     });
     expect(result.current.autoOpenNewNote).toBe(false);
   });

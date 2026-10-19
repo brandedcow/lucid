@@ -1,7 +1,7 @@
 /**
- * One voice recording attached to an entry on the page. `id` is a stable local id (it survives a
+ * One voice recording attached to the note being edited. `id` is a stable local id (it survives a
  * save, so undo steps can name the recording). `persisted` false is a new recording still in the
- * cache; true is a stored one (`fileName` is its name inside the dreams directory). `removed` is the
+ * cache; true is a stored one (`fileName` is its name inside the notes directory). `removed` is the
  * session's mark that the user closed the card: nothing is deleted or forgotten when it is set, so
  * it can be undone.
  */

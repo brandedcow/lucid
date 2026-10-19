@@ -134,7 +134,6 @@ export function useRecordingTranscription({
     // A newer check (the setting flipped meanwhile) wins.
     if (!mounted.current || seq !== checkSeq.current) return;
     publishRoute(decision.mode === 'none' ? null : decision.mode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- publishRoute only writes refs and stable setters
   }, [decide]);
 
   // The setting flipped: turning it off removes the online route at once, then the capability is
@@ -145,7 +144,6 @@ export function useRecordingTranscription({
     lastAllowed.current = onlineAllowed;
     if (!onlineAllowed && routeRef.current === 'online') publishRoute(null);
     void checkSupport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- publishRoute only writes refs and stable setters
   }, [onlineAllowed, checkSupport]);
 
   // The check at mount (no permission prompt), and again on returning to the foreground while it

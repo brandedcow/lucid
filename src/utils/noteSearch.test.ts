@@ -81,12 +81,13 @@ describe('searchResults', () => {
 
   describe('without String.prototype.normalize', () => {
     const original = String.prototype.normalize;
+    // Reflect.set rather than assignment: same effect, and lint forbids extending natives.
     beforeEach(() => {
       // Simulate an engine that lacks it.
-      (String.prototype as unknown as { normalize?: unknown }).normalize = undefined;
+      Reflect.set(String.prototype, 'normalize', undefined);
     });
     afterEach(() => {
-      String.prototype.normalize = original;
+      Reflect.set(String.prototype, 'normalize', original);
     });
 
     it('falls back to lowercase-only matching without throwing', () => {

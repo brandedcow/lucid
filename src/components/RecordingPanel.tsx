@@ -1,6 +1,6 @@
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
 import { Alert, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
-import { FinishedRecording, useDreamRecorder } from '../hooks/useDreamRecorder';
+import { FinishedRecording, useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { discardRecording } from '../services/recordingFiles';
 import { colors, spacing } from '../theme';
 import { formatDuration } from '../utils/format';
@@ -13,7 +13,7 @@ export const LEVEL_SAMPLE_MS = 100;
 export type PanelRecording = FinishedRecording & { waveform?: number[] };
 
 type Props = {
-  /** The microphone-denied message for the journal (journalCopy(...).microphoneMessage). */
+  /** The microphone-denied message shown when microphone access is denied. */
   microphoneMessage: string;
   /** Recording stopped: the cache file and its waveform. The parent unmounts the panel. */
   onRecorded: (recording: PanelRecording) => void;
@@ -48,7 +48,7 @@ export function RecordingPanel({
   onDiscarded,
   leaveRef,
 }: Props) {
-  const recorder = useDreamRecorder();
+  const recorder = useVoiceRecorder();
   const [phase, setPhase] = useState<Phase>('idle');
   const phaseRef = useRef<Phase | 'done'>('idle');
   const setPhaseBoth = (next: Phase) => {

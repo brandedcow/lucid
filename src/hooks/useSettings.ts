@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, readSettings, writeSettings } from '../services/setti
  */
 export function useSettings() {
   const [loaded, setLoaded] = useState(false);
-  const [autoOpenDreamCapture, setAuto] = useState(DEFAULT_SETTINGS.autoOpenDreamCapture);
+  const [autoOpenNewNote, setAuto] = useState(DEFAULT_SETTINGS.autoOpenNewNote);
   const [onlineTranscription, setOnline] = useState(DEFAULT_SETTINGS.onlineTranscription);
   const changed = useRef(false);
   const changedOnline = useRef(false);
@@ -20,7 +20,7 @@ export function useSettings() {
     readSettings()
       .then((settings) => {
         if (!mounted.current) return;
-        if (!changed.current) setAuto(settings.autoOpenDreamCapture);
+        if (!changed.current) setAuto(settings.autoOpenNewNote);
         if (!changedOnline.current) setOnline(settings.onlineTranscription);
         setLoaded(true);
       })
@@ -32,10 +32,10 @@ export function useSettings() {
     };
   }, []);
 
-  const setAutoOpenDreamCapture = useCallback((value: boolean) => {
+  const setAutoOpenNewNote = useCallback((value: boolean) => {
     changed.current = true;
     setAuto(value);
-    writeSettings({ autoOpenDreamCapture: value }).catch(() => {});
+    writeSettings({ autoOpenNewNote: value }).catch(() => {});
   }, []);
 
   const setOnlineTranscription = useCallback((value: boolean) => {
@@ -46,11 +46,8 @@ export function useSettings() {
 
   return {
     loaded,
-    autoOpenDreamCapture,
-    setAutoOpenDreamCapture,
-    // New names for the same value and setter; the old names stay until the old app is removed.
-    autoOpenNewNote: autoOpenDreamCapture,
-    setAutoOpenNewNote: setAutoOpenDreamCapture,
+    autoOpenNewNote,
+    setAutoOpenNewNote,
     onlineTranscription,
     setOnlineTranscription,
   };
