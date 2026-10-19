@@ -25,6 +25,7 @@ import { confirmDeleteForever, confirmEmptyTrash } from '../utils/confirmForever
 import { noteHasDeletableAudio } from '../utils/deletedRow';
 import { migrationNotice } from '../utils/migrationNotice';
 import { LAUNCH_CAP_MS, noteLaunchTarget } from '../utils/noteLaunch';
+import { shouldResumeNewDay } from '../utils/noteResume';
 import { noteTitle } from '../utils/noteTitle';
 import { tagsByUse } from '../utils/noteViewLabels';
 import { dayDone, type NoteView } from '../utils/noteViews';
@@ -77,7 +78,7 @@ const codeOf = (error: unknown): string | undefined => {
 function useAppFlowValue() {
   const settings = useSettings();
   const dayMarker = useDayMarker();
-  const { todayKey } = useToday();
+  const { todayKey, resumeNewDayToken } = useToday();
 
   // The view survives opening and closing a note; it is session-only and starts at All Notes.
   const [view, setViewState] = useState<ListView>(ALL);
@@ -129,10 +130,10 @@ function useAppFlowValue() {
   // fact: Editor stops preventing removal in the render where it is true, and only then pops.
   const allowLeaveRef = useRef(false);
   const [allowLeave, setAllowLeave] = useState(false);
-  const resetAllowLeave = () => {
+  const resetAllowLeave = useCallback(() => {
     allowLeaveRef.current = false;
     setAllowLeave(false);
-  };
+  }, []);
 
   // A leave or delete is running (ref: synchronous guard; state: locks the editor).
   const busy = useRef(false);
@@ -150,6 +151,20 @@ function useAppFlowValue() {
   const launchResolved = useRef(false);
   const ready = notes.loaded && migration.settled && dayMarker.loaded && settings.loaded;
   const { openNew } = noteSession;
+  // The one way a launch note opens: the cold start (`navigate` asks the navigator to start on the
+  // editor) and the resume on a new day (`navigate` pushes the editor over the current screen).
+  const openLaunchNote = useCallback(
+    (navigate: () => void) => {
+      openNew();
+      launchNote.current = true;
+      resetAllowLeave();
+      setFailedPin(null);
+      setLocked(false);
+      navigate();
+    },
+    [openNew, resetAllowLeave],
+  );
+  const startOnEditor = useCallback(() => setStartInEditor(true), []);
   useEffect(() => {
     if (launchResolved.current || !ready) return;
     launchResolved.current = true;
@@ -161,9 +176,7 @@ function useAppFlowValue() {
     });
     /* eslint-disable react-hooks/set-state-in-effect */
     if (target === 'newNote') {
-      openNew();
-      launchNote.current = true;
-      setStartInEditor(true);
+      openLaunchNote(startOnEditor);
     }
     setLaunchDecided(true);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -174,20 +187,19 @@ function useAppFlowValue() {
     settings.autoOpenNewNote,
     dayMarker.doneDate,
     todayKey,
-    openNew,
+    openLaunchNote,
+    startOnEditor,
   ]);
   useEffect(() => {
     if (launchDecided) return;
     const timer = setTimeout(() => {
       if (launchResolved.current) return;
       launchResolved.current = true;
-      openNew();
-      launchNote.current = true;
-      setStartInEditor(true);
+      openLaunchNote(startOnEditor);
       setLaunchDecided(true);
     }, LAUNCH_CAP_MS);
     return () => clearTimeout(timer);
-  }, [launchDecided, openNew]);
+  }, [launchDecided, openLaunchNote, startOnEditor]);
 
   const currentRoute = () =>
     navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined;
@@ -493,6 +505,42 @@ function useAppFlowValue() {
       endTrash();
     }
   };
+
+  // Returning to the app on a new day: push a new launch note over whatever screen is showing
+  // (leaving it returns there). The token is consumed on every change, so a blocked resume is never
+  // retried later; `shouldResumeNewDay` holds every guard. No timer: `useToday` raises the token.
+  const consumedToken = useRef(0);
+  const resumeInputs = useRef<Omit<Parameters<typeof shouldResumeNewDay>[0], 'token'>>(null!);
+  const resumeOpen = useRef(openLaunchNote);
+  useEffect(() => {
+    resumeOpen.current = openLaunchNote;
+    resumeInputs.current = {
+      consumedToken: consumedToken.current,
+      launchDecided,
+      loaded: notes.loaded,
+      indexStatus: notes.indexStatus,
+      autoOpen: settings.autoOpenNewNote,
+      done: dayDone(notes.all, dayMarker.doneDate, todayKey),
+      sessionOpen: session !== null,
+      busy: busy.current,
+      trashBusy: trashBusyRef.current || trashBusy,
+      onEditor: currentRoute() === 'Editor',
+      navReady: navigationRef.isReady(),
+    };
+  });
+  useEffect(() => {
+    if (resumeNewDayToken <= consumedToken.current) return;
+    const input = { ...resumeInputs.current, token: resumeNewDayToken };
+    // The synchronous guards are read now, not from the last render.
+    input.consumedToken = consumedToken.current;
+    input.busy = busy.current;
+    input.trashBusy = trashBusyRef.current || input.trashBusy;
+    input.navReady = navigationRef.isReady();
+    input.onEditor = input.navReady && navigationRef.getCurrentRoute()?.name === 'Editor';
+    consumedToken.current = resumeNewDayToken;
+    if (!mounted.current || !shouldResumeNewDay(input)) return;
+    resumeOpen.current(() => navigationRef.navigate('Editor'));
+  }, [resumeNewDayToken, navigationRef]);
 
   const knownTags = useMemo(() => tagsByUse(notes.tags).map((t) => t.tag), [notes.tags]);
 

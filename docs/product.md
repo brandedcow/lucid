@@ -76,13 +76,13 @@ Status: **Built** (the same behavior carries over to notes). Transcription after
 
 ### Launch and first note of the day
 
-Status: **Built** (since the 7a cutover; resume on a new day is **Planned**, chunk 7c). Not yet verified on a device.
+Status: **Built** (the launch note since the 7a cutover; resume on a new day since chunk 7c). Not yet verified on a device.
 
 - When the user opens the app and nothing is done yet today, it opens to a new, empty note. Once a note with content exists today, or the user backs out of the empty new note (see below), the app opens to the note list for the rest of that day. This can be turned off in Settings.
 - The launch note can always be dismissed with one tap: its back arrow (and Android back) while the note is empty counts as done for the day: the day marker is written, the app lands on the note list, and the launch note does not reappear that day. There is no confirmation and no separate button. With something on the note, back just leaves; the note is already saved by autosave, which makes today done.
 - The app remembers only the latest date it was counted done, in a small file on the device (the existing day marker). Nothing leaves the phone.
 - Whether today is done is worked out from the saved notes and that marker. Deleting today's only note (moving it to Recently Deleted) does not reopen the launch note: once today is done it stays done for that day.
-- The launch also applies when the app returns to the foreground on a different day than it left on, nothing is done today, and the setting is on. It never does this while the user is on the editor (or while a note is being saved or deleted), and never when midnight passes while the app is open. It happens at most once per new day.
+- The launch also applies when the app returns to the foreground on a different day than it left on, nothing is done today, and the setting is on. It never does this while the user is on the editor (or while a note is being saved or deleted), and never when midnight passes while the app is open. It happens at most once per new day. The new note opens over whatever screen is showing (the list, Settings, Recently Deleted) and leaving it returns to that screen.
 - The app waits briefly for its stored data before deciding, with a cap of 1000 ms: if the data is not ready by then, it opens a new note so capturing is never delayed.
 - Starting must be fast: the editor opens with the body focused and the voice note one tap away.
 - The screen should be calm and low-glare (dark), suitable for use first thing in the morning.
