@@ -11,13 +11,13 @@ import type { Note } from '../services/notesStorage';
 import { EditorRoute, NotesRoute, NotesSettingsRoute, RecentlyDeletedRoute } from './notesRoutes';
 
 // The routes in isolation, with the flow faked: what each route reads from the provider and what
-// it hands back is exercised directly. The provider itself is tested in NotesFlowProvider.test.tsx.
+// it hands back is exercised directly. The provider itself is tested in AppFlowProvider.test.tsx.
 const mockFlow: { current: Record<string, unknown> } = { current: {} };
 const mockListeners = new Set<(f: (n: number) => number) => void>();
-jest.mock('../app/NotesFlowProvider', () => {
+jest.mock('../app/AppFlowProvider', () => {
   const { useEffect: useEff, useState: useSt } = jest.requireActual('react');
   return {
-    useNotesFlow: () => {
+    useAppFlow: () => {
       const [, set] = useSt(0);
       useEff(() => {
         mockListeners.add(set);
@@ -429,12 +429,12 @@ describe('RecentlyDeletedRoute and NotesSettingsRoute', () => {
     await render(<Tree initial={['Notes', 'Settings']} />);
     expect(screen.getByRole('header', { name: 'Settings' })).toBeTruthy();
     await fireEvent(
-      screen.getByRole('switch', { name: /Open dream capture on launch/ }),
+      screen.getByRole('switch', { name: /Open a new note on launch/ }),
       'valueChange',
       false,
     );
     expect(fn.setAutoOpenNewNote).toHaveBeenCalledWith(false);
-    await fireEvent.press(screen.getByLabelText('Back to Today'));
+    await fireEvent.press(screen.getByLabelText('Back to notes'));
     expect(names()).toEqual(['Notes']);
   });
 });

@@ -8,15 +8,15 @@ const METRICS = {
   insets: { top: 0, left: 0, right: 0, bottom: 34 },
 };
 
-async function setup(autoOpenDreamCapture = true, onlineTranscription = false) {
+async function setup(autoOpenNewNote = true, onlineTranscription = false) {
   const onChange = jest.fn();
   const onChangeOnline = jest.fn();
   const onBack = jest.fn();
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SettingsScreen
-        autoOpenDreamCapture={autoOpenDreamCapture}
-        onChangeAutoOpenDreamCapture={onChange}
+        autoOpenNewNote={autoOpenNewNote}
+        onChangeAutoOpenNewNote={onChange}
         onlineTranscription={onlineTranscription}
         onChangeOnlineTranscription={onChangeOnline}
         onBack={onBack}
@@ -30,33 +30,33 @@ describe('SettingsScreen', () => {
   it('shows the title, label and helper line', async () => {
     await setup();
     expect(screen.getByText('Settings')).toBeTruthy();
-    expect(screen.getByText('Open dream capture on launch')).toBeTruthy();
-    expect(screen.getByText('When off, the app opens to Today.')).toBeTruthy();
+    expect(screen.getByText('Open a new note on launch')).toBeTruthy();
+    expect(screen.getByText('When off, the app opens to the note list.')).toBeTruthy();
   });
 
   it('reflects the prop on the switch', async () => {
     await setup(true);
-    expect(screen.getByRole('switch', { name: 'Open dream capture on launch' }).props.value).toBe(
+    expect(screen.getByRole('switch', { name: 'Open a new note on launch' }).props.value).toBe(
       true,
     );
     await screen.unmount();
     await setup(false);
-    expect(screen.getByRole('switch', { name: 'Open dream capture on launch' }).props.value).toBe(
+    expect(screen.getByRole('switch', { name: 'Open a new note on launch' }).props.value).toBe(
       false,
     );
   });
 
   it('exposes switch role, checked state and label', async () => {
     await setup(true);
-    const sw = screen.getByRole('switch', { name: 'Open dream capture on launch' });
+    const sw = screen.getByRole('switch', { name: 'Open a new note on launch' });
     expect(sw.props.accessibilityState).toEqual({ checked: true });
-    expect(sw.props.accessibilityLabel).toBe('Open dream capture on launch');
+    expect(sw.props.accessibilityLabel).toBe('Open a new note on launch');
   });
 
   it('calls the callback with the new value when toggled', async () => {
     const { onChange } = await setup(true);
     await fireEvent(
-      screen.getByRole('switch', { name: 'Open dream capture on launch' }),
+      screen.getByRole('switch', { name: 'Open a new note on launch' }),
       'valueChange',
       false,
     );
@@ -65,7 +65,7 @@ describe('SettingsScreen', () => {
 
   it('back arrow fires onBack', async () => {
     const { onBack } = await setup();
-    await fireEvent.press(screen.getByRole('button', { name: 'Back to Today' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Back to notes' }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
