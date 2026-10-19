@@ -20,3 +20,15 @@ export type SessionRecording = {
   /** The transcript as stored (set when `persisted`), to tell whether it changed. */
   baseVoiceTranscript?: string;
 };
+
+/** One stored recording of a note: a file name inside the dreams directory, never a path. */
+export type StoredRecording = {
+  fileName: string;
+  durationMs: number;
+  waveform?: number[];
+  /**
+   * On-device transcript of this recording. Additive: absent = never transcribed, '' = transcribed
+   * and nothing was heard.
+   */
+  voiceTranscript?: string;
+};
