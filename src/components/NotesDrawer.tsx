@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -12,8 +12,11 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts, spacing } from '../theme';
-import { viewTitle } from '../utils/noteViewLabels';
+import type { TagSortOrder } from '../services/settingsStorage';
+import { sortTags, viewTitle } from '../utils/noteViewLabels';
 import { NoteView, TagCount } from '../utils/noteViews';
+import { GearIcon, SortIcon, ViewIcon } from './DrawerIcons';
+import { TagSortMenu } from './TagSortMenu';
 
 /**
  * The Notes drawer: a left-side panel that sits behind the page. `NotesRoute` slides the page to
@@ -31,9 +34,13 @@ import { NoteView, TagCount } from '../utils/noteViews';
  * - `onClose()`: Android Back (handled here while open, ahead of the app).
  * - `view`: the current view. The dropdown shows it when it is a smart view; a tag is highlighted.
  * - `onSelectView(view)`: a smart view or a tag was chosen. The parent closes the drawer.
- * - `tags`: every tag with its live-note count, alphabetical (as `tagCounts` returns).
- * - `trashedCount`: notes in Recently Deleted. The row is always there; the count shows when above zero.
- * - `onOpenTrash()`, `onOpenSettings()`: the rows were tapped.
+ * - `tags`: every tag with its live-note count (as `tagCounts` returns). The drawer only orders them
+ *   (`tagSort`); it never recounts.
+ * - `tagSort` (default `alpha`), `onChangeTagSort(order)`: the tag order and the sort menu's choice.
+ * - `trashedCount`: notes in Recently Deleted. The count shows when above zero.
+ * - `onOpenTrash()`: Recently Deleted was chosen, from the last dropdown row (after a separator; it is a
+ *   place, not a view, so it is never selected and never changes the dropdown label) or the footer row.
+ * - `onOpenSettings()`: the gear (footer, bottom left) was tapped. The sort button is at the bottom right.
  * - `unreadable`: the notes could not be read; the tag list is replaced by a message.
  */
 type Props = {
@@ -47,6 +54,8 @@ type Props = {
   trashedCount: number;
   onOpenTrash: () => void;
   onOpenSettings: () => void;
+  tagSort?: TagSortOrder;
+  onChangeTagSort?: (order: TagSortOrder) => void;
   unreadable?: boolean;
 };
 
@@ -58,6 +67,9 @@ const SMART_VIEWS: readonly SmartView[] = [
   { kind: 'untagged' },
   { kind: 'pinned' },
 ];
+
+const ICON_BUTTON = 44;
+const noop = () => {};
 
 /** Moves screen-reader focus to a node; best effort, never throws. */
 export function focusNode(node: unknown) {
@@ -80,15 +92,20 @@ export function NotesDrawer({
   trashedCount,
   onOpenTrash,
   onOpenSettings,
+  tagSort = 'alpha',
+  onChangeTagSort = noop,
   unreadable = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // The dropdown starts collapsed each time the drawer opens.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) setExpanded(false);
+    // The sort menu closes with the drawer.
+    if (!open) setMenuOpen(false);
   }
 
   const dropdownRef = useRef<View>(null);
@@ -105,6 +122,9 @@ export function NotesDrawer({
     return () => sub.remove();
   }, [open, onClose]);
 
+  const sortedTags = useMemo(() => sortTags(tags, tagSort), [tags, tagSort]);
+  const sortDisabled = unreadable || tags.length < 2;
+
   const opacity = progress.interpolate({
     inputRange: [0, 0.6],
     outputRange: [0, 1],
@@ -118,6 +138,7 @@ export function NotesDrawer({
   const smartCurrent = SMART_VIEWS.find((v) => v.kind === view.kind);
   // A tag or Recently Deleted is not one of the dropdown's options; the label falls back to All Notes
   // there (the neutral broadest name), not to the default view, which is Today.
+  const trashLabel = trashedCount > 0 ? `Recently Deleted, ${trashedCount}` : 'Recently Deleted';
   const dropdownLabel = viewTitle(smartCurrent ?? { kind: 'all' });
   return (
     <View
@@ -142,13 +163,16 @@ export function NotesDrawer({
             onPress={() => setExpanded((e) => !e)}
             style={styles.dropdown}
           >
-            <Text style={styles.dropdownText}>{dropdownLabel}</Text>
+            <View style={styles.dropdownLabel}>
+              <ViewIcon kind={smartCurrent?.kind ?? 'all'} color={colors.text} size={26} />
+              <Text style={styles.dropdownText}>{dropdownLabel}</Text>
+            </View>
             <Text style={styles.chevron} importantForAccessibility="no-hide-descendants">
               {expanded ? '⌃' : '⌄'}
             </Text>
           </Pressable>
           {expanded && (
-            <View style={styles.options}>
+            <View testID="notes-drawer-options" style={styles.options}>
               {SMART_VIEWS.map((v) => {
                 const selected = smartCurrent?.kind === v.kind;
                 return (
@@ -160,10 +184,26 @@ export function NotesDrawer({
                     onPress={() => onSelectView(v)}
                     style={[styles.row, selected && styles.selectedRow]}
                   >
-                    <Text style={styles.rowText}>{viewTitle(v)}</Text>
+                    <View style={styles.rowLabel}>
+                      <ViewIcon kind={v.kind} color={colors.text} size={22} />
+                      <Text style={styles.rowText}>{viewTitle(v)}</Text>
+                    </View>
                   </Pressable>
                 );
               })}
+              <View style={styles.separator} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={trashLabel}
+                onPress={onOpenTrash}
+                style={styles.row}
+              >
+                <View style={styles.rowLabel}>
+                  <ViewIcon kind="trash" color={colors.text} size={22} />
+                  <Text style={styles.rowText}>Recently Deleted</Text>
+                </View>
+                {trashedCount > 0 && <Text style={styles.count}>{trashedCount}</Text>}
+              </Pressable>
             </View>
           )}
 
@@ -180,7 +220,7 @@ export function NotesDrawer({
             ) : tags.length === 0 ? (
               <Text style={styles.message}>No tags yet. Write #word in a note to make one.</Text>
             ) : (
-              tags.map(({ tag, count }) => {
+              sortedTags.map(({ tag, count }) => {
                 const selected = view.kind === 'tag' && view.tag === tag;
                 return (
                   <Pressable
@@ -199,27 +239,52 @@ export function NotesDrawer({
             )}
           </ScrollView>
 
-          <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.sm }]}>
+          <View
+            testID="notes-drawer-footer"
+            style={[styles.footer, { paddingBottom: insets.bottom + spacing.sm }]}
+          >
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={
-                trashedCount > 0 ? `Recently Deleted, ${trashedCount}` : 'Recently Deleted'
-              }
+              accessibilityLabel={trashLabel}
               onPress={onOpenTrash}
               style={styles.row}
             >
-              <Text style={styles.rowText}>Recently Deleted</Text>
+              <View style={styles.rowLabel}>
+                <ViewIcon kind="trash" color={colors.text} size={22} />
+                <Text style={styles.rowText}>Recently Deleted</Text>
+              </View>
               {trashedCount > 0 && <Text style={styles.count}>{trashedCount}</Text>}
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-              onPress={onOpenSettings}
-              style={styles.row}
-            >
-              <Text style={styles.rowText}>Settings</Text>
-            </Pressable>
+            <View style={styles.iconRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Settings"
+                onPress={onOpenSettings}
+                style={styles.iconButton}
+              >
+                <GearIcon color={colors.text} size={24} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sort tags"
+                accessibilityState={{ expanded: menuOpen && !sortDisabled, disabled: sortDisabled }}
+                disabled={sortDisabled}
+                onPress={() => setMenuOpen((m) => !m)}
+                style={[styles.iconButton, sortDisabled && styles.dimmed]}
+              >
+                <SortIcon color={colors.text} size={24} />
+              </Pressable>
+            </View>
           </View>
+          <TagSortMenu
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            value={tagSort}
+            onChange={onChangeTagSort}
+            disabled={sortDisabled}
+            bottom={insets.bottom + spacing.sm + ICON_BUTTON + spacing.xs}
+            right={spacing.sm + spacing.md}
+          />
         </SafeAreaView>
       </Animated.View>
     </View>
@@ -238,6 +303,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
   },
+  dropdownLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   dropdownText: { color: colors.text, fontFamily: fonts.serif, fontSize: 30 },
   chevron: { color: colors.muted, fontSize: 24 },
   options: { paddingHorizontal: spacing.sm },
@@ -265,6 +331,25 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   selectedRow: { backgroundColor: colors.surface },
+  rowLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: spacing.xs,
+    marginHorizontal: spacing.md,
+  },
+  iconRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+  },
+  iconButton: {
+    width: ICON_BUTTON,
+    height: ICON_BUTTON,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dimmed: { opacity: 0.4 },
   rowText: { color: colors.text, fontSize: 18 },
   count: { color: colors.muted, fontSize: 16 },
 });

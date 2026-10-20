@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { AccessibilityInfo, Animated, BackHandler, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { NoteView } from '../utils/noteViews';
@@ -268,5 +268,238 @@ describe('NotesDrawer view dropdown', () => {
   it('shows All Notes in the dropdown while a tag is selected', async () => {
     await render(drawer({ view: { kind: 'tag', tag: 'idea' } }));
     expect(screen.getByLabelText('View, All Notes')).toBeOnTheScreen();
+  });
+});
+
+const options = () => within(screen.getByTestId('notes-drawer-options'));
+const footer = () => within(screen.getByTestId('notes-drawer-footer'));
+const TIE_TAGS = [
+  { tag: 'zeta', count: 3 },
+  { tag: 'beta', count: 3 },
+  { tag: 'alpha', count: 1 },
+  { tag: 'omega', count: 7 },
+];
+const tagOrder = () =>
+  screen.getAllByLabelText(/^#/).map((r) => r.props.accessibilityLabel as string);
+
+describe('NotesDrawer Recently Deleted in the dropdown', () => {
+  it('is the sixth row, after a separator, with a count above zero', async () => {
+    await render(drawer({ trashedCount: 4 }));
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    const labels = within(screen.getByTestId('notes-drawer-options'))
+      .getAllByRole('button')
+      .map((b) => b.props.accessibilityLabel);
+    expect(labels).toEqual([
+      'Today',
+      'All Notes',
+      'Todo',
+      'Untagged',
+      'Pinned',
+      'Recently Deleted, 4',
+    ]);
+    expect(options().getByText('4')).toBeOnTheScreen();
+  });
+
+  it('has no count at zero', async () => {
+    await render(drawer());
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    expect(options().getByLabelText('Recently Deleted')).toBeOnTheScreen();
+    expect(options().queryByLabelText(/^Recently Deleted, /)).toBeNull();
+  });
+
+  it('opens trash once, never selects a view, is never selected, keeps the label', async () => {
+    const onOpenTrash = jest.fn();
+    const onSelectView = jest.fn();
+    await render(drawer({ onOpenTrash, onSelectView, view: { kind: 'trash' } }));
+    expect(screen.getByLabelText('View, All Notes')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    const row = options().getByLabelText('Recently Deleted');
+    expect(row.props.accessibilityState?.selected).toBeFalsy();
+    await fireEvent.press(row);
+    expect(onOpenTrash).toHaveBeenCalledTimes(1);
+    expect(onSelectView).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('View, All Notes')).toBeOnTheScreen();
+  });
+
+  it('the footer row still opens trash', async () => {
+    const onOpenTrash = jest.fn();
+    await render(drawer({ onOpenTrash, trashedCount: 2 }));
+    await fireEvent.press(footer().getByLabelText('Recently Deleted, 2'));
+    expect(onOpenTrash).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows both rows with the same label while expanded', async () => {
+    await render(drawer());
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    expect(screen.getAllByLabelText('Recently Deleted')).toHaveLength(2);
+  });
+});
+
+describe('NotesDrawer icons', () => {
+  it('shows an icon on the trigger that follows the view, hidden from screen readers', async () => {
+    const view = await render(drawer({ view: { kind: 'todo' } }));
+    const icon = screen.getByTestId('todo-icon', HIDDEN);
+    expect(icon.props.accessible).toBe(false);
+    expect(icon.props.importantForAccessibility).toBe('no-hide-descendants');
+    await view.rerender(drawer({ view: { kind: 'pinned' } }));
+    expect(screen.getByTestId('pinned-icon', HIDDEN)).toBeOnTheScreen();
+  });
+
+  it('uses the All Notes icon for a tag view and for Recently Deleted', async () => {
+    const view = await render(drawer({ view: { kind: 'tag', tag: 'idea' } }));
+    expect(screen.getByTestId('all-notes-icon', HIDDEN)).toBeOnTheScreen();
+    await view.rerender(drawer({ view: { kind: 'trash' } }));
+    expect(screen.getByTestId('all-notes-icon', HIDDEN)).toBeOnTheScreen();
+  });
+
+  it('puts an icon on every dropdown option and the Recently Deleted rows, none on tags', async () => {
+    await render(drawer({ view: { kind: 'today' } }));
+    await fireEvent.press(screen.getByLabelText('View, Today'));
+    for (const id of ['today', 'all-notes', 'todo', 'untagged', 'pinned', 'trash']) {
+      expect(options().getByTestId(`${id}-icon`, HIDDEN)).toBeOnTheScreen();
+    }
+    expect(footer().getByTestId('trash-icon', HIDDEN)).toBeOnTheScreen();
+    const tagRow = within(screen.getByLabelText('#dream, 12'));
+    expect(tagRow.queryByTestId(/-icon$/, HIDDEN)).toBeNull();
+  });
+});
+
+describe('NotesDrawer footer', () => {
+  it('has a Settings gear button (no Settings text) that opens settings', async () => {
+    const onOpenSettings = jest.fn();
+    await render(drawer({ onOpenSettings }));
+    expect(screen.queryByText('Settings')).toBeNull();
+    const gear = footer().getByRole('button', { name: 'Settings' });
+    expect(within(gear).getByTestId('gear-icon', HIDDEN)).toBeOnTheScreen();
+    const style = StyleSheet.flatten(gear.props.style);
+    expect(style.width).toBe(44);
+    expect(style.height).toBe(44);
+    await fireEvent.press(gear);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('has a Sort tags button, 44pt, with expanded state that flips', async () => {
+    await render(drawer());
+    const sort = screen.getByLabelText('Sort tags');
+    const style = StyleSheet.flatten(sort.props.style);
+    expect(style.width).toBe(44);
+    expect(style.height).toBe(44);
+    expect(within(sort).getByTestId('sort-icon', HIDDEN)).toBeOnTheScreen();
+    expect(sort.props.accessibilityState).toMatchObject({ expanded: false });
+    await fireEvent.press(sort);
+    // The open menu is a modal layer, so the button is hidden from queries behind it.
+    expect(screen.getByLabelText('Sort tags', HIDDEN).props.accessibilityState).toMatchObject({
+      expanded: true,
+    });
+    await fireEvent.press(screen.getByLabelText('Close sort menu'));
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      expanded: false,
+    });
+  });
+
+  it('disables Sort tags with fewer than two tags and when unreadable', async () => {
+    const view = await render(drawer({ tags: [{ tag: 'one', count: 1 }] }));
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(screen.queryByLabelText('Close sort menu')).toBeNull();
+    await view.rerender(drawer({ tags: [] }));
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await view.rerender(drawer({ unreadable: true }));
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await view.rerender(drawer());
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+});
+
+describe('NotesDrawer tag order and sort menu', () => {
+  it('alpha is alphabetical, whatever order the tags arrive in', async () => {
+    await render(drawer({ tags: TIE_TAGS, tagSort: 'alpha' }));
+    expect(tagOrder()).toEqual(['#alpha, 1', '#beta, 3', '#omega, 7', '#zeta, 3']);
+  });
+
+  it('defaults to alphabetical', async () => {
+    await render(drawer({ tags: TIE_TAGS }));
+    expect(tagOrder()[0]).toBe('#alpha, 1');
+  });
+
+  it('count is by count descending, ties alphabetical, with the counts as passed', async () => {
+    await render(drawer({ tags: TIE_TAGS, tagSort: 'count' }));
+    expect(tagOrder()).toEqual(['#omega, 7', '#beta, 3', '#zeta, 3', '#alpha, 1']);
+  });
+
+  it('the menu offers two items, marks the current one, and the backdrop is labelled', async () => {
+    await render(drawer({ tagSort: 'count' }));
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(screen.getByLabelText('Close sort menu')).toBeOnTheScreen();
+    expect(screen.getByText('A to Z')).toBeOnTheScreen();
+    expect(screen.getByText('Most notes')).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('Sort tags by number of notes').props.accessibilityState,
+    ).toMatchObject({ selected: true });
+    expect(
+      screen.getByLabelText('Sort tags alphabetically').props.accessibilityState,
+    ).toMatchObject({ selected: false });
+    expect(screen.getByLabelText('Sort tags by number of notes').props.accessibilityRole).toBe(
+      'menuitem',
+    );
+  });
+
+  it('the menu is the last child of the panel content, inside the panel', async () => {
+    await render(drawer());
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(
+      within(screen.getByTestId('notes-drawer-panel')).getByTestId('tag-sort-menu'),
+    ).toBeOnTheScreen();
+  });
+
+  it('choosing an order calls onChangeTagSort and closes the menu', async () => {
+    const onChangeTagSort = jest.fn();
+    await render(drawer({ onChangeTagSort }));
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    await fireEvent.press(screen.getByLabelText('Sort tags by number of notes'));
+    expect(onChangeTagSort).toHaveBeenCalledTimes(1);
+    expect(onChangeTagSort).toHaveBeenCalledWith('count');
+    expect(screen.queryByLabelText('Close sort menu')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    await fireEvent.press(screen.getByLabelText('Sort tags alphabetically'));
+    expect(onChangeTagSort).toHaveBeenLastCalledWith('alpha');
+  });
+
+  it('Back closes only the menu first, then the drawer', async () => {
+    const onClose = jest.fn();
+    await render(drawer({ onClose }));
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(backHandlers).toHaveLength(2);
+    // RN calls the last registered handler first: the menu's.
+    let handled: boolean | null | undefined;
+    await act(async () => {
+      handled = backHandlers[backHandlers.length - 1]();
+    });
+    expect(handled).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Close sort menu')).toBeNull();
+    expect(backHandlers[0]()).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing the drawer closes the menu, and it is closed on reopen', async () => {
+    const view = await render(drawer());
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(screen.getByLabelText('Close sort menu')).toBeOnTheScreen();
+    await view.rerender(drawer({ open: false }));
+    expect(screen.queryByLabelText('Close sort menu', HIDDEN)).toBeNull();
+    await view.rerender(drawer({ open: true }));
+    expect(screen.queryByLabelText('Close sort menu')).toBeNull();
+    expect(screen.getByLabelText('Sort tags').props.accessibilityState).toMatchObject({
+      expanded: false,
+    });
   });
 });
