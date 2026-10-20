@@ -49,6 +49,8 @@ export function listEmptyLines(kind: ListEmptyKind): { text: string; hint?: stri
 type Props = {
   /** The view title, shown as the page header ("All Notes", "#dreams"). */
   title: string;
+  /** A muted line under the title (the Today view's date). Not shown when absent or empty. */
+  subtitle?: string;
   /** The notes to list, newest edit first as given; null = still loading. */
   notes: Note[] | null;
   now: Date;
@@ -124,6 +126,7 @@ function NoticeLine({ notice }: { notice: MigrationNotice }) {
  */
 export function NoteListScreen({
   title,
+  subtitle,
   notes,
   now,
   indexStatus,
@@ -280,9 +283,16 @@ export function NoteListScreen({
               >
                 <MenuIcon />
               </Pressable>
-              <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-                {title}
-              </Text>
+              <View style={styles.titleColumn}>
+                <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+                  {title}
+                </Text>
+                {!!subtitle && (
+                  <Text style={styles.subtitle} numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                )}
+              </View>
               <View style={styles.right}>{rightSlot}</View>
             </>
           )}
@@ -316,7 +326,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  title: { flex: 1, color: colors.text, fontFamily: fonts.serif, fontSize: 28 },
+  titleColumn: { flex: 1 },
+  title: { color: colors.text, fontFamily: fonts.serif, fontSize: 28 },
+  subtitle: { color: colors.muted, fontSize: 14 },
   right: { minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
   body: { flex: 1 },
   listLayer: { flex: 1 },

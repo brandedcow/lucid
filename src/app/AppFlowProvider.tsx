@@ -563,6 +563,7 @@ function useAppFlowValue() {
     navigationRef,
     view,
     setView,
+    todayKey,
     notes,
     migrationNotice: notice,
     openNote,

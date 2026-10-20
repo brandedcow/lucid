@@ -13,6 +13,20 @@ export function formatToday(now: Date = new Date()): string {
   );
 }
 
+/**
+ * A local day key (YYYY-MM-DD, from `localDateKey`) as "Tuesday, October 20". Built from the key's
+ * own year, month and day at local noon, so no time zone or DST shift can move the day. A
+ * malformed or impossible key gives ''.
+ */
+export function formatDayKey(key: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return '';
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(y, mo - 1, d, 12);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return '';
+  return formatToday(date);
+}
+
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }

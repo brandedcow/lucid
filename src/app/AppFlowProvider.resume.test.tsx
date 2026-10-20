@@ -319,6 +319,15 @@ describe('resume on a new day: guards', () => {
   });
 });
 
+describe('todayKey on the flow', () => {
+  it('equals the local date key of the clock and follows useToday', async () => {
+    await startOnList();
+    expect(flow().todayKey).toBe(today());
+    await bump(TOMORROW);
+    expect(flow().todayKey).toBe(TOMORROW);
+  });
+});
+
 describe('resume on a new day: lifecycle', () => {
   it('adds no timers of its own', async () => {
     jest.useFakeTimers();
