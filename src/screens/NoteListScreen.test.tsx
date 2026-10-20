@@ -60,7 +60,7 @@ describe('NoteListScreen', () => {
 
   it.each([
     [{ kind: 'all' }, 'No notes yet.'],
-    [{ kind: 'today' }, 'Nothing written today.'],
+    [{ kind: 'today' }, 'Nothing written or edited today.'],
     [{ kind: 'todo' }, 'No notes with checkboxes.'],
     [{ kind: 'untagged' }, 'No untagged notes.'],
     [{ kind: 'pinned' }, 'No pinned notes.'],
