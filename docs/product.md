@@ -2,7 +2,7 @@
 
 This document describes what the app is and the decisions made so far. Read it before working on features, UI, or copy. If something you're asked to build conflicts with this doc, raise it instead of guessing.
 
-**Status of this document (2026-10-18).** The concept below (notes organized by tags) was decided on 2026-10-18 and is being built on the branch `feat/notes-model`. The code still implements the older concept (a separate title field, containers for writing and an explicit save step; see Retired terms) until the later chunks land. Each section carries a status line: **Built** means the app does it today under the older concept and the behavior carries over; **Planned** means decided but not built yet; **Open** means undecided (ask before assuming).
+**Status of this document (2026-10-18).** The concept below (notes organized by tags) was decided on 2026-10-18 and is built on the branch `feat/notes-model`. It is not merged to `main`, and none of it has been verified on a device yet. The older concept (separate title field, containers for writing, an explicit save step; see Retired terms) is gone from the app; only the one-time import of old data remains. Each section carries a status line: **Built** means the code does it and Jest covers it (not verified on a device unless a line says so); **Planned** means decided but not built yet; **Open** means undecided (ask before assuming).
 
 ## What it is
 
@@ -21,23 +21,23 @@ Capturing something quickly, by voice or by typing, is the core. The first launc
 
 ## Vocabulary
 
-Use these terms consistently in UI copy, code and data models. Status: **Planned** (the code still uses the older terms until the later chunks land).
+Use these terms consistently in UI copy, code and data models. Status: **Built** (the code, the copy and the data model use these terms; the older terms survive only as listed under Retired terms).
 
-| Term             | Meaning                                                                                                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Note             | One piece of writing: markdown text (the body) with optional voice notes. Everything the user writes is a note.                                                    |
-| Title            | The first line of the body. Derived, never stored separately. Shows as "Untitled" when the first line is empty or only a tag.                                      |
-| Tag              | A label written in the body as `#word`. Flat: no nesting (`#a/b` is not a hierarchy). Derived from the body on read, never stored separately.                      |
-| Body             | The markdown text of a note, including its first line.                                                                                                             |
-| Voice note       | An audio recording attached to a note (a note can have several), shown as a card with play, a waveform and a close button; tapping a card opens the expanded view. |
-| Transcript       | The text of a voice note produced by on-device transcription, added to the body. Transcribing after recording is planned, not built.                               |
-| Today view       | A smart view in the drawer: notes created today.                                                                                                                   |
-| Todo view        | A smart view: notes that contain at least one checkbox line.                                                                                                       |
-| Untagged view    | A smart view: notes with no tag.                                                                                                                                   |
-| Pinned           | A smart view of the notes the user pinned; also the act of pinning a note.                                                                                         |
-| Recently Deleted | Where a deleted note goes. The user can restore it or delete it forever.                                                                                           |
-| Drawer           | The left-hand panel: smart-view dropdown, the list of tags, Recently Deleted and Settings.                                                                         |
-| Search           | Search by words and tags across all notes.                                                                                                                         |
+| Term             | Meaning                                                                                                                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Note             | One piece of writing: markdown text (the body) with optional voice notes. Everything the user writes is a note.                                                                                |
+| Title            | The first line of the body. Derived, never stored separately. Shows as "Untitled" when the first line is empty or only a tag.                                                                  |
+| Tag              | A label written in the body as `#word`. Flat: no nesting (`#a/b` is not a hierarchy). Derived from the body on read, never stored separately.                                                  |
+| Body             | The markdown text of a note, including its first line.                                                                                                                                         |
+| Voice note       | An audio recording attached to a note (a note can have several), shown as a card with play, a waveform and a close button; tapping a card opens the expanded view.                             |
+| Transcript       | The text of a voice note produced by on-device transcription, added to the body. A new voice note is transcribed automatically after recording, on the device only (not verified on a device). |
+| Today view       | A smart view in the drawer: notes created today.                                                                                                                                               |
+| Todo view        | A smart view: notes that contain at least one checkbox line.                                                                                                                                   |
+| Untagged view    | A smart view: notes with no tag.                                                                                                                                                               |
+| Pinned           | A smart view of the notes the user pinned; also the act of pinning a note.                                                                                                                     |
+| Recently Deleted | Where a deleted note goes. The user can restore it or delete it forever.                                                                                                                       |
+| Drawer           | The left-hand panel: smart-view dropdown, the list of tags, Recently Deleted and Settings.                                                                                                     |
+| Search           | Search by words and tags across all notes.                                                                                                                                                     |
 
 Tags cover anything the user wants to track over time, such as a recurring theme or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up. There is no separate "tracker" concept; tags fill that role.
 
@@ -45,7 +45,7 @@ Tags cover anything the user wants to track over time, such as a recurring theme
 
 ### Notes and markdown
 
-Status: **Planned** (the editor is the older editor page with a separate title field and a plain body; markdown styling is not built).
+Status: **Built** (the body is one markdown text field with styling for headings, bold, italic and tags; no separate title field). Not verified on a device.
 
 - A note is markdown text. The first line is the title. If the first line is empty or only a tag, the title shows as "Untitled". The title is never stored; it is read from the body each time.
 - Markdown scope in v1: headings, bullets, numbered lists, checkboxes (`- [ ]` and `- [x]`), bold and italic. Nothing else (no links, code, tables or images in v1).
@@ -55,9 +55,9 @@ Status: **Planned** (the editor is the older editor page with a separate title f
 
 ### The editor
 
-Status: **Planned** for autosave and the first-line title. The code at this commit still implements the older explicit-save flow (see Retired terms), and still has a separate title field.
+Status: **Built** for autosave and the first-line title. Not verified on a device.
 
-- One page creates and edits every note. Top bar: a back arrow and, for a saved note, a "..." menu. Under it: the date, optional **voice note cards** and the **body**. At the bottom, above the keyboard when it is open, a **toolbar**: undo, redo, record a voice note, "#" for tags, and (planned) a checkbox toggle for the current line; above it, while a tag is being typed, a row of tag suggestions.
+- One page creates and edits every note. Top bar: a back arrow and, for a saved note, a "..." menu. Under it: the date, optional **voice note cards** and the **body**. At the bottom, above the keyboard when it is open, a **toolbar**: undo, redo, record a voice note, "#" for tags, and a checkbox button for the current line (add, check or uncheck); above it, while a tag is being typed, a row of tag suggestions.
 - **Autosave.** There is no save button and no check. The editor saves on its own: a note is saved shortly after typing stops, and again when the user leaves the editor. An empty note (no text and no voice note) is never kept. Leaving the editor never asks whether to save or discard. Closing a stored voice note does not delete it at once: the recording is held, with undo, until the note is left.
 - **Tag suggestions.** While a tag is being typed, a row above the toolbar suggests tags the user has used before and tags already in this note; tapping one completes the word. The "#" button types a `#` at the cursor.
 - **Undo and redo** cover typing in the body (tags included, since they are body text) and closing a voice note (one history, most recent first). They are off while the recording panel is open.
@@ -66,13 +66,13 @@ Status: **Planned** for autosave and the first-line title. The code at this comm
 
 ### Voice notes
 
-Status: **Built** (the same behavior carries over to notes). Transcription after recording is **Planned**.
+Status: **Built** (recording, cards, the expanded view and closing with undo), and automatic transcription of new recordings on the device. Not verified on a device; whether transcription works well enough on a phone is still open.
 
 - The waveform button in the toolbar opens a recording panel at the bottom of the page. It starts idle (a large timer, a flat waveform and a big red button); tapping the red button starts recording (the time and a live waveform; no pause) and tapping it again stops. Closing the idle panel (its handle, or back) needs no confirmation.
 - When a recording stops, a card appears above the body: play/pause, a waveform that fills in as the voice note plays, its length, and a close button. The toolbar button stays available, so a note can hold several voice notes (no limit); with several, the cards sit in a row the user swipes sideways in the order recorded (the next one peeks in, with page dots) and only one plays at a time.
 - Tapping a card opens the **expanded view**: share, trash, a large waveform to scrub, the time, back and forward 15 seconds, play/pause and a playback-speed button; with several voice notes the user swipes between them. Trash is the same as the card's close.
-- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Status: **Planned**. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. When the note is left, its held recordings are permanently deleted from the phone (**Planned**).
-- Voice notes are kept with the note when it is saved. The app does not yet turn a voice note into text: the body is typed (transcribing after recording is planned and needs a device test; there is no live text while recording). Transcription, when built, runs on the device only.
+- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. When the note is left, its held recordings are permanently deleted from the phone.
+- Voice notes are kept with the note when it is saved. After a recording stops, the app transcribes it on the device and adds the text to the body; there is no live text while recording. Only new recordings are transcribed, never stored ones, and nothing is sent anywhere. How well this works on a phone is not yet tested on a device (see Open decisions).
 
 ### Launch and first note of the day
 
@@ -101,10 +101,10 @@ Status: **Built** for the list, the drawer views and migration lines (since the 
 
 ### Opening a saved note
 
-Status: **Built** under the older concept (a saved item opens on the editable page); the note wording is **Planned**.
+Status: **Built**. Not verified on a device.
 
 - Tapping a note in the list or in Search opens it on the editable editor page, with its body (tags highlighted) and voice notes. There is no separate reading screen. Edits are saved by autosave; back (the arrow or Android back) returns to where the note was opened.
-- A "..." (More options) menu at the top right shows for a saved note only. Its items are **Pin** (planned) and, in red, **Delete** (see Deleting notes).
+- A "..." (More options) menu at the top right shows for a saved note only. Its items are **Pin** (or **Unpin**) and, in red, **Delete** (see Deleting notes).
 
 ### Deleting notes
 
@@ -114,7 +114,7 @@ Status: **Built** (7b-3): Delete, Recently Deleted, Restore, Delete forever and 
 - In Recently Deleted the user can **Restore** a note (it returns to the list with its voice notes, in its old position, since restoring does not change its edit time) or **Delete forever**. After a restore the user stays on Recently Deleted: the note leaves the list, a line says `Restored "title".` and screen readers hear "Restored". The note is not opened.
 - **Delete forever** and **Empty Recently Deleted** are the only ways a whole note and its voice notes' audio are permanently removed, apart from one case: when the user leaves a note, voice notes they closed in it (held recordings) are permanently deleted from the phone. Both Delete forever and Empty Recently Deleted ask for confirmation first and say that they can't be undone.
 - **Safety copies.** Delete forever does not remove leftover safety copies named `notes.corrupt-...` (rare; they exist only after a storage damage event). It does remove the deleted note's text from the other backup copies.
-- Emptying an existing note (all text removed and no voice notes) moves it to Recently Deleted (**Planned**). A pinned note moved to Recently Deleted keeps its pin, so Restore brings it back pinned (**Planned**).
+- Emptying an existing note (all text removed and no voice notes) moves it to Recently Deleted. A pinned note moved to Recently Deleted keeps its pin, so Restore brings it back pinned.
 - There is no automatic purge: nothing in Recently Deleted is ever removed unless the user chooses to. (Decided 2026-10-18; a time-based purge would need a separate decision and a change to the deletion rules.)
 - If a delete fails, an alert says so and the note stays.
 
@@ -145,7 +145,7 @@ Status: **Built**. The routes are Notes (the list, root), Editor, Settings, Rece
 
 ### Where notes are stored
 
-Status: **Planned**.
+Status: **Built**. Not verified on a device.
 
 - Notes are stored on the device only, in a notes index file (`notes.json`) with voice note audio in a `notes/` folder. Each note keeps its text, created and updated times, whether it is pinned, when it was deleted (if it is in Recently Deleted) and its voice notes. The title, preview, tags and the Todo flag are worked out from the text and never stored.
 - The index is written safely (a temporary file, then replaced) and an unreadable index is never overwritten blindly. Storage rules for contributors are in `CLAUDE.md`.
@@ -154,7 +154,7 @@ Status: **Planned**.
 
 Status: **Built**. The import runs once at app start, inside the launch gate (`src/app/AppFlowProvider.tsx`), and is a one-time cutover: anything an older build writes to `dreams.json` afterwards is not imported.
 
-These terms belong to the older concept and are retired. The older code (still present at this commit) saves only through a check button and asks "Save a draft?" or "Discard changes?" when leaving. They remain only in the older code and in the import until the cleanup chunk removes them; do not use them in new copy, code or data models.
+These terms belong to the older concept (journals, dreams and entries, with a check button to save and "Save a draft?" or "Discard changes?" prompts when leaving) and are retired. The older screens and hooks have been removed. The terms survive only in the one-time import (`src/services/legacyImport.ts`), in migrated data, and in on-disk names kept on purpose so no stored data changes (the day marker file `no-dream.json` with its key `noDreamDate`, and the `autoOpenDreamCapture` key in the settings file). Do not use them in new copy, code or data models.
 
 | Retired term                             | Replaced by / fate                                                                                  |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------- |
