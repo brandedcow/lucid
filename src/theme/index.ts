@@ -8,6 +8,8 @@ export const colors = {
   muted: '#7C859B',
   faint: '#5A6379',
   accent: '#E8A464',
+  /** Background behind matched text in Search results (the accent, translucent). */
+  highlight: 'rgba(232, 164, 100, 0.28)',
   accentDark: '#1A1209',
   transcriptMid: '#E8B070',
   /** Chip backgrounds and the accent text used on emotion chips (Dream log and Dream entry). */

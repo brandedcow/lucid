@@ -1,5 +1,6 @@
 import { Note, NoteRecording } from '../services/notesStorage';
 import { MAX_ROW_TAGS, noteRow, tagLineOf } from './noteRow';
+import { parseQuery } from './noteSearch';
 
 const NOW = new Date(2026, 9, 18, 12, 0, 0);
 const TWO_HOURS_AGO = new Date(2026, 9, 18, 10, 0, 0).toISOString();
@@ -124,5 +125,73 @@ describe('noteRow', () => {
   it('lists all tags in the label, not just the first 3', () => {
     const r = noteRow(note({ body: 'T\n#a #b #c #d' }), NOW);
     expect(r.a11yLabel).toContain('Tags: a, b, c, d.');
+  });
+});
+
+describe('noteRow with a search query', () => {
+  const join = (parts?: { text: string }[]) => (parts ?? []).map((p) => p.text).join('');
+  const matched = (parts?: { text: string; match: boolean }[]) =>
+    (parts ?? []).filter((p) => p.match).map((p) => p.text);
+
+  it('is identical to the plain row without a query, or with an empty one', () => {
+    const n = note({ body: 'Flying\nOver #sea' });
+    expect(noteRow(n, NOW, parseQuery(''))).toEqual(noteRow(n, NOW));
+    expect(noteRow(n, NOW)).not.toHaveProperty('titleParts');
+  });
+
+  it('adds highlight parts for title, preview and tag line', () => {
+    const r = noteRow(note({ body: 'Flying Sea\nOver the sea #sea' }), NOW, parseQuery('sea'));
+    expect(matched(r.titleParts)).toEqual(['Sea']);
+    expect(matched(r.previewParts)).toEqual(['sea', 'sea']);
+    expect(matched(r.tagParts)).toEqual(['sea']);
+    expect(join(r.titleParts)).toBe(r.title);
+    expect(join(r.tagParts)).toBe(r.tagLine);
+  });
+
+  it('keeps preview and a11y label plain', () => {
+    const n = note({ body: `Flying\n${'word '.repeat(40)}needle #sea` });
+    const plain = noteRow(n, NOW);
+    const r = noteRow(n, NOW, parseQuery('needle'));
+    expect(r.a11yLabel).toBe(plain.a11yLabel);
+    expect(r.preview).toBe(plain.preview);
+    expect(r.tags).toEqual(plain.tags);
+  });
+
+  it('shows a snippet in previewParts when the match is beyond the preview', () => {
+    const n = note({ body: `Flying\n${'word '.repeat(60)}needle more` });
+    const r = noteRow(n, NOW, parseQuery('needle'));
+    expect(join(r.previewParts)).toContain('needle');
+    expect(join(r.previewParts).startsWith('…')).toBe(true);
+    expect(r.preview).not.toContain('needle');
+  });
+
+  it('moves matched tags to the front of the tag line', () => {
+    const n = note({ body: 'T\n#a #b #c #d #e night' });
+    const r = noteRow(n, NOW, parseQuery('#e'));
+    expect(r.tagLine).toBe('#e #a #b +2');
+    expect(join(r.tagParts)).toBe('#e #a #b +2');
+    expect(matched(r.tagParts)).toEqual(['#e']);
+    expect(r.tags).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('highlights a tag-term prefix only', () => {
+    const r = noteRow(note({ body: 'T\n#seaside' }), NOW, parseQuery('#sea'));
+    expect(r.tagParts).toEqual([
+      { text: '#sea', match: true },
+      { text: 'side', match: false },
+    ]);
+  });
+
+  it('never highlights the +N, and keeps the voice-note preview plain', () => {
+    const r = noteRow(
+      note({ body: 'T\n#a1 #a2 #a3 #a4', recordings: [rec('r.m4a')] }),
+      NOW,
+      parseQuery('1'),
+    );
+    expect(r.tagLine).toBe('#a1 #a2 #a3 +1');
+    expect(matched(r.tagParts)).toEqual(['1']);
+    const v = noteRow(note({ body: 'T', recordings: [rec('r.m4a')] }), NOW, parseQuery('voice'));
+    expect(v.preview).toBe('1 voice note');
+    expect(join(v.previewParts)).toBe('1 voice note');
   });
 });
