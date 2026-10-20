@@ -10,7 +10,6 @@ import {
 } from './useDrawerGesture';
 
 type Handlers = {
-  onBegin: (e: unknown) => void;
   onStart: (e: unknown) => void;
   onUpdate: (e: { translationX: number }) => void;
   onEnd: (e: { translationX: number; velocityX: number }, success: boolean) => void;
@@ -88,9 +87,6 @@ describe('drawerGestureEnabled', () => {
 });
 
 describe('useDrawerGesture', () => {
-  beforeEach(() => {
-    jest.spyOn(console, 'log').mockImplementation(() => {});
-  });
   afterEach(() => jest.restoreAllMocks());
 
   it('closed: starts only in a 40 point strip, active after 4 right, failing left', async () => {
@@ -182,21 +178,7 @@ describe('useDrawerGesture', () => {
 
   it('a touch that never started settles nothing', async () => {
     const { built, onSettle } = await setup();
-    built().handlers.onBegin({});
     built().handlers.onFinalize({}, false);
     expect(onSettle).not.toHaveBeenCalled();
-  });
-
-  it('logs begin, start and finalize in development builds', async () => {
-    const log = console.log as jest.Mock;
-    const { built } = await setup();
-    built().handlers.onBegin({ x: 3, state: 2 });
-    built().handlers.onStart({ x: 3, state: 4 });
-    built().handlers.onFinalize({ x: 40, state: 5 }, true);
-    expect(log.mock.calls.map((c) => c[0])).toEqual([
-      '[drawer-gesture] begin',
-      '[drawer-gesture] start',
-      '[drawer-gesture] finalize',
-    ]);
   });
 });
