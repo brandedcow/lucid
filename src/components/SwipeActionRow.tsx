@@ -53,6 +53,10 @@ export type SwipeRowRenderArgs = {
 };
 
 const ACTION_WIDTH = 96;
+/** Rightward drag (points) that makes an open row close. */
+export const OPEN_DRAG_OFFSET = 10;
+/** Effectively never: a closed row ignores rightward drags. */
+export const CLOSED_DRAG_OFFSET = 10000;
 
 /**
  * Generic swipe-to-reveal row: swiping left reveals one or more action buttons. `children` is the row
@@ -119,6 +123,9 @@ export const SwipeActionRow = memo(function SwipeActionRow({
       ref={swipeRef}
       enabled={!disabled}
       overshootRight={false}
+      // A closed row never claims a rightward drag (that belongs to the drawer's edge swipe); an
+      // open row still closes when dragged right.
+      dragOffsetFromLeftEdge={revealed ? OPEN_DRAG_OFFSET : CLOSED_DRAG_OFFSET}
       containerStyle={containerStyle}
       testID={testID}
       onSwipeableWillOpen={() => {

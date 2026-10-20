@@ -8,6 +8,7 @@ import { NoteListScreen } from './NoteListScreen';
 type Fake = {
   closeCount: number;
   open: () => void;
+  close: () => void;
   props: { onSwipeableWillOpen?: () => void };
 };
 const mockRows: Fake[] = [];
@@ -150,6 +151,26 @@ describe('NoteListScreen swipe', () => {
     expect(mockRows[0].closeCount).toBeGreaterThanOrEqual(1);
     await fireEvent.press(screen.getAllByLabelText('Delete note', hidden)[0]);
     expect(props.onDeleteNote).not.toHaveBeenCalled();
+  });
+
+  it('reports whether any row is open, once per change, also when switching rows', async () => {
+    const onRowOpenChange = jest.fn();
+    const { ui } = tree({ onRowOpenChange });
+    await render(ui);
+    expect(onRowOpenChange).not.toHaveBeenCalled();
+    await act(async () => {
+      mockRows[0].open();
+    });
+    expect(onRowOpenChange.mock.calls).toEqual([[true]]);
+    // Opening the second closes the first; the report never dips to false in between.
+    await act(async () => {
+      mockRows[1].open();
+    });
+    expect(onRowOpenChange.mock.calls).toEqual([[true]]);
+    await act(async () => {
+      mockRows[1].close();
+    });
+    expect(onRowOpenChange.mock.calls).toEqual([[true], [false]]);
   });
 
   it('is inert while swipeDisabled', async () => {

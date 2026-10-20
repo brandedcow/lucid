@@ -5,7 +5,9 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { PanResponder, Platform } from 'react-native';
+import { BackHandler, PanResponder, Platform } from 'react-native';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+import { State } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Note } from '../services/notesStorage';
 import {
@@ -335,6 +337,121 @@ describe('NotesRoute', () => {
     await fireEvent.press(target());
     expect(fn.openNote.mock.calls.length + fn.openNewNote.mock.calls.length).toBe(1);
     await drawerGone();
+  });
+});
+
+describe('NotesRoute drawer behind the page', () => {
+  const HIDDEN = { includeHiddenElements: true };
+  const drawerRoot = () => screen.getByTestId('notes-drawer', HIDDEN);
+  const page = () => screen.getByTestId('notes-page', HIDDEN);
+  const pageContentHidden = () => page().children[0] as never as { props: Record<string, unknown> };
+  const drag = (translationX: number, velocityX = 0) =>
+    act(async () => {
+      fireGestureHandler(getByGestureTestId('drawer-pan'), [
+        { state: State.BEGAN, x: 5 },
+        { state: State.ACTIVE, translationX: translationX / 2 },
+        { state: State.ACTIVE, translationX },
+        { state: State.END, translationX, velocityX },
+      ]);
+    });
+  let backHandlers: (() => boolean | null | undefined)[];
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    backHandlers = [];
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, h) => {
+      backHandlers.push(h as () => boolean);
+      return { remove: () => void backHandlers.splice(backHandlers.indexOf(h as never), 1) };
+    });
+  });
+
+  it('keeps the drawer mounted but hidden and untouchable while closed, with no close layer', async () => {
+    await render(<Tree initial={['Notes']} />);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    expect(drawerRoot().props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(drawerRoot().props.accessibilityElementsHidden).toBe(true);
+    expect(screen.queryByLabelText('Close menu')).toBeNull();
+    expect(pageContentHidden().props.importantForAccessibility).toBe('auto');
+  });
+
+  it('open: the page is hidden from screen readers, the drawer is reachable, and the strip closes it', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+    expect(pageContentHidden().props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(pageContentHidden().props.accessibilityElementsHidden).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    expect(screen.queryByLabelText('Close menu')).toBeNull();
+    expect(pageContentHidden().props.importantForAccessibility).toBe('auto');
+  });
+
+  it('Android Back closes the open drawer and leaves the route in place', async () => {
+    await render(<Tree initial={['Notes']} />);
+    const before = backHandlers.length;
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    expect(backHandlers).toHaveLength(before + 1);
+    // The newest handler runs first, and the drawer's says it handled the press.
+    let handled: boolean | null | undefined;
+    await act(async () => {
+      handled = backHandlers[backHandlers.length - 1]();
+    });
+    expect(handled).toBe(true);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    expect(backHandlers).toHaveLength(before);
+    expect(names()).toEqual(['Notes']);
+  });
+
+  it('a drag from the left edge opens the drawer when it goes far enough', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await drag(60);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    await drag(200);
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+    expect(screen.getByLabelText('Close menu')).toBeTruthy();
+  });
+
+  it('a quick flick opens it even when short', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await drag(30, 900);
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+  });
+
+  it('the edge drag is off while the rows are locked (a delete in flight)', async () => {
+    setFlow({ trashBusy: true });
+    await render(<Tree initial={['Notes']} />);
+    await drag(200, 900);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+  });
+
+  it('dragging left closes an open drawer', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await drag(-200);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+  });
+
+  it('a short drag leftward leaves it open', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await drag(-30);
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+  });
+
+  it('choosing a view closes the drawer', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    await fireEvent.press(screen.getByLabelText('Todo'));
+    expect(fn.setView).toHaveBeenCalledWith({ kind: 'todo' });
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+  });
+
+  it('closes when the route loses focus', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await act(async () => ref.navigate('Search'));
+    await act(async () => ref.goBack());
+    expect(drawerRoot().props.pointerEvents).toBe('none');
   });
 });
 

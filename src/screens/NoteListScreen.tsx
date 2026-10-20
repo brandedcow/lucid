@@ -1,11 +1,11 @@
-import { ReactNode, useCallback, useEffect, useMemo } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { focusNode } from '../components/NotesDrawer';
 import { NewNoteButton, listClearance } from '../components/NewNoteButton';
 import { NoteRow } from '../components/NoteRow';
 import { SwipeNoteRow } from '../components/SwipeNoteRow';
 import { useSingleOpenRow } from '../components/SwipeActionRow';
-import { useDrawerEdgeSwipe } from '../hooks/useDrawerEdgeSwipe';
 import { Note } from '../services/notesStorage';
 import { colors, fonts, spacing } from '../theme';
 import { NoteView } from '../utils/noteViews';
@@ -69,6 +69,8 @@ type Props = {
   onDeleteNote?: (id: string) => void;
   /** True while an action is in flight: rows cannot be swiped. */
   swipeDisabled?: boolean;
+  /** Called with true when a swipe row opens and false when none is open (the drawer swipe waits). */
+  onRowOpenChange?: (open: boolean) => void;
 };
 
 /** Three bars drawn with Views. Hidden from screen readers; the button names it. */
@@ -110,8 +112,8 @@ function NoticeLine({ notice }: { notice: MigrationNotice }) {
 /**
  * The note list page. Props only: it reads no storage. Header (menu button, view title, `rightSlot`),
  * an optional migration line, then the list or one of: nothing (loading), the unreadable message
- * (replaces the list), or the empty text. The "+" button floats at the bottom right. A swipe from
- * the left edge opens the menu.
+ * (replaces the list), or the empty text. The "+" button floats at the bottom right. The drawer
+ * swipe lives in `NotesRoute`, around this page.
  */
 export function NoteListScreen({
   title,
@@ -129,14 +131,52 @@ export function NoteListScreen({
   onPinNote,
   onDeleteNote,
   swipeDisabled = false,
+  onRowOpenChange,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const edge = useDrawerEdgeSwipe(onOpenMenu, drawerOpen);
 
   const swipeEnabled = onPinNote !== undefined && onDeleteNote !== undefined;
   const rowsInert = swipeDisabled || drawerOpen;
   // At most one row is open; scrolling, opening a note or the drawer closes it.
-  const { onRowWillOpen, onRowClosed, closeOpenRow } = useSingleOpenRow();
+  const {
+    onRowWillOpen: singleWillOpen,
+    onRowClosed: singleClosed,
+    closeOpenRow,
+  } = useSingleOpenRow();
+  // Which rows are open, so the route knows when the drawer swipe must wait.
+  const openRows = useRef(new Set<unknown>());
+  const reportedOpen = useRef(false);
+  const report = useCallback(() => {
+    const open = openRows.current.size > 0;
+    if (open !== reportedOpen.current) {
+      reportedOpen.current = open;
+      onRowOpenChange?.(open);
+    }
+  }, [onRowOpenChange]);
+  const onRowWillOpen = useCallback(
+    (row: Parameters<typeof singleWillOpen>[0]) => {
+      // Added first: the row it closes reports itself closed, which must not dip to "none open".
+      openRows.current.add(row);
+      singleWillOpen(row);
+      report();
+    },
+    [singleWillOpen, report],
+  );
+  const onRowClosed = useCallback(
+    (row: Parameters<typeof singleClosed>[0]) => {
+      singleClosed(row);
+      openRows.current.delete(row);
+      report();
+    },
+    [singleClosed, report],
+  );
+  // Screen-reader focus goes back to the menu button when the drawer closes.
+  const menuRef = useRef<View>(null);
+  const wasDrawerOpen = useRef(false);
+  useEffect(() => {
+    if (wasDrawerOpen.current && !drawerOpen) focusNode(menuRef.current);
+    wasDrawerOpen.current = drawerOpen;
+  }, [drawerOpen]);
   useEffect(() => {
     if (drawerOpen) closeOpenRow();
   }, [drawerOpen, closeOpenRow]);
@@ -210,7 +250,7 @@ export function NoteListScreen({
   }
 
   return (
-    <View style={styles.container} testID="note-list-screen" {...edge}>
+    <View style={styles.container} testID="note-list-screen">
       <SafeAreaView
         style={styles.safe}
         edges={['top', 'left', 'right']}
@@ -218,6 +258,7 @@ export function NoteListScreen({
       >
         <View style={styles.header}>
           <Pressable
+            ref={menuRef}
             accessibilityRole="button"
             accessibilityLabel={LIST_COPY.openMenu}
             onPress={onOpenMenu}

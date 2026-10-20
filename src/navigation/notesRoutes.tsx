@@ -1,11 +1,14 @@
 import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useAppFlow } from '../app/AppFlowProvider';
 import { NotesDrawer } from '../components/NotesDrawer';
 import { SearchButton } from '../components/SearchButton';
 import { useBackEdgePrompt } from '../hooks/useBackEdgePrompt';
+import { drawerGestureEnabled, useDrawerGesture } from '../hooks/useDrawerGesture';
+import { drawerWidthFor, useDrawerProgress } from '../hooks/useDrawerProgress';
 import { useNow } from '../hooks/useNow';
 import { NoteEditorWithVoice } from '../screens/NoteEditorWithVoice';
 import { NoteListScreen } from '../screens/NoteListScreen';
@@ -19,11 +22,14 @@ import { viewTitle } from '../utils/noteViewLabels';
 import type { NoteView } from '../utils/noteViews';
 import type { NotesStackParamList } from './NotesNavigator';
 
-// The note list as the root route. It hosts the drawer (its open state is local to the route).
-// Choosing a view or a note, and opening Recently Deleted or Settings, close the drawer first, so
-// it is never left open behind another screen; it also closes when the route loses focus, so a
-// screen pushed by any other means never returns to an open drawer. The drawer takes Android back while it is open; on
-// the list otherwise back exits the app.
+// The note list as the root route. It hosts the drawer, which sits behind the page: opening slides
+// the page to the right (leaving a strip of it visible) and the drawer fades in under it. The open
+// state is local to the route; `progress` (0..1, native driven) is only the visuals. Choosing a view
+// or a note, and opening Recently Deleted or Settings, close the drawer first, so it is never left
+// open behind another screen; it also closes when the route loses focus, so a screen pushed by any
+// other means never returns to an open drawer. It closes by tapping the visible strip of the page,
+// dragging left, or Android back (the drawer handles it while open); on the list otherwise back
+// exits the app. A swipe from the left edge opens it (`useDrawerGesture`).
 export function NotesRoute() {
   const navigation = useNavigation<NativeStackNavigationProp<NotesStackParamList>>();
   const {
@@ -38,64 +44,133 @@ export function NotesRoute() {
     trashBusy,
   } = useAppFlow();
   const now = useNow();
+  const { width: windowWidth } = useWindowDimensions();
+  const width = drawerWidthFor(windowWidth);
+  const { progress, animateTo } = useDrawerProgress();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const [rowOpen, setRowOpen] = useState(false);
+  const setOpen = useCallback(
+    (open: boolean) => {
+      setDrawerOpen(open);
+      animateTo(open ? 1 : 0);
+    },
+    [animateTo],
+  );
+  const closeDrawer = useCallback(() => setOpen(false), [setOpen]);
   useEffect(() => navigation.addListener('blur', closeDrawer), [navigation, closeDrawer]);
 
+  const gesture = useDrawerGesture({
+    progress,
+    width,
+    open: drawerOpen,
+    enabled: drawerGestureEnabled({ open: drawerOpen, rowOpen, swipeDisabled: trashBusy }),
+    onSettle: setOpen,
+  });
+
   const selectView = (next: NoteView) => {
-    setDrawerOpen(false);
+    setOpen(false);
     setView(next);
   };
   // Pushes only from the list itself, so a second tap never stacks a second screen.
   const push = (name: 'Settings' | 'RecentlyDeleted') => {
-    setDrawerOpen(false);
+    setOpen(false);
     if (navigation.isFocused()) navigation.navigate(name);
   };
   const unreadable = notes.indexStatus === 'unreadable';
   const openSearch = () => {
-    setDrawerOpen(false);
+    setOpen(false);
     if (navigation.isFocused()) navigation.navigate('Search');
   };
 
+  const pageX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, width],
+    extrapolate: 'clamp',
+  });
+  const dim = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, DIM_OPACITY],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <View style={{ flex: 1 }}>
-      <NoteListScreen
-        title={viewTitle(view)}
-        notes={notes.loaded ? notes.visible : null}
-        now={now}
-        indexStatus={notes.indexStatus}
-        emptyKind={view}
-        migrationNotice={migrationNotice}
-        onOpenNote={(id) => {
-          setDrawerOpen(false);
-          openNote(id);
-        }}
-        onNewNote={() => {
-          setDrawerOpen(false);
-          openNewNote();
-        }}
-        onOpenMenu={() => setDrawerOpen(true)}
-        rightSlot={unreadable ? undefined : <SearchButton onPress={openSearch} />}
-        newNoteDisabled={unreadable}
-        drawerOpen={drawerOpen}
-        onPinNote={(id, pinned) => void pinNote(id, pinned)}
-        onDeleteNote={(id) => void trashNote(id)}
-        swipeDisabled={trashBusy}
-      />
-      <NotesDrawer
-        open={drawerOpen}
-        onClose={closeDrawer}
-        view={view}
-        onSelectView={selectView}
-        tags={notes.tags}
-        trashedCount={notes.trashed.length}
-        onOpenTrash={() => push('RecentlyDeleted')}
-        onOpenSettings={() => push('Settings')}
-        unreadable={unreadable}
-      />
-    </View>
+    <GestureDetector gesture={gesture}>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <NotesDrawer
+          open={drawerOpen}
+          progress={progress}
+          width={width}
+          onClose={closeDrawer}
+          view={view}
+          onSelectView={selectView}
+          tags={notes.tags}
+          trashedCount={notes.trashed.length}
+          onOpenTrash={() => push('RecentlyDeleted')}
+          onOpenSettings={() => push('Settings')}
+          unreadable={unreadable}
+        />
+        <Animated.View
+          testID="notes-page"
+          style={[styles.page, { transform: [{ translateX: pageX }] }]}
+        >
+          <View
+            style={styles.fill}
+            accessibilityElementsHidden={drawerOpen}
+            importantForAccessibility={drawerOpen ? 'no-hide-descendants' : 'auto'}
+          >
+            <NoteListScreen
+              title={viewTitle(view)}
+              notes={notes.loaded ? notes.visible : null}
+              now={now}
+              indexStatus={notes.indexStatus}
+              emptyKind={view}
+              migrationNotice={migrationNotice}
+              onOpenNote={(id) => {
+                setOpen(false);
+                openNote(id);
+              }}
+              onNewNote={() => {
+                setOpen(false);
+                openNewNote();
+              }}
+              onOpenMenu={() => setOpen(true)}
+              rightSlot={unreadable ? undefined : <SearchButton onPress={openSearch} />}
+              newNoteDisabled={unreadable}
+              drawerOpen={drawerOpen}
+              onPinNote={(id, pinned) => void pinNote(id, pinned)}
+              onDeleteNote={(id) => void trashNote(id)}
+              swipeDisabled={trashBusy}
+              onRowOpenChange={setRowOpen}
+            />
+          </View>
+          <Animated.View pointerEvents="none" style={[styles.fill, styles.dim, { opacity: dim }]} />
+          {drawerOpen && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close menu"
+              onPress={closeDrawer}
+              style={styles.fill}
+            />
+          )}
+        </Animated.View>
+      </View>
+    </GestureDetector>
   );
 }
+
+const DIM_OPACITY = 0.35;
+const styles = StyleSheet.create({
+  // Opaque, so the drawer behind it only shows once the page has moved. No elevation: a large
+  // shadowed view is costly on Android; a hairline edge separates it instead.
+  page: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.border,
+  },
+  fill: { ...StyleSheet.absoluteFill },
+  dim: { backgroundColor: '#000' },
+});
 
 // The open note as a route. Every way out (the arrow, Android back, the iOS edge swipe) goes to the
 // provider's `leaveEditor`, which saves first; the app's own exit raises `allowLeave` and this
