@@ -44,6 +44,20 @@ describe('NoteListScreen', () => {
     expect(screen.getByRole('header', { name: '#dreams' })).toBeTruthy();
   });
 
+  it('shows the subtitle under the title; the title stays the only header', async () => {
+    await setup({ title: 'Today', subtitle: 'Tuesday, October 20' });
+    expect(screen.getByText('Tuesday, October 20')).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    expect(screen.getAllByRole('header')).toHaveLength(1);
+  });
+
+  it('shows no subtitle when it is absent or empty', async () => {
+    await setup({ title: 'Today' });
+    expect(screen.queryByText('Tuesday, October 20')).toBeNull();
+    await setup({ title: 'Today', subtitle: '' });
+    expect(screen.queryByText('Tuesday, October 20')).toBeNull();
+  });
+
   it('lists the notes and opens one by id', async () => {
     const p = await setup();
     expect(screen.getByText('Note 1')).toBeTruthy();

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { useEffect } from 'react';
-import { AccessibilityInfo, Alert, Text } from 'react-native';
+import { AccessibilityInfo, Alert, AppState, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NotesNavigator } from '../navigation/NotesNavigator';
 import { EditorRoute, NotesRoute, RecentlyDeletedRoute } from '../navigation/notesRoutes';
@@ -341,6 +341,26 @@ describe('launch', () => {
       await jest.advanceTimersByTimeAsync(2000);
     });
     expect(screen.queryByText(/^editor-body:/)).toBeNull();
+  });
+});
+
+describe('todayKey on the flow', () => {
+  it('is the local date key and rolls over at local midnight', async () => {
+    jest.useFakeTimers({ now: new Date(2026, 9, 10, 23, 59, 0), doNotFake: ['nextTick'] });
+    const prior = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+    Object.defineProperty(AppState, 'currentState', { configurable: true, get: () => 'active' });
+    autoOpen(false);
+    await render(app());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(50);
+    });
+    expect(flow().todayKey).toBe('2026-10-10');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+    expect(flow().todayKey).toBe('2026-10-11');
+    if (prior) Object.defineProperty(AppState, 'currentState', prior);
+    else delete (AppState as { currentState?: unknown }).currentState;
   });
 });
 
