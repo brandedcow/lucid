@@ -79,7 +79,9 @@ export function useDrawerGesture({ progress, width, open, enabled, onSettle }: O
       .onUpdate((e) => {
         progress.setValue(dragProgress(startOpen, e.translationX, width));
       })
-      .onEnd((e) => {
+      .onEnd((e, success) => {
+        // A cancelled or failed drag is handled by onFinalize alone (it returns to the start).
+        if (!success) return;
         const p = dragProgress(startOpen, e.translationX, width);
         onSettle(settlesOpen(startOpen, p, e.velocityX));
       })

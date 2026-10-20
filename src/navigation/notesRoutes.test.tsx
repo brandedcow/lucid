@@ -18,6 +18,38 @@ import {
   SearchRoute,
 } from './notesRoutes';
 
+// A stand-in Swipeable that records its instances, so a test can open and close a row by hand
+// (the real one needs a device). It renders content and actions like the real one.
+type FakeRow = { open: () => void; close: () => void };
+const mockRows: FakeRow[] = [];
+jest.mock('react-native-gesture-handler/Swipeable', () => {
+  const { Component } = jest.requireActual<typeof import('react')>('react');
+  return {
+    __esModule: true,
+    default: class FakeSwipeable extends Component<{
+      children?: React.ReactNode;
+      renderRightActions?: () => React.ReactNode;
+      onSwipeableWillOpen?: () => void;
+      onSwipeableClose?: () => void;
+    }> {
+      constructor(props: never) {
+        super(props);
+        mockRows.push(this as unknown as FakeRow);
+      }
+      open = () => this.props.onSwipeableWillOpen?.();
+      close = () => this.props.onSwipeableClose?.();
+      render() {
+        return (
+          <>
+            {this.props.children}
+            {this.props.renderRightActions?.()}
+          </>
+        );
+      }
+    },
+  };
+});
+
 // The routes in isolation, with the flow faked: what each route reads from the provider and what
 // it hands back is exercised directly. The provider itself is tested in AppFlowProvider.test.tsx.
 const mockFlow: { current: Record<string, unknown> } = { current: {} };
@@ -421,6 +453,35 @@ describe('NotesRoute drawer behind the page', () => {
     await render(<Tree initial={['Notes']} />);
     await drag(200, 900);
     expect(drawerRoot().props.pointerEvents).toBe('none');
+  });
+
+  it('a row being open keeps the edge drag off; closing the row turns it back on', async () => {
+    mockRows.length = 0;
+    await render(<Tree initial={['Notes']} />);
+    await act(async () => mockRows[0].open());
+    await drag(200, 900);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    await act(async () => mockRows[0].close());
+    await drag(200, 900);
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+  });
+
+  it('an open drawer can be dragged closed even while a row is open', async () => {
+    mockRows.length = 0;
+    await render(<Tree initial={['Notes']} />);
+    await act(async () => mockRows[0].open());
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    expect(drawerRoot().props.pointerEvents).toBe('auto');
+    await drag(-200);
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+  });
+
+  it('the screen-reader escape gesture on the drawer closes it', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await act(async () => drawerRoot().props.onAccessibilityEscape());
+    expect(drawerRoot().props.pointerEvents).toBe('none');
+    expect(screen.queryByLabelText('Close menu')).toBeNull();
   });
 
   it('dragging left closes an open drawer', async () => {

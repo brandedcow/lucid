@@ -132,6 +132,13 @@ describe('NotesDrawer open and close', () => {
     expect(screen.queryByLabelText('Untagged')).toBeNull();
   });
 
+  it('the screen-reader escape gesture calls onClose', async () => {
+    const onClose = jest.fn();
+    await render(drawer({ onClose }));
+    screen.getByTestId('notes-drawer').props.onAccessibilityEscape();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('Android Back closes it, is handled, and is removed on close', async () => {
     const onClose = jest.fn();
     const view = await render(drawer({ onClose }));

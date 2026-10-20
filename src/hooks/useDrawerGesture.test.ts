@@ -13,11 +13,13 @@ type Handlers = {
   onBegin: (e: unknown) => void;
   onStart: (e: unknown) => void;
   onUpdate: (e: { translationX: number }) => void;
-  onEnd: (e: { translationX: number; velocityX: number }) => void;
+  onEnd: (e: { translationX: number; velocityX: number }, success: boolean) => void;
   onFinalize: (e: unknown, success: boolean) => void;
 };
 type Config = {
   enabled?: boolean;
+  failOffsetYStart?: number;
+  failOffsetYEnd?: number;
   hitSlop?: { left?: number; width?: number };
   activeOffsetXStart?: number;
   activeOffsetXEnd?: number;
@@ -108,6 +110,32 @@ describe('useDrawerGesture', () => {
     expect(built().config.activeOffsetXEnd).toBeUndefined();
   });
 
+  it.each([false, true])('fails a vertical drag past 12 points (open: %s)', async (open) => {
+    const { built } = await setup({ open });
+    expect(built().config.failOffsetYStart).toBe(-12);
+    expect(built().config.failOffsetYEnd).toBe(12);
+  });
+
+  it('a drag cancelled after passing 30 percent settles once, back at its start', async () => {
+    const { built, onSettle } = await setup();
+    built().handlers.onStart({});
+    built().handlers.onUpdate({ translationX: 150 });
+    built().handlers.onEnd({ translationX: 150, velocityX: 0 }, false);
+    expect(onSettle).not.toHaveBeenCalled();
+    built().handlers.onFinalize({}, false);
+    expect(onSettle).toHaveBeenCalledTimes(1);
+    expect(onSettle).toHaveBeenCalledWith(false);
+  });
+
+  it('an open drawer whose close drag is cancelled settles once, open again', async () => {
+    const { built, onSettle } = await setup({ open: true });
+    built().handlers.onStart({});
+    built().handlers.onEnd({ translationX: -200, velocityX: 0 }, false);
+    built().handlers.onFinalize({}, false);
+    expect(onSettle).toHaveBeenCalledTimes(1);
+    expect(onSettle).toHaveBeenCalledWith(true);
+  });
+
   it('is disabled when told so', async () => {
     const { built } = await setup({ enabled: false });
     expect(built().config.enabled).toBe(false);
@@ -127,21 +155,21 @@ describe('useDrawerGesture', () => {
 
   it('commits open by distance, by velocity, and cancels a short slow drag', async () => {
     const { built, onSettle } = await setup();
-    built().handlers.onEnd({ translationX: 90, velocityX: 0 });
+    built().handlers.onEnd({ translationX: 90, velocityX: 0 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(true);
-    built().handlers.onEnd({ translationX: 20, velocityX: 800 });
+    built().handlers.onEnd({ translationX: 20, velocityX: 800 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(true);
-    built().handlers.onEnd({ translationX: 20, velocityX: 100 });
+    built().handlers.onEnd({ translationX: 20, velocityX: 100 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(false);
   });
 
   it('an open drawer closes by distance or velocity and otherwise stays open', async () => {
     const { built, onSettle } = await setup({ open: true });
-    built().handlers.onEnd({ translationX: -100, velocityX: 0 });
+    built().handlers.onEnd({ translationX: -100, velocityX: 0 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(false);
-    built().handlers.onEnd({ translationX: -10, velocityX: -900 });
+    built().handlers.onEnd({ translationX: -10, velocityX: -900 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(false);
-    built().handlers.onEnd({ translationX: -30, velocityX: -50 });
+    built().handlers.onEnd({ translationX: -30, velocityX: -50 }, true);
     expect(onSettle).toHaveBeenLastCalledWith(true);
   });
 

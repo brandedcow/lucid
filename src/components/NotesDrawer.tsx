@@ -124,6 +124,8 @@ export function NotesDrawer({
       pointerEvents={open ? 'auto' : 'none'}
       accessibilityElementsHidden={!open}
       importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+      // The VoiceOver escape gesture (two-finger Z) closes it; iOS only.
+      onAccessibilityEscape={onClose}
       style={[styles.drawer, { width }]}
     >
       <Animated.View
