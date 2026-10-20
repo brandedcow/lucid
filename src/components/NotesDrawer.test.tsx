@@ -40,12 +40,11 @@ function drawer(props: Props = {}) {
 
 let backHandlers: (() => boolean | null | undefined)[];
 const removeBack = jest.fn();
-let reduceSpy: jest.SpyInstance;
 
 beforeEach(() => {
   backHandlers = [];
   removeBack.mockClear();
-  reduceSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
     backHandlers.push(handler as () => boolean);
     return { remove: removeBack };
