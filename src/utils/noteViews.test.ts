@@ -35,16 +35,57 @@ describe('selectNotes', () => {
     expect(input).toEqual([a, b, c]);
   });
 
-  it('today: by local creation day, near midnight both sides, invalid createdAt is not today', () => {
-    const late = note('late', { createdAt: at(2026, 10, 18, 23, 59) });
-    const early = note('early', { createdAt: at(2026, 10, 18, 0, 0) });
-    const yesterday = note('y', { createdAt: at(2026, 10, 17, 23, 59) });
-    const tomorrow = note('t', { createdAt: at(2026, 10, 19, 0, 0) });
-    const bad = note('bad', { createdAt: 'nope' });
-    const missing = note('m', { createdAt: undefined as unknown as string });
+  it('today: created today, near midnight both sides, invalid dates are not today', () => {
+    const both = (d: string, extra: Partial<Note> = {}) => ({
+      createdAt: d,
+      updatedAt: d,
+      ...extra,
+    });
+    const late = note('late', both(at(2026, 10, 18, 23, 59)));
+    const early = note('early', both(at(2026, 10, 18, 0, 0)));
+    const yesterday = note('y', both(at(2026, 10, 17, 23, 59)));
+    const tomorrow = note('t', both(at(2026, 10, 19, 0, 0)));
+    const bad = note('bad', both('nope'));
+    const missing = note('m', {
+      createdAt: undefined as unknown as string,
+      updatedAt: undefined as unknown as string,
+    });
     const trashed = note('d', { deletedAt: at(2026, 10, 18) });
     const list = [late, early, yesterday, tomorrow, bad, missing, trashed];
     expect(ids(selectNotes(list, { kind: 'today' }, T))).toEqual([late.id, early.id]);
+  });
+
+  it('today: includes a note created yesterday and updated today', () => {
+    const edited = note('edited', { createdAt: at(2026, 10, 17), updatedAt: at(2026, 10, 18, 8) });
+    expect(ids(selectNotes([edited], { kind: 'today' }, T))).toEqual([edited.id]);
+  });
+
+  it('today: excludes a note created and updated yesterday, or edited yesterday only', () => {
+    const old = note('old', { createdAt: at(2026, 10, 10), updatedAt: at(2026, 10, 17, 23, 59) });
+    expect(selectNotes([old], { kind: 'today' }, T)).toEqual([]);
+  });
+
+  it('today: a missing or invalid updatedAt falls back to createdAt', () => {
+    const missing = note('m', {
+      createdAt: at(2026, 10, 18, 9),
+      updatedAt: undefined as unknown as string,
+    });
+    const invalid = note('i', { createdAt: at(2026, 10, 18, 10), updatedAt: 'nope' });
+    const olderThanCreated = note('o', {
+      createdAt: at(2026, 10, 18, 11),
+      updatedAt: at(2026, 10, 1),
+    });
+    const oldInvalid = note('x', { createdAt: at(2026, 10, 1), updatedAt: 'nope' });
+    expect(
+      ids(selectNotes([missing, invalid, olderThanCreated, oldInvalid], { kind: 'today' }, T)),
+    ).toEqual([missing.id, invalid.id, olderThanCreated.id]);
+  });
+
+  it('today: excludes a trashed note even if updated today; keeps the input order', () => {
+    const trashed = note('t', { createdAt: at(2026, 10, 1), deletedAt: at(2026, 10, 18) });
+    const a = note('a', { updatedAt: at(2026, 10, 18, 15) });
+    const b = note('b', { updatedAt: at(2026, 10, 18, 9) });
+    expect(ids(selectNotes([a, trashed, b], { kind: 'today' }, T))).toEqual([a.id, b.id]);
   });
 
   it('todo: live notes with a checkbox line', () => {
@@ -139,6 +180,12 @@ describe('dayDone', () => {
   });
   it('is false for a marker of another day and no note today', () => {
     expect(dayDone([note('a', { createdAt: at(2026, 10, 17) })], '2026-10-17', T)).toBe(false);
+  });
+  it('counts created, not updated: false for a note created yesterday and updated today', () => {
+    const edited = note('e', { createdAt: at(2026, 10, 17), updatedAt: at(2026, 10, 18, 8) });
+    // The Today view lists it, the launch rule does not treat today as done.
+    expect(ids(selectNotes([edited], { kind: 'today' }, T))).toEqual([edited.id]);
+    expect(dayDone([edited], null, T)).toBe(false);
   });
   it('is false with only imported old notes', () => {
     const old = note('old', { createdAt: at(2025, 1, 1), updatedAt: at(2026, 10, 18) });

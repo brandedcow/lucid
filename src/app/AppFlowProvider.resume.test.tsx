@@ -126,7 +126,7 @@ const markDone = () => __fs.put(DAY_MARKER, JSON.stringify({ noDreamDate: today(
 const route = () => flow().navigationRef.getCurrentRoute()?.name;
 const editorOpen = () => screen.queryByText(/^editor-body:/) !== null;
 const waitForList = () =>
-  waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+  waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
 const waitForEditor = () => waitFor(() => expect(route()).toBe('Editor'));
 const bump = (key?: string) =>
   act(async () => {
@@ -144,6 +144,8 @@ async function startOnList(notes: Note[] = [old('a', 'first note')]) {
   markDone();
   const view = await render(app());
   await waitForList();
+  // Test notes are old, so list them under All Notes (Today is the default view).
+  await act(async () => flow().setView({ kind: 'all' }));
   return view;
 }
 

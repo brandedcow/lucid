@@ -171,8 +171,12 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const onList = () => screen.getByRole('header', { name: 'All Notes' });
+const onList = () => screen.getByRole('header', { name: 'Today' });
 const waitForList = () => waitFor(() => expect(onList()).toBeTruthy());
+const openAllNotes = async () => {
+  await waitForList();
+  await act(async () => flow().setView({ kind: 'all' }));
+};
 const waitForEditor = () => waitFor(() => expect(screen.getByText(/^editor-body:/)).toBeTruthy());
 
 describe('launch', () => {
@@ -181,9 +185,7 @@ describe('launch', () => {
     await waitForEditor();
     expect(screen.getByText('editor-body:')).toBeTruthy();
     expect(screen.getByText('editor-autofocus:true')).toBeTruthy();
-    expect(
-      screen.getByRole('header', { name: 'All Notes', includeHiddenElements: true }),
-    ).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Today', includeHiddenElements: true })).toBeTruthy();
   });
 
   it('does not open a note when one was written today', async () => {
@@ -200,6 +202,24 @@ describe('launch', () => {
     await render(app());
     await waitForList();
     expect(screen.queryByText(/^editor-body:/)).toBeNull();
+  });
+
+  it('starts on Today, which lists a note edited today and not an untouched old one', async () => {
+    const edited = oldNote('a', 'edited this morning', { updatedAt: new Date().toISOString() });
+    putIndex([edited, oldNote('b', 'untouched long ago')]);
+    __fs.put(DAY_MARKER, JSON.stringify({ noDreamDate: today() }));
+    await render(app());
+    await waitForList();
+    expect(flow().view).toEqual({ kind: 'today' });
+    expect(screen.getByText('edited this morning')).toBeTruthy();
+    expect(screen.queryByText('untouched long ago')).toBeNull();
+  });
+
+  it('a note created before today but edited today does not settle the day: the launch note still opens', async () => {
+    putIndex([oldNote('a', 'edited this morning', { updatedAt: new Date().toISOString() })]);
+    await render(app());
+    await waitForEditor();
+    expect(screen.getByText('editor-body:')).toBeTruthy();
   });
 
   it('does not open a note when the day marker says today is done', async () => {
@@ -322,7 +342,7 @@ describe('launch', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(50);
     });
-    expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
     await act(async () => {
       await jest.advanceTimersByTimeAsync(2000);
     });
@@ -433,7 +453,7 @@ describe('leaving the editor', () => {
     autoOpen(false);
     putIndex([oldNote('b', 'to be blanked')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/to be blanked/));
     await waitForEditor();
     await act(async () => flow().sessionActions.setBody(''));
@@ -463,7 +483,7 @@ describe('opening notes', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     expect(screen.getByText('editor-body:first note')).toBeTruthy();
@@ -512,7 +532,7 @@ describe('view', () => {
     expect(flow().view).toEqual({ kind: 'tag', tag: 'alpha' });
   });
 
-  it('a selected tag that no longer exists falls back to All Notes once the editor is closed', async () => {
+  it('a selected tag that no longer exists falls back to Today once the editor is closed', async () => {
     autoOpen(false);
     putIndex([oldNote('a', 'one #alpha')]);
     await render(app());
@@ -524,8 +544,8 @@ describe('view', () => {
     // Still on the tag view while the editor is open.
     expect(flow().view).toEqual({ kind: 'tag', tag: 'alpha' });
     await press('editor-back');
-    await waitFor(() => expect(flow().view).toEqual({ kind: 'all' }));
-    expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy();
+    await waitFor(() => expect(flow().view).toEqual({ kind: 'today' }));
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
   });
 
   it('never takes the Recently Deleted view', async () => {
@@ -533,7 +553,7 @@ describe('view', () => {
     await render(app());
     await waitForList();
     await act(async () => flow().setView({ kind: 'trash' }));
-    expect(flow().view).toEqual({ kind: 'all' });
+    expect(flow().view).toEqual({ kind: 'today' });
   });
 });
 
@@ -542,7 +562,7 @@ describe('banners', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     await softDeleteNote('a');
@@ -594,7 +614,7 @@ describe('menu actions', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     await press('editor-delete');
@@ -611,7 +631,7 @@ describe('menu actions', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     jest.spyOn(storage, 'softDeleteNote').mockRejectedValueOnce(new Error('disk'));
@@ -629,7 +649,7 @@ describe('menu actions', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     await press('editor-pin');
@@ -656,7 +676,7 @@ describe('importing earlier notes', () => {
     autoOpen(false);
     __fs.put(SOURCE, JSON.stringify([dream({ transcript: 'Flying over the sea' })]));
     const first = await render(app());
-    await waitForList();
+    await openAllNotes();
     await waitFor(() =>
       expect(screen.getByText('Flying over the sea', { exact: false })).toBeTruthy(),
     );
@@ -669,7 +689,7 @@ describe('importing earlier notes', () => {
     resetLegacyImportForTests();
     const before = __fs.read(INDEX);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await waitFor(() =>
       expect(screen.getByText('Flying over the sea', { exact: false })).toBeTruthy(),
     );
@@ -788,7 +808,7 @@ describe('lifecycle', () => {
     autoOpen(false);
     putIndex([oldNote('a', 'first note')]);
     const view = await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/first note/));
     await waitForEditor();
     await act(async () => {

@@ -30,6 +30,13 @@ function createdDay(note: Note): string | null {
   return Number.isNaN(date.getTime()) ? null : localDateKey(date);
 }
 
+/** Local day key of a note's updatedAt; null when it is missing or not a valid date. */
+function updatedDay(note: Note): string | null {
+  if (typeof note.updatedAt !== 'string') return null;
+  const date = new Date(note.updatedAt);
+  return Number.isNaN(date.getTime()) ? null : localDateKey(date);
+}
+
 const stamp = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /** The notes of one view. `todayKey` is the local YYYY-MM-DD used by the Today view. */
@@ -42,7 +49,11 @@ export function selectNotes(all: Note[], view: NoteView, todayKey: string): Note
     case 'all':
       return all.filter(isLive);
     case 'today':
-      return all.filter((n) => isLive(n) && createdDay(n) === todayKey);
+      // Touched today: updated or created on the local day (the created clause covers a missing or
+      // older-than-created updatedAt). Differs on purpose from `dayDone`, which counts created only.
+      return all.filter(
+        (n) => isLive(n) && (updatedDay(n) === todayKey || createdDay(n) === todayKey),
+      );
     case 'todo':
       return all.filter((n) => isLive(n) && hasTodo(n.body));
     case 'untagged':
@@ -83,7 +94,8 @@ export function tagCounts(all: Note[]): TagCount[] {
 
 /**
  * Whether today is already settled: the day marker is today, or any note (Recently Deleted ones
- * included) was created today. Deleting today's only note therefore does not reopen the launch note.
+ * included) was created today. Deliberately "created", not "updated" (unlike the Today view):
+ * editing an older note must not suppress the daily new note. Deleting today's only note therefore does not reopen the launch note.
  */
 export function dayDone(all: Note[], markerDate: string | null, todayKey: string): boolean {
   return markerDate === todayKey || all.some((n) => createdDay(n) === todayKey);

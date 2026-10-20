@@ -34,7 +34,7 @@ export function listEmptyLines(kind: ListEmptyKind): { text: string; hint?: stri
     case 'all':
       return { text: 'No notes yet.', hint: 'Tap + to write one.' };
     case 'today':
-      return { text: 'Nothing written today.' };
+      return { text: 'Nothing written or edited today.' };
     case 'todo':
       return { text: 'No notes with checkboxes.' };
     case 'untagged':

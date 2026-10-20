@@ -43,17 +43,17 @@ describe('App (notes shell)', () => {
   it('with the setting off it opens to the note list', async () => {
     await writeSettings({ autoOpenNewNote: false });
     await render(<App />);
-    await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
     expect(screen.queryByTestId('note-page')).toBeNull();
   });
 
   it('the search icon opens Search, and back returns to the list', async () => {
     await writeSettings({ autoOpenNewNote: false });
     await render(<App />);
-    await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: 'Search notes' }));
     expect(await screen.findByText('Search your notes by words or #tags.')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back to notes'));
-    await waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
   });
 });
