@@ -4,7 +4,7 @@ import {
   type NavigationContainerRefWithCurrent,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { BackHandler, PanResponder, Platform, StyleSheet } from 'react-native';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { State } from 'react-native-gesture-handler';
@@ -164,6 +164,7 @@ const fn = {
   resetAllowLeave: jest.fn(),
   setAutoOpenNewNote: jest.fn(),
   setOnlineTranscription: jest.fn(),
+  setTagSort: jest.fn(),
   pinNote: jest.fn(),
   trashNote: jest.fn(),
   restoreNote: jest.fn(),
@@ -213,7 +214,10 @@ function setFlow(patch: Record<string, unknown> = {}) {
       setAutoOpenNewNote: fn.setAutoOpenNewNote,
       onlineTranscription: false,
       setOnlineTranscription: fn.setOnlineTranscription,
+      tagSort: 'alpha',
+      setTagSort: fn.setTagSort,
     },
+    todayKey: '2026-10-20',
     ...patch,
   };
 }
@@ -362,6 +366,128 @@ describe('NotesRoute', () => {
     await fireEvent.press(target());
     expect(fn.openNote.mock.calls.length + fn.openNewNote.mock.calls.length).toBe(1);
     await drawerGone();
+  });
+});
+
+describe('NotesRoute Today date and drawer wiring', () => {
+  const NOTES = (tags: { tag: string; count: number }[]) => ({
+    loaded: true,
+    visible: [note('a', 'First note'), note('b', 'Second note')],
+    all: [note('a', 'First note #night'), note('b', 'Second note')],
+    tags,
+    trashed: [],
+    indexStatus: 'ok',
+  });
+  const TAGS = [
+    { tag: 'apple', count: 1 },
+    { tag: 'night', count: 5 },
+    { tag: 'zebra', count: 3 },
+  ];
+  const tagOrder = () =>
+    screen.getAllByLabelText(/^#[a-z]+, \d+$/).map((el) => el.props.accessibilityLabel);
+  const openDrawer = async () => {
+    await fireEvent.press(screen.getByLabelText('Open menu'));
+    await screen.findByLabelText('Settings');
+  };
+
+  it('Today shows the date from the flow under its title; other views show none', async () => {
+    setFlow({ view: { kind: 'today' } });
+    await render(<Tree initial={['Notes']} />);
+    expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy();
+    expect(screen.getByText('Tuesday, October 20')).toBeTruthy();
+    for (const view of [
+      { kind: 'all' },
+      { kind: 'tag', tag: 'night' },
+      { kind: 'pinned' },
+      { kind: 'untagged' },
+    ]) {
+      await update({ view });
+      expect(screen.queryByText('Tuesday, October 20')).toBeNull();
+    }
+  });
+
+  it('the date follows the flow across midnight with no other clock', async () => {
+    setFlow({ view: { kind: 'today' } });
+    await render(<Tree initial={['Notes']} />);
+    expect(screen.getByText('Tuesday, October 20')).toBeTruthy();
+    await update({ todayKey: '2026-10-21' });
+    expect(screen.getByText('Wednesday, October 21')).toBeTruthy();
+    expect(screen.queryByText('Tuesday, October 20')).toBeNull();
+  });
+
+  it('while searching the date is not shown and the drawer drag stays off', async () => {
+    setFlow({ view: { kind: 'today' } });
+    await render(<Tree initial={['Notes']} />);
+    await fireEvent.press(screen.getByLabelText('Search notes'));
+    expect(screen.queryByText('Tuesday, October 20')).toBeNull();
+    await act(async () => {
+      fireGestureHandler(getByGestureTestId('drawer-pan'), [
+        { state: State.BEGAN, x: 5 },
+        { state: State.ACTIVE, translationX: 100 },
+        { state: State.ACTIVE, translationX: 200 },
+        { state: State.END, translationX: 200, velocityX: 900 },
+      ]);
+    });
+    expect(
+      screen.getByTestId('notes-drawer', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('none');
+    await fireEvent.press(screen.getByLabelText('Close search'));
+    expect(screen.getByText('Tuesday, October 20')).toBeTruthy();
+  });
+
+  it('tags are A to Z by default; Most notes calls the setter and reorders; a stored count loads', async () => {
+    setFlow({ notes: NOTES(TAGS) });
+    await render(<Tree initial={['Notes']} />);
+    await openDrawer();
+    expect(tagOrder()).toEqual(['#apple, 1', '#night, 5', '#zebra, 3']);
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    await fireEvent.press(screen.getByLabelText('Sort tags by number of notes'));
+    expect(fn.setTagSort).toHaveBeenCalledTimes(1);
+    expect(fn.setTagSort).toHaveBeenCalledWith('count');
+    // The real setter updates the settings; the fake flow stands in for that.
+    await update({ settings: { ...(mockFlow.current.settings as object), tagSort: 'count' } });
+    expect(tagOrder()).toEqual(['#night, 5', '#zebra, 3', '#apple, 1']);
+  });
+
+  it('a stored count order is used when the route first renders', async () => {
+    setFlow({
+      notes: NOTES(TAGS),
+      settings: { ...(mockFlow.current.settings as object), tagSort: 'count' },
+    });
+    await render(<Tree initial={['Notes']} />);
+    await openDrawer();
+    expect(tagOrder()).toEqual(['#night, 5', '#zebra, 3', '#apple, 1']);
+  });
+
+  it('the dropdown Recently Deleted row pushes the route and the drawer closes', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openDrawer();
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    const options = await screen.findByTestId('notes-drawer-options');
+    await fireEvent.press(within(options).getByLabelText('Recently Deleted'));
+    expect(names()).toEqual(['Notes', 'RecentlyDeleted']);
+    await act(async () => ref.goBack());
+    await drawerGone();
+  });
+
+  it('the Settings gear opens Settings', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openDrawer();
+    await fireEvent.press(screen.getByLabelText('Settings'));
+    expect(names()).toEqual(['Notes', 'Settings']);
+  });
+
+  it('an open sort menu closes with the drawer: reopening shows it closed', async () => {
+    setFlow({ notes: NOTES(TAGS) });
+    await render(<Tree initial={['Notes']} />);
+    await openDrawer();
+    await fireEvent.press(screen.getByLabelText('Sort tags'));
+    expect(screen.getByLabelText('Sort tags by number of notes')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Close menu'));
+    await drawerGone();
+    await openDrawer();
+    expect(screen.queryByLabelText('Sort tags by number of notes')).toBeNull();
+    expect(screen.queryByLabelText('Close sort menu')).toBeNull();
   });
 });
 

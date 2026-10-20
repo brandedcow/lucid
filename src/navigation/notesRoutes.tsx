@@ -23,7 +23,7 @@ import { NoteSearchPanel, SearchHeader } from '../screens/NoteSearchPanel';
 import { RecentlyDeletedScreen } from '../screens/RecentlyDeletedScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { colors } from '../theme';
-import { formatToday } from '../utils/format';
+import { formatDayKey, formatToday } from '../utils/format';
 import { monthSections, searchChips, searchResults } from '../utils/noteSearch';
 import { viewTitle } from '../utils/noteViewLabels';
 import type { NoteView } from '../utils/noteViews';
@@ -43,6 +43,9 @@ import type { NotesStackParamList } from './NotesNavigator';
 // here, so they survive a note being opened over the list (this route stays mounted under the
 // pushed Editor) and are cleared when search closes. Results come from the provider's note list, so
 // a note edited or trashed meanwhile is current when the user comes back. No timers, no debounce.
+//
+// Today shows the date under its title, from the flow's `todayKey` (the same key the Today filter
+// uses, so the two cannot disagree). The drawer's tag sort comes from the settings.
 // Search closes with the arrow or Android back (the handler is on only while this route is
 // focused and searching, so an editor pushed over it keeps its own back), or when the drawer opens.
 export function NotesRoute() {
@@ -57,6 +60,8 @@ export function NotesRoute() {
     pinNote,
     trashNote,
     trashBusy,
+    todayKey,
+    settings,
   } = useAppFlow();
   const now = useNow();
   const { width: windowWidth } = useWindowDimensions();
@@ -158,6 +163,8 @@ export function NotesRoute() {
           onOpenTrash={() => push('RecentlyDeleted')}
           onOpenSettings={() => push('Settings')}
           unreadable={unreadable}
+          tagSort={settings.tagSort}
+          onChangeTagSort={settings.setTagSort}
         />
         <Animated.View
           testID="notes-page"
@@ -170,6 +177,7 @@ export function NotesRoute() {
           >
             <NoteListScreen
               title={viewTitle(view)}
+              subtitle={view.kind === 'today' ? formatDayKey(todayKey) : undefined}
               notes={notes.loaded ? notes.visible : null}
               now={now}
               indexStatus={notes.indexStatus}
