@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { readSettings, writeSettings } from '../services/settingsStorage';
+import { __fs } from '../test/fakeFileSystem';
 import { useSettings } from './useSettings';
+
+jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
 jest.mock('../services/settingsStorage', () => ({
   DEFAULT_SETTINGS: { autoOpenNewNote: true, onlineTranscription: false, tagSort: 'alpha' },
@@ -218,4 +221,29 @@ describe('tagSort', () => {
     );
     expect(result.current.tagSort).toBe('count');
   });
+});
+
+it('with a persistent read failure in the real service, setters update memory, throw nothing and leave the disk alone', async () => {
+  const actual = jest.requireActual('../services/settingsStorage');
+  const FILE = 'file:///document/settings.json';
+  const stored = '{"autoOpenDreamCapture":false,"tagSort":"count","later":1}';
+  __fs.reset();
+  __fs.put(FILE, stored);
+  __fs.failWhen('text', (uri) => uri === FILE);
+  mockWrite.mockImplementation(actual.writeSettings);
+  const { result } = await renderHook(() => useSettings());
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  await act(async () => result.current.setTagSort('alpha'));
+  await act(async () => result.current.setOnlineTranscription(true));
+  await act(async () => result.current.setAutoOpenNewNote(true));
+  await act(async () => {
+    await mockWrite.mock.results[2].value;
+  });
+  expect(result.current).toMatchObject({
+    tagSort: 'alpha',
+    onlineTranscription: true,
+    autoOpenNewNote: true,
+  });
+  expect(__fs.read(FILE)).toBe(stored);
+  __fs.reset();
 });
