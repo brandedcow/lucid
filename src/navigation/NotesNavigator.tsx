@@ -8,13 +8,13 @@ import { useState, type ComponentType } from 'react';
 import { colors } from '../theme';
 
 // `Notes` (the note list) is the root. `Editor` is the open note, pushed over it. `Settings` and
-// `RecentlyDeleted` are pushed over the list, and so is `Search` (a note opened from it is pushed over it). No deep linking and no navigation-state persistence.
+// `RecentlyDeleted` are pushed over the list. Search is not a route: it is a state of `Notes`. No deep
+// linking and no navigation-state persistence.
 export type NotesStackParamList = {
   Notes: undefined;
   Editor: undefined;
   Settings: undefined;
   RecentlyDeleted: undefined;
-  Search: undefined;
 };
 
 const Stack = createNativeStackNavigator<NotesStackParamList>();
@@ -30,7 +30,6 @@ export function NotesNavigator({
   editor,
   settings,
   recentlyDeleted,
-  search,
   navigationRef,
   startInEditor = false,
   onReady,
@@ -40,7 +39,6 @@ export function NotesNavigator({
   editor: ComponentType;
   settings: ComponentType;
   recentlyDeleted: ComponentType;
-  search: ComponentType;
   navigationRef?: NavigationContainerRefWithCurrent<NotesStackParamList>;
   /** Mount with `Editor` already on top of `Notes` (the launch note). Read once, at mount. */
   startInEditor?: boolean;
@@ -86,11 +84,6 @@ export function NotesNavigator({
         <Stack.Screen
           name="RecentlyDeleted"
           component={recentlyDeleted}
-          options={{ animation: 'default', gestureEnabled: true }}
-        />
-        <Stack.Screen
-          name="Search"
-          component={search}
           options={{ animation: 'default', gestureEnabled: true }}
         />
       </Stack.Navigator>

@@ -3,12 +3,7 @@ import { useEffect } from 'react';
 import { AccessibilityInfo, Alert, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NotesNavigator } from '../navigation/NotesNavigator';
-import {
-  EditorRoute,
-  NotesRoute,
-  RecentlyDeletedRoute,
-  SearchRoute,
-} from '../navigation/notesRoutes';
+import { EditorRoute, NotesRoute, RecentlyDeletedRoute } from '../navigation/notesRoutes';
 import * as legacy from '../services/legacyImport';
 import { resetLegacyImportForTests } from '../services/legacyImport';
 import * as storage from '../services/notesStorage';
@@ -112,7 +107,6 @@ function Gate() {
       editor={EditorRoute}
       settings={SettingsStub}
       recentlyDeleted={RecentlyDeletedRoute}
-      search={SearchRoute}
       navigationRef={f.navigationRef}
       startInEditor={f.startInEditor}
     />
