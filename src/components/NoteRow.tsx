@@ -35,13 +35,21 @@ function PinGlyph() {
 }
 
 /** Text with matched parts bold on a tinted background (not colour alone). */
-function Highlighted({ parts, fallback }: { parts: TextPart[] | undefined; fallback: string }) {
+function Highlighted({
+  parts,
+  fallback,
+  matchStyle = styles.match,
+}: {
+  parts: TextPart[] | undefined;
+  fallback: string;
+  matchStyle?: object;
+}) {
   if (!parts) return <>{fallback}</>;
   return (
     <>
       {parts.map((p, i) =>
         p.match ? (
-          <Text key={i} style={styles.match}>
+          <Text key={i} style={matchStyle}>
             {p.text}
           </Text>
         ) : (
@@ -76,7 +84,11 @@ function NoteRowImpl({ row, onOpen, accessibilityActions, onAccessibilityAction 
       </View>
       {(row.previewParts ? row.previewParts.length > 0 : row.preview !== '') && (
         <Text style={styles.preview} numberOfLines={2}>
-          <Highlighted parts={row.previewParts} fallback={row.preview} />
+          <Highlighted
+            parts={row.previewParts}
+            fallback={row.preview}
+            matchStyle={styles.matchOnMuted}
+          />
         </Text>
       )}
       {row.tagLine !== '' && (
@@ -105,6 +117,8 @@ const styles = StyleSheet.create({
   time: { color: colors.faint, fontSize: 12 },
   preview: { color: colors.muted, fontSize: 15 },
   tags: { color: colors.accent, fontSize: 13 },
+  /** Matched preview text: full text colour on the tint (the muted colour is too faint there). */
+  matchOnMuted: { backgroundColor: colors.highlight, fontWeight: '700', color: colors.text },
   match: { backgroundColor: colors.highlight, fontWeight: '700' },
   pin: { width: 10, height: 14, alignItems: 'center' },
   pinHead: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },

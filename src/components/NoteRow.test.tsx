@@ -127,4 +127,14 @@ describe('NoteRow accessibility actions', () => {
     expect(screen.queryByText('Over the sea')).toBeNull();
     expect(JSON.stringify(screen.toJSON())).not.toContain('"numberOfLines":2');
   });
+
+  it('shows matched preview text in the normal text colour on the tint', async () => {
+    await render(
+      <NoteRow row={row({ previewParts: [{ text: 'sea', match: true }] })} onOpen={jest.fn()} />,
+    );
+    expect(StyleSheet.flatten(screen.getByText('sea').props.style)).toMatchObject({
+      color: colors.text,
+      backgroundColor: colors.highlight,
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { highlightRanges } from './noteHighlight';
 import { matchSnippet, notePreview } from './notePreview';
 
 describe('notePreview', () => {
@@ -140,6 +141,26 @@ describe('matchSnippet', () => {
       const s = matchSnippet(body, words('needle'));
       const first = s.slice(1).split(' ')[0];
       expect(vocab).toContain(first);
+    }
+  });
+
+  it('keeps a matched tag recognisable when a long unbroken token precedes it', () => {
+    const body = `Title\n${'x'.repeat(200)}${'y'.repeat(30)} #night ${filler(3)}`;
+    const parsed = { words: [] as string[], tagTerms: ['night'] };
+    const s = matchSnippet(body, parsed);
+    expect(s).toContain('#night');
+    expect(highlightRanges(s, parsed).length).toBeGreaterThan(0);
+    expect(Array.from(s).length).toBeLessThanOrEqual(120);
+  });
+
+  it('keeps word matches and the 120 cap with and without a "#" at the cut', () => {
+    for (let pad = 20; pad < 50; pad += 1) {
+      const body = `Title\n${'x'.repeat(150)}${'y'.repeat(pad)} #night needle ${filler(3)}`;
+      for (const parsed of [words('needle'), { words: [], tagTerms: ['night'] }]) {
+        const s = matchSnippet(body, parsed);
+        expect(Array.from(s).length).toBeLessThanOrEqual(120);
+        expect(highlightRanges(s, parsed).length).toBeGreaterThan(0);
+      }
     }
   });
 });

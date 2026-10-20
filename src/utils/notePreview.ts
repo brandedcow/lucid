@@ -64,7 +64,9 @@ export function matchSnippet(
     while (next < matchStart && !/\s/.test(chars[next])) next += 1;
     if (next < matchStart) start = next + 1;
   }
-  const lead = start > 0 ? 1 : 0;
+  // A "#" right after "…" would not be read as a tag start, so a space separates them.
+  const leadText = start === 0 ? '' : chars[start] === '#' ? '… ' : '…';
+  const lead = leadText.length;
   // Room for text: leave one slot for the trailing "…" unless the text ends within the window.
   let room = maxLength - lead;
   const endsInside = start + room >= chars.length;
@@ -73,5 +75,5 @@ export function matchSnippet(
     .slice(start, start + room)
     .join('')
     .trimEnd();
-  return `${lead ? '…' : ''}${body_}${endsInside ? '' : '…'}`;
+  return `${leadText}${body_}${endsInside ? '' : '…'}`;
 }

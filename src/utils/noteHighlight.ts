@@ -82,7 +82,10 @@ export function highlightRanges(text: string, parsed: ParsedQuery): Range[] {
   const ranges: Range[] = [];
   if (parsed.words.length > 0) {
     const folded = foldWithMap(text);
-    for (const word of parsed.words) ranges.push(...occurrences(folded, fold(word)));
+    for (const word of parsed.words) {
+      // A loop, not push(...): spreading a huge match list overflows the call stack.
+      for (const r of occurrences(folded, fold(word))) ranges.push(r);
+    }
   }
   if (parsed.tagTerms.length > 0) {
     const terms = parsed.tagTerms.map(fold).filter((t) => t !== '');

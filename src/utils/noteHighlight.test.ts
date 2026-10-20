@@ -1,5 +1,7 @@
 import { highlightParts, highlightRanges, splitByRanges } from './noteHighlight';
 import { parseQuery, searchResults } from './noteSearch';
+import { matchSnippet } from './notePreview';
+import { noteRow } from './noteRow';
 import { Note } from '../services/notesStorage';
 
 const q = (s: string) => parseQuery(s);
@@ -174,5 +176,23 @@ describe('splitByRanges / highlightParts', () => {
     expect(highlightParts('abc', q('z'))).toEqual([{ text: 'abc', match: false }]);
     expect(highlightParts('', q('z'))).toEqual([]);
     expect(splitByRanges('abc', [[0, 3]])).toEqual([{ text: 'abc', match: true }]);
+  });
+});
+
+describe('very large bodies', () => {
+  it('does not overflow the stack with 200k matches, and stays fast', () => {
+    const body = 'a'.repeat(200_000);
+    const t = Date.now();
+    expect(highlightRanges(body, q('a'))).toEqual([[0, 200_000]]);
+    expect(Date.now() - t).toBeLessThan(2000);
+  });
+
+  it('matchSnippet and noteRow cope with it', () => {
+    const body = `Title\n${'a '.repeat(100_000)}`;
+    const t = Date.now();
+    expect(() => matchSnippet(body, q('a'))).not.toThrow();
+    const note = { id: 'n', createdAt: '', updatedAt: '', body } as Note;
+    expect(() => noteRow(note, new Date(), q('a'))).not.toThrow();
+    expect(Date.now() - t).toBeLessThan(3000);
   });
 });
