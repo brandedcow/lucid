@@ -41,26 +41,48 @@ const settingsFile = () => new File(Paths.document, 'settings.json');
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** The stored object as is, or null when the file is missing, empty, unreadable or not an object. */
-async function readRaw(): Promise<Record<string, unknown> | null> {
+/**
+ * What reading the file found. 'unreadable' (the read threw) is kept apart from 'corrupt' (content
+ * obtained but not a settings object) because a write over an unreadable file could destroy values
+ * that are still there, while a corrupt file holds nothing to keep.
+ */
+type RawRead =
+  | { kind: 'missing' }
+  | { kind: 'ok'; value: Record<string, unknown> }
+  | { kind: 'corrupt' }
+  | { kind: 'unreadable' };
+
+// file.json() would blur a failed read with a parse error, so read the text and parse it here.
+async function readRaw(): Promise<RawRead> {
+  let text: string;
   try {
     const file = settingsFile();
-    if (!file.exists || file.size === 0) return null;
-    const parsed: unknown = await file.json();
-    return isPlainObject(parsed) ? parsed : null;
+    if (!file.exists || file.size === 0) return { kind: 'missing' };
+    text = await file.text();
   } catch {
-    return null;
+    return { kind: 'unreadable' };
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isPlainObject(parsed) ? { kind: 'ok', value: parsed } : { kind: 'corrupt' };
+  } catch {
+    return { kind: 'corrupt' };
   }
 }
+
+// Writes run one after another so two quick changes end with the last value on disk.
+let queue: Promise<void> = Promise.resolve();
 
 /**
  * The settings, each key validated on its own. Anything missing, damaged or of the wrong type
  * falls back to its default (autoOpenNewNote on, so a damaged file never silences the morning
  * prompt; onlineTranscription off, so a damaged file never allows audio to leave the phone).
- * Never throws.
+ * Waits for queued writes first, so it never reads a half-written file. Never throws.
  */
 export async function readSettings(): Promise<Settings> {
-  const raw = await readRaw();
+  await queue; // never rejects (writeNow swallows its errors), so this cannot deadlock
+  const result = await readRaw();
+  const raw = result.kind === 'ok' ? result.value : null;
   return {
     autoOpenNewNote:
       typeof raw?.[AUTO_OPEN_KEY] === 'boolean'
@@ -74,13 +96,15 @@ export async function readSettings(): Promise<Settings> {
   };
 }
 
-// Writes run one after another so two quick changes end with the last value on disk.
-let queue: Promise<void> = Promise.resolve();
-
 async function writeNow(patch: Partial<Settings>): Promise<void> {
   try {
-    // Keep keys this version does not know about; a damaged file is replaced by the patch alone.
-    const next: Record<string, unknown> = { ...(await readRaw()) };
+    let current = await readRaw();
+    if (current.kind === 'unreadable') current = await readRaw(); // one retry
+    // The file may still hold values we cannot see: leave it untouched, the next setter retries.
+    if (current.kind === 'unreadable') return;
+    // Keep keys this version does not know about; a missing or corrupt file is replaced by the
+    // patch alone (nothing recoverable to merge).
+    const next: Record<string, unknown> = current.kind === 'ok' ? { ...current.value } : {};
     if (patch.autoOpenNewNote !== undefined) {
       next[AUTO_OPEN_KEY] = patch.autoOpenNewNote;
     }

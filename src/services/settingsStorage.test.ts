@@ -38,7 +38,7 @@ describe('readSettings', () => {
 
   it('defaults to true when the file cannot be read', async () => {
     __fs.put(FILE, '{"autoOpenDreamCapture":false}');
-    __fs.failNext('json');
+    __fs.failNext('text');
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
@@ -125,7 +125,7 @@ describe('writeSettings', () => {
     __fs.failNext('write');
     await expect(writeSettings({ autoOpenNewNote: false })).resolves.toBeUndefined();
     __fs.put(FILE, '{}');
-    __fs.failNext('json');
+    __fs.failNext('text');
     await expect(writeSettings({ autoOpenNewNote: false })).resolves.toBeUndefined();
   });
 
@@ -169,7 +169,7 @@ describe('onlineTranscription', () => {
 
   it('is false when the file cannot be read', async () => {
     __fs.put(FILE, '{"onlineTranscription":true}');
-    __fs.failNext('json');
+    __fs.failNext('text');
     expect((await readSettings()).onlineTranscription).toBe(false);
   });
 
@@ -230,7 +230,7 @@ describe('tagSort', () => {
 
   it('is alpha when the file cannot be read', async () => {
     __fs.put(FILE, '{"tagSort":"count"}');
-    __fs.failNext('json');
+    __fs.failNext('text');
     expect((await readSettings()).tagSort).toBe('alpha');
   });
 
@@ -302,5 +302,106 @@ describe('tagSort', () => {
     __fs.failNext('write');
     await expect(writeSettings({ tagSort: 'count' })).resolves.toBeUndefined();
     expect((await readSettings()).tagSort).toBe('alpha');
+  });
+});
+
+describe('write guard (unreadable vs corrupt vs missing)', () => {
+  const STORED =
+    '{"autoOpenDreamCapture":false,"onlineTranscription":true,"tagSort":"count","later":{"a":1}}';
+  const unreadable = () => __fs.failWhen('text', (uri) => uri === FILE);
+
+  it('a transient read failure is retried once and the write keeps every prior key', async () => {
+    __fs.put(FILE, STORED);
+    __fs.failNext('text');
+    await writeSettings({ tagSort: 'alpha' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      autoOpenDreamCapture: false,
+      onlineTranscription: true,
+      tagSort: 'alpha',
+      later: { a: 1 },
+    });
+  });
+
+  it.each([
+    ['autoOpenNewNote', { autoOpenNewNote: true }],
+    ['onlineTranscription', { onlineTranscription: false }],
+    ['tagSort', { tagSort: 'alpha' as const }],
+  ])('a persistent read failure leaves the disk byte-identical (%s)', async (_name, patch) => {
+    __fs.put(FILE, STORED);
+    unreadable();
+    const write = jest.spyOn(File.prototype, 'write');
+    await expect(writeSettings(patch)).resolves.toBeUndefined();
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
+    expect(__fs.read(FILE)).toBe(STORED);
+    __fs.clearFailures();
+    expect((await readSettings()).tagSort).toBe('count'); // nothing was lost
+  });
+
+  it('after a skipped write the next setter works once the file is readable again', async () => {
+    __fs.put(FILE, STORED);
+    unreadable();
+    await writeSettings({ tagSort: 'alpha' });
+    __fs.clearFailures();
+    await writeSettings({ tagSort: 'alpha' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toMatchObject({ tagSort: 'alpha', later: { a: 1 } });
+  });
+
+  it.each([
+    ['garbage', 'not json at all'],
+    ['truncated JSON', '{"autoOpenDreamCapture":false,"tagS'],
+    ['an empty array', '[]'],
+    ['null', 'null'],
+    ['a string', '"x"'],
+    ['a number', '42'],
+  ])(
+    'a corrupt file (%s) is overwritten by the patch; later reads see patch + defaults',
+    async (_n, content) => {
+      __fs.put(FILE, content);
+      await writeSettings({ tagSort: 'count' });
+      expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ tagSort: 'count' });
+      expect(await readSettings()).toEqual({
+        autoOpenNewNote: true,
+        onlineTranscription: false,
+        tagSort: 'count',
+      });
+    },
+  );
+
+  it('a missing and a zero-length file get the patch over defaults', async () => {
+    await writeSettings({ onlineTranscription: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ onlineTranscription: true });
+    __fs.put(FILE, '');
+    await writeSettings({ onlineTranscription: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ onlineTranscription: true });
+  });
+
+  it('never deletes, moves or copies, even when the read fails', async () => {
+    __fs.put(FILE, STORED);
+    unreadable();
+    const del = jest.spyOn(File.prototype, 'delete');
+    const move = jest.spyOn(File.prototype, 'move');
+    const copy = jest.spyOn(File.prototype, 'copy');
+    await writeSettings({ tagSort: 'alpha' });
+    expect(del).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
+    expect(copy).not.toHaveBeenCalled();
+    del.mockRestore();
+    move.mockRestore();
+    copy.mockRestore();
+  });
+
+  it('readSettings waits for a queued write and returns the written value', async () => {
+    __fs.put(FILE, '{"tagSort":"alpha"}');
+    const write = writeSettings({ tagSort: 'count' });
+    const read = readSettings(); // started while the write is queued
+    expect((await read).tagSort).toBe('count');
+    await write;
+  });
+
+  it('readSettings does not wait forever after a failed write', async () => {
+    __fs.failNext('write');
+    await writeSettings({ tagSort: 'count' });
+    await expect(readSettings()).resolves.toMatchObject({ tagSort: 'alpha' });
   });
 });
