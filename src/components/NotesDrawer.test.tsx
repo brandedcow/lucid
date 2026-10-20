@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, BackHandler, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, BackHandler, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { NoteView } from '../utils/noteViews';
 import { NotesDrawer } from './NotesDrawer';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- the namespace import is a copy
+const RN = require('react-native');
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 800 },
   insets: { top: 0, left: 0, right: 0, bottom: 34 },
@@ -15,11 +17,14 @@ const TAGS = [
 
 type Props = Partial<Parameters<typeof NotesDrawer>[0]>;
 
+const progress = new Animated.Value(1);
 function drawer(props: Props = {}) {
   return (
     <SafeAreaProvider initialMetrics={METRICS}>
       <NotesDrawer
         open
+        progress={progress}
+        width={360}
         onClose={jest.fn()}
         view={{ kind: 'all' }}
         onSelectView={jest.fn()}
@@ -35,13 +40,11 @@ function drawer(props: Props = {}) {
 
 let backHandlers: (() => boolean | null | undefined)[];
 const removeBack = jest.fn();
-let reduceSpy: jest.SpyInstance;
 
 beforeEach(() => {
-  jest.useFakeTimers();
   backHandlers = [];
   removeBack.mockClear();
-  reduceSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
     backHandlers.push(handler as () => boolean);
     return { remove: removeBack };
@@ -49,53 +52,90 @@ beforeEach(() => {
 });
 afterEach(() => {
   jest.restoreAllMocks();
-  jest.useRealTimers();
 });
 
-const finishAnimation = () => act(() => jest.advanceTimersByTime(400));
-const translateX = () =>
-  StyleSheet.flatten(screen.getByTestId('notes-drawer-panel').props.style).transform[0].translateX;
+const HIDDEN = { includeHiddenElements: true };
+const panelStyle = () =>
+  StyleSheet.flatten(screen.getByTestId('notes-drawer-panel', HIDDEN).props.style);
 
 describe('NotesDrawer open and close', () => {
-  it('renders nothing while closed and never registers a back handler', async () => {
+  beforeEach(() => progress.setValue(1));
+
+  it('stays mounted while closed, but invisible, untouchable and hidden from screen readers', async () => {
+    progress.setValue(0);
     await render(drawer({ open: false }));
-    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+    const root = screen.getByTestId('notes-drawer', HIDDEN);
+    expect(root.props.pointerEvents).toBe('none');
+    expect(root.props.accessibilityElementsHidden).toBe(true);
+    expect(root.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(panelStyle().opacity).toBe(0);
     expect(backHandlers).toHaveLength(0);
   });
 
-  it('is a modal layer (not a Modal) capped at 360 wide, on the left', async () => {
+  it('open: reachable, capped at 360 wide, on the left (not a Modal)', async () => {
     await render(drawer());
-    expect(screen.getByTestId('notes-drawer').props.accessibilityViewIsModal).toBe(true);
-    const panel = StyleSheet.flatten(screen.getByTestId('notes-drawer-panel').props.style);
-    expect(panel.width).toBe(360);
-    expect(panel.left).toBe(0);
+    const root = screen.getByTestId('notes-drawer', HIDDEN);
+    expect(root.props.pointerEvents).toBe('auto');
+    expect(root.props.accessibilityElementsHidden).toBe(false);
+    expect(root.props.importantForAccessibility).toBe('auto');
+    const outer = StyleSheet.flatten(root.props.style);
+    expect(outer.width).toBe(360);
+    expect(outer.left).toBe(0);
+    expect(panelStyle().width).toBe(360);
     expect(JSON.stringify(screen.toJSON())).not.toMatch(/"type":"Modal"/);
   });
 
-  it('slides in and out, then unmounts', async () => {
-    const view = await render(drawer());
-    expect(translateX()).toBe(-360);
-    await finishAnimation();
-    await view.rerender(drawer({ open: false }));
-    expect(screen.getByTestId('notes-drawer')).toBeTruthy();
-    await finishAnimation();
-    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+  it('has no backdrop or close layer of its own (the page owns the strip you tap)', async () => {
+    await render(drawer());
+    expect(screen.queryByLabelText('Close menu')).toBeNull();
   });
 
-  it('with Reduce Motion it appears and disappears at once', async () => {
-    reduceSpy.mockResolvedValue(true);
+  it('fades in over the first 60 percent and slides in from 30 percent of the width', async () => {
+    progress.setValue(0);
+    await render(drawer({ open: false }));
+    expect(panelStyle().opacity).toBe(0);
+    expect(panelStyle().transform[0].translateX).toBeCloseTo(-108);
+    await act(async () => progress.setValue(0.3));
+    expect(panelStyle().opacity).toBeCloseTo(0.5);
+    expect(panelStyle().transform[0].translateX).toBeCloseTo(-75.6);
+    await act(async () => progress.setValue(0.6));
+    expect(panelStyle().opacity).toBe(1);
+    await act(async () => progress.setValue(1));
+    expect(panelStyle().opacity).toBe(1);
+    expect(panelStyle().transform[0].translateX).toBe(0);
+  });
+
+  it('moves screen-reader focus to the view dropdown when it opens', async () => {
+    jest.spyOn(RN, 'findNodeHandle').mockReturnValue(11);
+    const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation();
     const view = await render(drawer({ open: false }));
-    await act(async () => {});
+    expect(focus).not.toHaveBeenCalled();
     await view.rerender(drawer({ open: true }));
-    expect(translateX()).toBe(0);
-    await view.rerender(drawer({ open: false }));
-    expect(screen.queryByTestId('notes-drawer')).toBeNull();
+    expect(focus).toHaveBeenCalledWith(11);
   });
 
-  it('a backdrop tap closes it', async () => {
+  it('does not fail when the node to focus is missing', async () => {
+    jest.spyOn(RN, 'findNodeHandle').mockImplementation(() => {
+      throw new Error('gone');
+    });
+    const view = await render(drawer({ open: false }));
+    await view.rerender(drawer({ open: true }));
+    expect(screen.getByLabelText('View, All Notes')).toBeTruthy();
+  });
+
+  it('collapses the dropdown again the next time it opens', async () => {
+    const view = await render(drawer());
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
+    expect(screen.getByLabelText('Untagged')).toBeTruthy();
+    await view.rerender(drawer({ open: false }));
+    await view.rerender(drawer({ open: true }));
+    expect(screen.queryByLabelText('Untagged')).toBeNull();
+  });
+
+  it('the screen-reader escape gesture calls onClose', async () => {
     const onClose = jest.fn();
     await render(drawer({ onClose }));
-    await fireEvent.press(screen.getByLabelText('Close menu'));
+    screen.getByTestId('notes-drawer').props.onAccessibilityEscape();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

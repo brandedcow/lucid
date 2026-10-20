@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { PanResponder, Text } from 'react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Note } from '../services/notesStorage';
 import { NoteListScreen } from './NoteListScreen';
@@ -146,44 +146,40 @@ describe('NoteListScreen', () => {
     expect(screen.queryByText('Note 499')).toBeNull();
   });
 
-  describe('left-edge swipe', () => {
-    let handlers: {
-      onMoveShouldSetPanResponderCapture?: (e: unknown, g: unknown) => boolean;
-      onPanResponderRelease?: (e: unknown, g: unknown) => void;
-    };
-    beforeEach(() => {
-      const real = PanResponder.create;
-      jest.spyOn(PanResponder, 'create').mockImplementation((cfg) => {
-        handlers = cfg as never;
-        return real(cfg);
-      });
-    });
-    afterEach(() => jest.restoreAllMocks());
-
-    it('opens the menu when the swipe starts at the edge and goes far enough', async () => {
-      const p = await setup();
-      const move = { x0: 5, dx: 30, dy: 0 };
-      expect(handlers.onMoveShouldSetPanResponderCapture?.({}, move)).toBe(true);
-      await act(async () => handlers.onPanResponderRelease?.({}, { dx: 50 }));
-      expect(p.onOpenMenu).toHaveBeenCalledTimes(1);
+  describe('drawer swipe', () => {
+    it('is not handled here: the page has no responder of its own (NotesRoute owns the drag)', async () => {
+      await setup();
+      const props = screen.getByTestId('note-list-screen').props;
+      expect(props.onMoveShouldSetResponderCapture).toBeUndefined();
+      expect(props.onResponderRelease).toBeUndefined();
     });
 
-    it('ignores a swipe that does not start at the edge or is too short', async () => {
-      const p = await setup();
-      expect(handlers.onMoveShouldSetPanResponderCapture?.({}, { x0: 100, dx: 30, dy: 0 })).toBe(
-        false,
+    it('moves screen-reader focus back to the menu button when the drawer closes', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the namespace import is a copy
+      jest.spyOn(require('react-native'), 'findNodeHandle').mockReturnValue(7);
+      const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation();
+      const props = {
+        title: 'All Notes',
+        notes: [note(1)] as Note[] | null,
+        now: NOW,
+        indexStatus: 'ok' as const,
+        emptyKind: { kind: 'all' } as const,
+        onOpenNote: jest.fn(),
+        onNewNote: jest.fn(),
+        onOpenMenu: jest.fn(),
+      };
+      const ui = (open: boolean) => (
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <NoteListScreen {...props} drawerOpen={open} />
+        </SafeAreaProvider>
       );
-      await act(async () => handlers.onPanResponderRelease?.({}, { dx: 20 }));
-      expect(p.onOpenMenu).not.toHaveBeenCalled();
-    });
-
-    it('is off while the drawer is open', async () => {
-      const p = await setup({ drawerOpen: true });
-      expect(handlers.onMoveShouldSetPanResponderCapture?.({}, { x0: 5, dx: 30, dy: 0 })).toBe(
-        false,
-      );
-      await act(async () => handlers.onPanResponderRelease?.({}, { dx: 80 }));
-      expect(p.onOpenMenu).not.toHaveBeenCalled();
+      const view = await render(ui(false));
+      await view.rerender(ui(true));
+      expect(focus).not.toHaveBeenCalled();
+      await view.rerender(ui(false));
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(focus).toHaveBeenCalledWith(7);
+      jest.restoreAllMocks();
     });
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -7,7 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
+  findNodeHandle,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,13 +16,19 @@ import { viewTitle } from '../utils/noteViewLabels';
 import { NoteView, TagCount } from '../utils/noteViews';
 
 /**
- * The Notes drawer: a left-side panel over the notes list (not a Modal, so Alerts still show above
- * it). The parent owns whether it is open and hides the screen behind it from screen readers.
+ * The Notes drawer: a left-side panel that sits behind the page. `NotesRoute` slides the page to
+ * the right to uncover it (not a Modal, so Alerts still show above it). The panel stays mounted for
+ * the life of the route; closed, it is invisible, ignores touches and is hidden from screen readers.
+ * The parent owns whether it is open and the dimmed close layer over the page.
  *
  * Props:
- * - `open`: whether the drawer is open. It slides in over ~220 ms with a dimmed backdrop and out
- *   again before unmounting. With Reduce Motion on it appears and disappears without animation.
- * - `onClose()`: backdrop tap or Android Back (handled here while open, ahead of the app).
+ * - `open`: whether the drawer is open. Opening moves screen-reader focus to the view dropdown. It is
+ *   not marked as an iOS modal view: that would also hide the page's "Close menu" layer, which sits
+ *   beside it; the parent hides the rest of the page from screen readers instead.
+ * - `progress`: the shared 0..1 value (`useDrawerProgress`). The content fades in over the first
+ *   60 percent and slides in from 30 percent of the width to the left (a light parallax).
+ * - `width`: the drawer width, the same distance the page moves (`drawerWidthFor`).
+ * - `onClose()`: Android Back (handled here while open, ahead of the app).
  * - `view`: the current view. The dropdown shows it when it is a smart view; a tag is highlighted.
  * - `onSelectView(view)`: a smart view or a tag was chosen. The parent closes the drawer.
  * - `tags`: every tag with its live-note count, alphabetical (as `tagCounts` returns).
@@ -32,6 +38,8 @@ import { NoteView, TagCount } from '../utils/noteViews';
  */
 type Props = {
   open: boolean;
+  progress: Animated.Value;
+  width: number;
   onClose: () => void;
   view: NoteView;
   onSelectView: (view: NoteView) => void;
@@ -51,12 +59,20 @@ const SMART_VIEWS: readonly SmartView[] = [
   { kind: 'pinned' },
 ];
 
-const ANIMATION_MS = 220;
-const MAX_WIDTH = 360;
-const WIDTH_FRACTION = 0.84;
+/** Moves screen-reader focus to a node; best effort, never throws. */
+export function focusNode(node: unknown) {
+  try {
+    const handle = node ? findNodeHandle(node as never) : null;
+    if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+  } catch {
+    // The node may be gone; focus is a nicety.
+  }
+}
 
 export function NotesDrawer({
   open,
+  progress,
+  width,
   onClose,
   view,
   onSelectView,
@@ -67,91 +83,58 @@ export function NotesDrawer({
   unreadable = false,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
-  const width = Math.min(windowWidth * WIDTH_FRACTION, MAX_WIDTH);
   const [expanded, setExpanded] = useState(false);
+  // The dropdown starts collapsed each time the drawer opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setExpanded(false);
+  }
 
-  // `mounted` keeps the panel on screen while it slides out.
-  const [mounted, setMounted] = useState(false);
-  const [progress] = useState(() => new Animated.Value(0));
-  const reduceMotion = useRef(false);
-  const wasOpen = useRef(false);
+  const dropdownRef = useRef<View>(null);
   useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
-      if (alive) reduceMotion.current = on;
-    });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (on) => {
-      reduceMotion.current = on;
-    });
-    return () => {
-      alive = false;
-      sub?.remove?.();
-    };
-  }, []);
-
-  if (open && !mounted) setMounted(true);
-
-  useEffect(() => {
-    const animateTo = (to: 0 | 1, onDone?: () => void) => {
-      if (reduceMotion.current) {
-        progress.stopAnimation();
-        progress.setValue(to);
-        onDone?.();
-        return;
-      }
-      Animated.timing(progress, {
-        toValue: to,
-        duration: ANIMATION_MS,
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) onDone?.();
-      });
-    };
-    if (open) {
-      wasOpen.current = true;
-      animateTo(1);
-    } else if (wasOpen.current) {
-      animateTo(0, () => {
-        setMounted(false);
-        setExpanded(false);
-      });
-    }
-  }, [open, progress]);
-
-  const close = useCallback(() => onClose(), [onClose]);
+    if (open) focusNode(dropdownRef.current);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      close();
+      onClose();
       return true;
     });
     return () => sub.remove();
-  }, [open, close]);
+  }, [open, onClose]);
 
-  if (!open && !mounted) return null;
-
-  const translateX = progress.interpolate({ inputRange: [0, 1], outputRange: [-width, 0] });
+  const opacity = progress.interpolate({
+    inputRange: [0, 0.6],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-0.3 * width, 0],
+    extrapolate: 'clamp',
+  });
   const smartCurrent = SMART_VIEWS.find((v) => v.kind === view.kind);
   // A tag or Recently Deleted is not one of the dropdown's options; show the default there.
   const dropdownLabel = viewTitle(smartCurrent ?? { kind: 'all' });
   return (
-    <View testID="notes-drawer" accessibilityViewIsModal style={styles.layer}>
-      <Animated.View style={[styles.layer, { opacity: progress }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close menu"
-          onPress={close}
-          style={[styles.layer, styles.backdrop]}
-        />
-      </Animated.View>
+    <View
+      testID="notes-drawer"
+      pointerEvents={open ? 'auto' : 'none'}
+      accessibilityElementsHidden={!open}
+      importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+      // The VoiceOver escape gesture (two-finger Z) closes it; iOS only.
+      onAccessibilityEscape={onClose}
+      style={[styles.drawer, { width }]}
+    >
       <Animated.View
         testID="notes-drawer-panel"
-        style={[styles.panel, { width, transform: [{ translateX }] }]}
+        style={[styles.panel, { width, opacity, transform: [{ translateX }] }]}
       >
         <SafeAreaView style={styles.safe} edges={['top', 'left']}>
           <Pressable
+            ref={dropdownRef}
             accessibilityRole="button"
             accessibilityLabel={`View, ${dropdownLabel}`}
             accessibilityState={{ expanded }}
@@ -243,17 +226,8 @@ export function NotesDrawer({
 }
 
 const styles = StyleSheet.create({
-  layer: { ...StyleSheet.absoluteFill },
-  backdrop: { backgroundColor: 'rgba(0,0,0,0.55)' },
-  panel: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    borderRightWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
+  drawer: { position: 'absolute', top: 0, bottom: 0, left: 0 },
+  panel: { flex: 1, backgroundColor: colors.background },
   safe: { flex: 1 },
   dropdown: {
     flexDirection: 'row',
