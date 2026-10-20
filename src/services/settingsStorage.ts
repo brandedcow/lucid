@@ -5,6 +5,12 @@ import { File, Paths } from 'expo-file-system';
  * `onlineTranscription` only PERMITS an online transcription run (a voice note's audio goes to
  * Apple or Google when the user taps Transcribe), it does not send anything by itself.
  */
+/** How the drawer lists tags: alphabetically or by how many notes use them. A view preference. */
+export type TagSortOrder = 'alpha' | 'count';
+
+const isTagSortOrder = (value: unknown): value is TagSortOrder =>
+  value === 'alpha' || value === 'count';
+
 export type Settings = {
   /** Open a new note on the launch prompt (first open of the day). Defaults to on. */
   autoOpenNewNote: boolean;
@@ -13,6 +19,8 @@ export type Settings = {
    * Defaults to OFF and fails closed: a missing, damaged or non-boolean value is false.
    */
   onlineTranscription: boolean;
+  /** Tag order in the drawer. Defaults to 'alpha'; any missing or invalid value is 'alpha'. */
+  tagSort: TagSortOrder;
 };
 
 /**
@@ -24,6 +32,7 @@ const AUTO_OPEN_KEY = 'autoOpenDreamCapture';
 export const DEFAULT_SETTINGS: Settings = {
   autoOpenNewNote: true,
   onlineTranscription: false,
+  tagSort: 'alpha',
 };
 
 // Paths.document can change between app updates on iOS, so resolve it on every call.
@@ -61,6 +70,7 @@ export async function readSettings(): Promise<Settings> {
       typeof raw?.onlineTranscription === 'boolean'
         ? raw.onlineTranscription
         : DEFAULT_SETTINGS.onlineTranscription,
+    tagSort: isTagSortOrder(raw?.tagSort) ? raw.tagSort : DEFAULT_SETTINGS.tagSort,
   };
 }
 
@@ -76,6 +86,9 @@ async function writeNow(patch: Partial<Settings>): Promise<void> {
     }
     if (patch.onlineTranscription !== undefined) {
       next.onlineTranscription = patch.onlineTranscription;
+    }
+    if (patch.tagSort !== undefined) {
+      next.tagSort = patch.tagSort;
     }
     settingsFile().write(JSON.stringify(next));
   } catch {

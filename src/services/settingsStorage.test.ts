@@ -13,6 +13,7 @@ describe('readSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 
@@ -31,6 +32,7 @@ describe('readSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 
@@ -40,6 +42,7 @@ describe('readSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 
@@ -48,6 +51,7 @@ describe('readSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: false,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 });
@@ -58,11 +62,13 @@ describe('writeSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: false,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
     await writeSettings({ autoOpenNewNote: true });
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 
@@ -99,6 +105,7 @@ describe('writeSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: false,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 
@@ -129,6 +136,7 @@ describe('writeSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
     const a = writeSettings({ autoOpenNewNote: true });
     const b = writeSettings({ autoOpenNewNote: false });
@@ -136,6 +144,7 @@ describe('writeSettings', () => {
     expect(await readSettings()).toEqual({
       autoOpenNewNote: false,
       onlineTranscription: false,
+      tagSort: 'alpha',
     });
   });
 });
@@ -166,9 +175,17 @@ describe('onlineTranscription', () => {
 
   it('write then read persists, and each key is validated on its own', async () => {
     await writeSettings({ onlineTranscription: true });
-    expect(await readSettings()).toEqual({ autoOpenNewNote: true, onlineTranscription: true });
+    expect(await readSettings()).toEqual({
+      autoOpenNewNote: true,
+      onlineTranscription: true,
+      tagSort: 'alpha',
+    });
     __fs.put(FILE, '{"autoOpenDreamCapture":"x","onlineTranscription":true}');
-    expect(await readSettings()).toEqual({ autoOpenNewNote: true, onlineTranscription: true });
+    expect(await readSettings()).toEqual({
+      autoOpenNewNote: true,
+      onlineTranscription: true,
+      tagSort: 'alpha',
+    });
     await writeSettings({ onlineTranscription: false });
     expect((await readSettings()).onlineTranscription).toBe(false);
   });
@@ -187,5 +204,103 @@ describe('onlineTranscription', () => {
     __fs.failNext('write');
     await expect(writeSettings({ onlineTranscription: true })).resolves.toBeUndefined();
     expect((await readSettings()).onlineTranscription).toBe(false);
+  });
+});
+
+describe('tagSort', () => {
+  it('defaults to alpha when the file is missing', async () => {
+    expect((await readSettings()).tagSort).toBe('alpha');
+  });
+
+  it.each([
+    ['zero-length', ''],
+    ['corrupt JSON', '{"tagSort":"cou'],
+    ['an array file', '["count"]'],
+    ['null', 'null'],
+    ['an empty object', '{}'],
+    ['a number', '{"tagSort":1}'],
+    ['null value', '{"tagSort":null}'],
+    ['a boolean', '{"tagSort":true}'],
+    ['an unknown string', '{"tagSort":"newest"}'],
+    ['a wrong-case string', '{"tagSort":"Count"}'],
+  ])('is alpha for %s', async (_name, content) => {
+    __fs.put(FILE, content);
+    expect((await readSettings()).tagSort).toBe('alpha');
+  });
+
+  it('is alpha when the file cannot be read', async () => {
+    __fs.put(FILE, '{"tagSort":"count"}');
+    __fs.failNext('json');
+    expect((await readSettings()).tagSort).toBe('alpha');
+  });
+
+  it('count round trips and the raw JSON holds the key', async () => {
+    await writeSettings({ tagSort: 'count' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ tagSort: 'count' });
+    expect((await readSettings()).tagSort).toBe('count');
+    await writeSettings({ tagSort: 'alpha' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ tagSort: 'alpha' });
+    expect((await readSettings()).tagSort).toBe('alpha');
+  });
+
+  it('writing tagSort keeps the legacy key, onlineTranscription and unknown keys', async () => {
+    __fs.put(FILE, '{"autoOpenDreamCapture":false,"onlineTranscription":true,"later":{"a":1}}');
+    await writeSettings({ tagSort: 'count' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      autoOpenDreamCapture: false,
+      onlineTranscription: true,
+      later: { a: 1 },
+      tagSort: 'count',
+    });
+  });
+
+  it('writing the other settings keeps tagSort', async () => {
+    __fs.put(FILE, '{"autoOpenDreamCapture":true,"tagSort":"count"}');
+    await writeSettings({ autoOpenNewNote: false });
+    await writeSettings({ onlineTranscription: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      autoOpenDreamCapture: false,
+      onlineTranscription: true,
+      tagSort: 'count',
+    });
+  });
+
+  it('does not write tagSort when the patch lacks it', async () => {
+    await writeSettings({ autoOpenNewNote: false });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).not.toHaveProperty('tagSort');
+  });
+
+  it('a file written by the previous build loads with alpha and keeps its other keys', async () => {
+    __fs.put(FILE, '{"autoOpenDreamCapture":false,"onlineTranscription":true,"later":7}');
+    expect(await readSettings()).toEqual({
+      autoOpenNewNote: false,
+      onlineTranscription: true,
+      tagSort: 'alpha',
+    });
+    await writeSettings({ tagSort: 'count' });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      autoOpenDreamCapture: false,
+      onlineTranscription: true,
+      later: 7,
+      tagSort: 'count',
+    });
+  });
+
+  it('two quick writes end with the last value', async () => {
+    const a = writeSettings({ tagSort: 'count' });
+    const b = writeSettings({ tagSort: 'alpha' });
+    await Promise.all([a, b]);
+    expect((await readSettings()).tagSort).toBe('alpha');
+    const c = writeSettings({ tagSort: 'alpha' });
+    const d = writeSettings({ tagSort: 'count' });
+    await Promise.all([c, d]);
+    expect((await readSettings()).tagSort).toBe('count');
+  });
+
+  it('a failed write never throws and nothing changes on disk', async () => {
+    __fs.put(FILE, '{"tagSort":"alpha"}');
+    __fs.failNext('write');
+    await expect(writeSettings({ tagSort: 'count' })).resolves.toBeUndefined();
+    expect((await readSettings()).tagSort).toBe('alpha');
   });
 });

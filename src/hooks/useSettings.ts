@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DEFAULT_SETTINGS, readSettings, writeSettings } from '../services/settingsStorage';
+import {
+  DEFAULT_SETTINGS,
+  readSettings,
+  writeSettings,
+  type TagSortOrder,
+} from '../services/settingsStorage';
 
 /**
  * The persisted settings. `loaded` turns true after the first read (also when it fails, in which
@@ -11,8 +16,10 @@ export function useSettings() {
   const [loaded, setLoaded] = useState(false);
   const [autoOpenNewNote, setAuto] = useState(DEFAULT_SETTINGS.autoOpenNewNote);
   const [onlineTranscription, setOnline] = useState(DEFAULT_SETTINGS.onlineTranscription);
+  const [tagSort, setTagSortState] = useState<TagSortOrder>(DEFAULT_SETTINGS.tagSort);
   const changed = useRef(false);
   const changedOnline = useRef(false);
+  const changedTagSort = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -22,6 +29,7 @@ export function useSettings() {
         if (!mounted.current) return;
         if (!changed.current) setAuto(settings.autoOpenNewNote);
         if (!changedOnline.current) setOnline(settings.onlineTranscription);
+        if (!changedTagSort.current) setTagSortState(settings.tagSort);
         setLoaded(true);
       })
       .catch(() => {
@@ -44,11 +52,19 @@ export function useSettings() {
     writeSettings({ onlineTranscription: value }).catch(() => {});
   }, []);
 
+  const setTagSort = useCallback((value: TagSortOrder) => {
+    changedTagSort.current = true;
+    setTagSortState(value);
+    writeSettings({ tagSort: value }).catch(() => {});
+  }, []);
+
   return {
     loaded,
     autoOpenNewNote,
     setAutoOpenNewNote,
     onlineTranscription,
     setOnlineTranscription,
+    tagSort,
+    setTagSort,
   };
 }
