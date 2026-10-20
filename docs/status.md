@@ -58,7 +58,7 @@ All of this is built, mounted from `App.tsx`, and tested in Jest. **None of it i
 
 **Save order** (`saveNote`, an upsert by id, index work serialized): validate the id and body and that every new recording is a file inside the cache directory (before touching anything); refuse with `NOTE_IN_TRASH` for a trashed note; an emptied note (blank body, no recordings) goes to Recently Deleted with its text kept; copy each new recording from the cache into `notes/` one at a time, never overwriting; then `commitIndex`: write `notes.json.tmp`, read it back and check it parses with the same count, copy a content-bearing current index to `.bak` (a failure does not block the save), move the temp file over `notes.json` with overwrite. If the move leaves the index missing or damaged, recovery reads the temp file, then the backup. The cache files are deleted after a successful save. An unparseable, non-empty index is never overwritten: saves throw `INDEX_UNREADABLE`, the list shows an unreadable message and no launch note opens.
 
-**Where files are deleted.** Exactly five `.delete(` calls in production code: `recordingFiles.ts` (the cache file of an unsaved recording); in `notesStorage.ts` the rollback of copies a failed save just made, the cache source files after a successful save, `deleteAudioFiles` (stored audio of a note being deleted forever or of a discarded held voice note; never a legacy file or one another note still references) and `scrubCopy` (the fallback when a leftover index copy cannot be overwritten). `CLAUDE.md` has the full deletion rules; do not add a `.delete(` call without the user's approval.
+**Where files are deleted.** There are five production `.delete(` sites (a literal grep shows fewer lines because some go through a helper variable): `discardRecording` in `recordingFiles.ts` (the cache file of an unsaved recording); in `notesStorage.ts`, `saveNote` twice (the `undoCopies` rollback of copies a failed save just made, and the cache source files after a successful save), `deleteAudioFiles` (stored audio of a note being deleted forever or of a discarded held voice note; never a legacy file or one another note still references) and `scrubCopy` (the fallback when a leftover index copy cannot be overwritten). `CLAUDE.md` has the full deletion rules; do not add a `.delete(` call without the user's approval.
 
 ## 4. Decisions made during development
 
@@ -84,6 +84,9 @@ Notes-model decisions only; the earlier dream/journal-app decisions went with th
 - **Hard cutover**: later writes by an older build are not imported, and the older build cannot see new notes (section 4).
 - **Row Delete has no undo**, and the delete dialogs' voice-note wording does not say that a file shared with another note is kept.
 - **Launch cap** opens a new note even if the settings have not loaded; with an unreadable index the list shows instead.
+- **Leaving a blank note trashes it.** Leaving a stored note whose body is blank and that has no live voice note moves it to Recently Deleted (step 4 of `useNoteSession.leave`; this includes a blank imported note). The text is kept, so Restore brings it back.
+- **Edits after `leave()` starts are dropped.** Once `leave()` begins, further edits are ignored (the `leaving` flag). If the save then fails, the editor stays open with the last state it had before leaving started, without those edits.
+- **`trash()` and `leave()` treat cache recordings differently (ruled intended).** After `NOTE_IN_TRASH`, `trash()` discards the unsaved cache recordings (the user chose to delete, so nothing can reference them), while `leave()` keeps them (the user did not choose to delete and they may be the only copy; the files are harmless in the OS cache). Ruling: `reports/2026-10-18-lucid-chunk-7a-1/architect-7a-1-ruling.md`, item 5.
 - **Disclosure**: the transcripts of discarded voice notes can remain in `notes.json.bak` until the next index commit (usually the next autosave).
 - **Storage limits**: if a commit is killed and every recovery step also fails, the index can be lost. There is no restore-from-backup feature and it would need the user's approval. Killing the app mid-recording leaves a cache file (`useVoiceRecorder` has no unmount cleanup).
 - **Downgrade**: an older build ignores `notes.json` and shows only its own data. Data is kept either way.
@@ -97,7 +100,11 @@ Nothing below has been run on a device. Consolidated from the 6c spike checklist
 - caret jump on restyle (typing `# `, closing a bold marker, list continuation);
 - heading size clipping or overlap and line height;
 - IME composition and autocorrect (iOS Japanese/Chinese/Korean and dictation, Android Gboard and Samsung keyboard), including autocorrect merging with Enter, which makes list continuation silently do nothing;
-- Enter after a blank line, and Enter at the end of a heading (the new line should be body size);
+- Enter on a list item with a blank line below it (the stale `caretBefore` risk): Case A, put the caret at the end of `- a` in `- a`, blank line, `- b`, and press Enter (expected: a new `- ` item directly after `- a`; failure: only a plain newline, or the caret one line down); Case B, the same with 2 or more blank lines; Case C (baseline), Enter mid-item and at the end of the last item. Log the order of `onChangeText` and `onSelectionChange` and the `caretBefore` value for one Enter. If A or B fails, the proposed fix is to prefer the text diff when `prev[caretBefore] === "\n"` (a narrow worker task, not built);
+- Enter at the end of a heading (the new line should be body size);
+- Android `onKeyPress` delivery of Enter and Tab on soft and hardware keyboards (not relied on; Tab/Shift+Tab handling is not built);
+- whether the `selection` prop alone places the Android caret after a programmatic edit (the `inPlace` mode alternative depends on it);
+- JS restyle cost while typing in notes of 5k to 20k characters;
 - text typed beside a bold span inheriting the wrong style; strike-through rendering;
 - keyboard flicker or dismissal on the remount after Enter or a toolbar edit; selection after a programmatic edit; typing latency and scroll on long notes;
 - the checkbox glyph, and the toolbar button's label and state on the caret's line;
@@ -148,6 +155,9 @@ From the reviewer reports; none blocks anything and each is a missing test, not 
 - **7b-3**: the `busy.current` guard in `beginTrash`, the `deleted === 0` branch of Empty and the `blur` listener of `RecentlyDeletedRoute` are untested (the unmount cleanup covers the pop).
 - **7c-3**: the `navigation.isFocused()` guard on the search button is not covered (the "pushes Search, once" test passes without it).
 - **7c-4**: consume-exactly-once for the resume token is not guarded by a test (the effect's dependency array makes it structural); several resume guards (`busy`, `sessionOpen`, `launchDecided`, `!mounted`) are covered only redundantly; the test "never runs before the launch is decided" is vacuous because its day is already settled (a not-done fixture would fix it).
+- **7a-4** (low): the carousel's `onRemove` gated on `!locked`, the sheet's `busy={locked || recording}` and the `history.onRecordingAttached()` call before attach are not pinned by tests.
+- **Chunk 5** (low, mutation findings): `leave`'s own `runSync` step and the re-arm in `runSave` survive removal because earlier steps already cover them; `trash()` failure branches and the multi-pass sync loop were disclosed as untested.
+- **Other low items from the plan**: no test trashes a pinned note then restores it; an optional test that scans production code for `.delete(` (the `CLAUDE.md` rule is only reviewed by hand); the `trashActions.audit` test is a source grep, so destructured calls would slip through; `RecordingPanel` `stop()` catch phase reset is untested.
 
 ## 9. Repo and workflow state
 
