@@ -57,8 +57,6 @@ type Options = {
  * - Open: a leftward drag from anywhere closes it (10 points, so a slightly slanted scroll of the
  *   drawer's tag list does not).
  * The drag sets `progress` directly; release commits by distance or speed.
- * Dev builds log `begin`/`start`/`finalize` with the x position and state, to tell on a device
- * whether the touch never began, began but was taken, or was not far enough.
  */
 export function useDrawerGesture({ progress, width, open, enabled, onSettle }: Options) {
   return useMemo(() => {
@@ -68,13 +66,9 @@ export function useDrawerGesture({ progress, width, open, enabled, onSettle }: O
       .withTestId(DRAWER_GESTURE_TEST_ID)
       .enabled(enabled)
       .failOffsetY([-12, 12])
-      .onBegin((e) => {
-        if (__DEV__) console.log('[drawer-gesture] begin', { x: e.x, state: e.state });
-      })
-      .onStart((e) => {
+      .onStart(() => {
         started = true;
         progress.stopAnimation();
-        if (__DEV__) console.log('[drawer-gesture] start', { x: e.x, state: e.state });
       })
       .onUpdate((e) => {
         progress.setValue(dragProgress(startOpen, e.translationX, width));
@@ -85,10 +79,7 @@ export function useDrawerGesture({ progress, width, open, enabled, onSettle }: O
         const p = dragProgress(startOpen, e.translationX, width);
         onSettle(settlesOpen(startOpen, p, e.velocityX));
       })
-      .onFinalize((e, success) => {
-        if (__DEV__) {
-          console.log('[drawer-gesture] finalize', { x: e.x, state: e.state, success });
-        }
+      .onFinalize((_e, success) => {
         // Taken from us (cancelled) after it had started: go back to where the drag started.
         if (started && !success) onSettle(startOpen);
         started = false;
