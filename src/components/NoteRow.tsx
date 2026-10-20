@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { Fragment, memo } from 'react';
 import {
   AccessibilityActionEvent,
   AccessibilityActionInfo,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { colors, fonts, spacing } from '../theme';
+import { TextPart } from '../utils/noteHighlight';
 import { NoteRowData } from '../utils/noteRow';
 
 type Props = {
@@ -33,6 +34,24 @@ function PinGlyph() {
   );
 }
 
+/** Text with matched parts bold on a tinted background (not colour alone). */
+function Highlighted({ parts, fallback }: { parts: TextPart[] | undefined; fallback: string }) {
+  if (!parts) return <>{fallback}</>;
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.match ? (
+          <Text key={i} style={styles.match}>
+            {p.text}
+          </Text>
+        ) : (
+          <Fragment key={i}>{p.text}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
 /**
  * One row of the note list: serif title (one line) with the time and, when pinned, a pin glyph at
  * its right; the preview (two lines, muted) and the tags (accent) below. No fixed heights, so
@@ -50,19 +69,19 @@ function NoteRowImpl({ row, onOpen, accessibilityActions, onAccessibilityAction 
     >
       <View style={styles.titleLine}>
         <Text style={styles.title} numberOfLines={1}>
-          {row.title}
+          <Highlighted parts={row.titleParts} fallback={row.title} />
         </Text>
         {row.pinned && <PinGlyph />}
         {row.time !== '' && <Text style={styles.time}>{row.time}</Text>}
       </View>
-      {row.preview !== '' && (
+      {(row.previewParts ? row.previewParts.length > 0 : row.preview !== '') && (
         <Text style={styles.preview} numberOfLines={2}>
-          {row.preview}
+          <Highlighted parts={row.previewParts} fallback={row.preview} />
         </Text>
       )}
       {row.tagLine !== '' && (
         <Text style={styles.tags} numberOfLines={1}>
-          {row.tagLine}
+          <Highlighted parts={row.tagParts} fallback={row.tagLine} />
         </Text>
       )}
     </Pressable>
@@ -86,6 +105,7 @@ const styles = StyleSheet.create({
   time: { color: colors.faint, fontSize: 12 },
   preview: { color: colors.muted, fontSize: 15 },
   tags: { color: colors.accent, fontSize: 13 },
+  match: { backgroundColor: colors.highlight, fontWeight: '700' },
   pin: { width: 10, height: 14, alignItems: 'center' },
   pinHead: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   pinNeedle: { width: 2, height: 6, backgroundColor: colors.accent },

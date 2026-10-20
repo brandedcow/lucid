@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { colors } from '../theme';
 import { NoteRowData } from '../utils/noteRow';
 import { NoteRow } from './NoteRow';
 
@@ -78,5 +80,51 @@ describe('NoteRow accessibility actions', () => {
     expect(btn.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
     await fireEvent(btn, 'accessibilityAction', { nativeEvent: { actionName: 'delete' } });
     expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders matched parts in nested bold, tinted text, in title, preview and tags', async () => {
+    await render(
+      <NoteRow
+        row={row({
+          titleParts: [
+            { text: 'Fly', match: true },
+            { text: 'ing', match: false },
+          ],
+          previewParts: [
+            { text: 'Over the ', match: false },
+            { text: 'sea', match: true },
+          ],
+          tagParts: [
+            { text: '#', match: false },
+            { text: 'sea', match: true },
+          ],
+        })}
+        onOpen={jest.fn()}
+      />,
+    );
+    const title = screen.getByText('Flying');
+    expect(title.props.numberOfLines).toBe(1);
+    const hit = screen.getByText('Fly');
+    expect(StyleSheet.flatten(hit.props.style)).toMatchObject({
+      fontWeight: '700',
+      backgroundColor: colors.highlight,
+    });
+    expect(screen.getByText('Over the sea').props.numberOfLines).toBe(2);
+    expect(screen.getAllByText('sea')).toHaveLength(2);
+  });
+
+  it('keeps the a11y label plain while highlighting', async () => {
+    await render(
+      <NoteRow row={row({ titleParts: [{ text: 'Flying', match: true }] })} onOpen={jest.fn()} />,
+    );
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe(
+      'Flying. Over the sea. Tags: sea. 2 hours ago.',
+    );
+  });
+
+  it('hides the preview line when the parts are empty', async () => {
+    await render(<NoteRow row={row({ previewParts: [] })} onOpen={jest.fn()} />);
+    expect(screen.queryByText('Over the sea')).toBeNull();
+    expect(JSON.stringify(screen.toJSON())).not.toContain('"numberOfLines":2');
   });
 });
