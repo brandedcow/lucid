@@ -52,8 +52,8 @@ type Props = {
 
 type SmartView = Exclude<NoteView, { kind: 'tag' } | { kind: 'trash' }>;
 const SMART_VIEWS: readonly SmartView[] = [
-  { kind: 'all' },
   { kind: 'today' },
+  { kind: 'all' },
   { kind: 'todo' },
   { kind: 'untagged' },
   { kind: 'pinned' },

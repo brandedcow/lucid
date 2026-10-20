@@ -237,6 +237,19 @@ describe('NotesDrawer view dropdown', () => {
     });
   });
 
+  it('lists the smart views in the order Today, All Notes, Todo, Untagged, Pinned', async () => {
+    await render(drawer({ view: { kind: 'today' } }));
+    await fireEvent.press(screen.getByLabelText('View, Today'));
+    expect(screen.getByLabelText('Today').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    const labels = screen
+      .getAllByRole('button')
+      .map((b) => b.props.accessibilityLabel)
+      .filter((l) => ['Today', 'All Notes', 'Todo', 'Untagged', 'Pinned'].includes(l));
+    expect(labels).toEqual(['Today', 'All Notes', 'Todo', 'Untagged', 'Pinned']);
+  });
+
   it('choosing an option calls onSelectView', async () => {
     const onSelectView = jest.fn();
     await render(drawer({ onSelectView }));

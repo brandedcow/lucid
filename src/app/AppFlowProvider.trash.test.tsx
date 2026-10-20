@@ -131,8 +131,12 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+const openAllNotes = async () => {
+  await waitForList();
+  await act(async () => flow().setView({ kind: 'all' }));
+};
 const waitForList = () =>
-  waitFor(() => expect(screen.getByRole('header', { name: 'All Notes' })).toBeTruthy());
+  waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
 /** Renders the app and opens Recently Deleted. */
 async function openTrash() {
   const view = await render(app());
@@ -169,6 +173,9 @@ describe('Restore', () => {
     expect(a.updatedAt).toBe('2026-01-02T09:00:00.000Z');
     // Views and the drawer count follow.
     expect(flow().notes.trashed).toHaveLength(0);
+    // Restore does not touch updatedAt, so an old note is not in Today; it is in All Notes.
+    expect(flow().notes.visible.map((n) => n.id)).not.toContain('a');
+    await act(async () => flow().setView({ kind: 'all' }));
     expect(flow().notes.visible.map((n) => n.id)).toContain('a');
     await act(async () => flow().setView({ kind: 'pinned' }));
     expect(flow().notes.visible.map((n) => n.id)).toEqual(['a']);
@@ -393,7 +400,7 @@ describe('row swipe actions', () => {
   it('Pin and Unpin go through the provider; order does not change; the Pinned view follows', async () => {
     putIndex([note('a', 'Newest', { updatedAt: '2026-01-03T09:00:00.000Z' }), note('b', 'Older')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getAllByLabelText('Pin note', hidden)[1]);
     await waitFor(() => expect(stored().find((n) => n.id === 'b')!.pinned).toBe(true));
     expect(announced()).toContainEqual([TRASH_COPY.pinned]);
@@ -410,7 +417,7 @@ describe('row swipe actions', () => {
     putIndex([note('a', 'Newest')]);
     jest.spyOn(storage, 'setPinned').mockRejectedValueOnce(new Error('disk'));
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText('Pin note', hidden));
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(1));
     expect(lastAlert().slice(0, 2)).toEqual([
@@ -423,7 +430,7 @@ describe('row swipe actions', () => {
   it('Delete moves the note to Recently Deleted with no confirm, announces it, and the count rises', async () => {
     putIndex([note('a', 'One'), note('b', 'Two')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getAllByLabelText('Delete note', hidden)[0]);
     await waitFor(() => expect(flow().notes.trashed).toHaveLength(1));
     expect(Alert.alert).not.toHaveBeenCalled();
@@ -436,7 +443,7 @@ describe('row swipe actions', () => {
     putIndex([note('a', 'One')]);
     jest.spyOn(storage, 'softDeleteNote').mockRejectedValueOnce(new Error('disk'));
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText('Delete note', hidden));
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(1));
     expect(lastAlert().slice(0, 2)).toEqual(["Couldn't delete this note.", 'Nothing was changed.']);
@@ -458,7 +465,7 @@ describe('row swipe actions', () => {
     expect(screen.queryByText(/^editor-body:/)).toBeNull();
   });
 
-  it('deleting the last note of the selected tag falls back to All Notes', async () => {
+  it('deleting the last note of the selected tag falls back to Today', async () => {
     putIndex([note('a', 'Only #night'), note('b', 'Plain')]);
     await render(app());
     await waitForList();
@@ -466,13 +473,13 @@ describe('row swipe actions', () => {
     await act(async () => {
       await flow().trashNote('a');
     });
-    await waitFor(() => expect(flow().view).toEqual({ kind: 'all' }));
+    await waitFor(() => expect(flow().view).toEqual({ kind: 'today' }));
   });
 
   it('ignores pin and delete while a note is open', async () => {
     putIndex([note('a', 'One'), note('b', 'Two')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/One/));
     await waitFor(() => expect(screen.getByText('editor-body:One')).toBeTruthy());
     await act(async () => {
@@ -491,7 +498,7 @@ describe('row swipe actions', () => {
       return real(id);
     });
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await fireEvent.press(screen.getByLabelText(/One/));
     await waitFor(() => expect(screen.getByText('editor-body:One')).toBeTruthy());
     await fireEvent.press(screen.getByText('editor-delete'));
@@ -522,7 +529,7 @@ describe('row swipe actions', () => {
   it('the list rows are inert while a trash action runs', async () => {
     putIndex([trashed('a', 'Gone'), note('b', 'Live')]);
     await render(app());
-    await waitForList();
+    await openAllNotes();
     await act(async () => flow().requestDeleteForever('a'));
     expect(flow().trashBusy).toBe(true);
     const spy = jest.spyOn(storage, 'softDeleteNote');

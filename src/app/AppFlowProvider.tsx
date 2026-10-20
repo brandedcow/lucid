@@ -66,7 +66,8 @@ export const TRASH_COPY = {
   pinFailedMessage: 'Nothing was changed.',
 } as const;
 
-const ALL: ListView = { kind: 'all' };
+/** The view the list starts on, and the one it returns to when the selected tag disappears. */
+const DEFAULT_VIEW: ListView = { kind: 'today' };
 
 const codeOf = (error: unknown): string | undefined => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
@@ -80,8 +81,8 @@ function useAppFlowValue() {
   const dayMarker = useDayMarker();
   const { todayKey, resumeNewDayToken } = useToday();
 
-  // The view survives opening and closing a note; it is session-only and starts at All Notes.
-  const [view, setViewState] = useState<ListView>(ALL);
+  // The view survives opening and closing a note; it is session-only and starts at Today.
+  const [view, setViewState] = useState<ListView>(DEFAULT_VIEW);
   const notes = useNotes({ view, todayKey });
   const { refresh } = notes;
 
@@ -205,11 +206,11 @@ function useAppFlowValue() {
     navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined;
 
   // The selected tag no longer exists (its last note was deleted or edited) and the editor is
-  // closed: back to All Notes.
+  // closed: back to Today.
   useEffect(() => {
     if (view.kind !== 'tag' || !notes.loaded || session) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts to loaded data
-    if (!notes.tags.some((t) => t.tag === view.tag)) setViewState(ALL);
+    if (!notes.tags.some((t) => t.tag === view.tag)) setViewState(DEFAULT_VIEW);
   }, [view, notes.loaded, notes.tags, session]);
 
   const setView = (next: NoteView) => {

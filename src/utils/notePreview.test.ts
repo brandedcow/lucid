@@ -1,4 +1,5 @@
-import { notePreview } from './notePreview';
+import { highlightRanges } from './noteHighlight';
+import { matchSnippet, notePreview } from './notePreview';
 
 describe('notePreview', () => {
   it('is the text after the title line', () => {
@@ -45,5 +46,121 @@ describe('notePreview', () => {
 
   it('defaults to 120 characters', () => {
     expect(Array.from(notePreview('T\n' + 'a'.repeat(300))).length).toBe(120);
+  });
+});
+
+describe('matchSnippet', () => {
+  const words = (...w: string[]) => ({ words: w, tagTerms: [] as string[] });
+  const filler = (n: number) => 'lorem ipsum dolor sit amet '.repeat(n);
+
+  it('is the normal preview when the match is inside it', () => {
+    const body = `Title\nfind me here ${filler(10)}`;
+    expect(matchSnippet(body, words('find'))).toBe(notePreview(body));
+  });
+
+  it('is the normal preview when there is no visible match', () => {
+    const body = `Title\n${filler(10)}`;
+    expect(matchSnippet(body, words('zebra'))).toBe(notePreview(body));
+  });
+
+  it('is the normal preview when the only match is in the title', () => {
+    const body = `Zebra\n${filler(10)}`;
+    expect(matchSnippet(body, words('zebra'))).toBe(notePreview(body));
+  });
+
+  it('is the normal preview when the match is only in stripped markdown', () => {
+    const body = `Title\n- [ ] ${filler(10)}`;
+    expect(matchSnippet(body, words('['))).toBe(notePreview(body));
+  });
+
+  it('returns a "…" excerpt around a match beyond the preview', () => {
+    const body = `Title\n${filler(12)}needle ${filler(4)}`;
+    const s = matchSnippet(body, words('needle'));
+    expect(s.startsWith('…')).toBe(true);
+    expect(s.endsWith('…')).toBe(true);
+    expect(s).toContain('needle');
+    expect(Array.from(s).length).toBeLessThanOrEqual(120);
+    // starts at a word boundary: the char after the leading marker begins a word
+    expect(s).toMatch(/^…\S/);
+    expect(s.indexOf('needle')).toBeLessThanOrEqual(1 + 31);
+  });
+
+  it('has no trailing "…" when the match is near the end of the text', () => {
+    const body = `Title\n${filler(12)}needle end`;
+    const s = matchSnippet(body, words('needle'));
+    expect(s.startsWith('…')).toBe(true);
+    expect(s.endsWith('…')).toBe(false);
+    expect(s.endsWith('needle end')).toBe(true);
+    expect(Array.from(s).length).toBeLessThanOrEqual(120);
+  });
+
+  it('respects maxLength and counts markers and code points', () => {
+    const body = `Title\n${'😀 '.repeat(100)}needle ${'😀 '.repeat(100)}`;
+    const s = matchSnippet(body, words('needle'), 60);
+    expect(Array.from(s).length).toBeLessThanOrEqual(60);
+    expect(s).toContain('needle');
+  });
+
+  it('matches folded text (accent and case)', () => {
+    const body = `Title\n${filler(12)}Café ${filler(2)}`;
+    expect(matchSnippet(body, words('cafe'))).toContain('Café');
+  });
+
+  it('handles a tag term beyond the preview', () => {
+    const body = `Title\n${filler(12)}#night ${filler(2)}`;
+    const s = matchSnippet(body, { words: [], tagTerms: ['nig'] });
+    expect(s).toContain('#night');
+  });
+
+  it('copes with a very long word before the match', () => {
+    const body = `Title\n${'x'.repeat(200)} needle tail`;
+    const s = matchSnippet(body, words('needle'));
+    expect(Array.from(s).length).toBeLessThanOrEqual(120);
+    expect(s).toContain('needle');
+  });
+
+  it('switches to a snippet exactly where the preview stops showing the match', () => {
+    const at = (p: number) => `Title\n${'a'.repeat(p)}zz${'a'.repeat(100)}`;
+    // the preview shows 119 characters, then "…"
+    expect(matchSnippet(at(117), words('zz'))).toBe(notePreview(at(117)));
+    expect(matchSnippet(at(100), words('zz'))).toBe(notePreview(at(100)));
+    expect(matchSnippet(at(118), words('zz'))).not.toBe(notePreview(at(118)));
+    expect(matchSnippet(at(118), words('zz'))).toContain('zz');
+    expect(matchSnippet(at(130), words('zz'))).toContain('zz');
+  });
+
+  it('is the full text when the whole text fits in the limit', () => {
+    const body = `Title\n${'a'.repeat(118)}zz`;
+    expect(matchSnippet(body, words('zz'))).toBe(`${'a'.repeat(118)}zz`);
+  });
+
+  it('starts the excerpt on a whole word', () => {
+    const vocab = ['lorem', 'ipsum', 'dolor', 'sit', 'amet'];
+    for (let pad = 0; pad < 8; pad += 1) {
+      const body = `Title\n${'q'.repeat(pad)} ${filler(12)}needle ${filler(4)}`;
+      const s = matchSnippet(body, words('needle'));
+      const first = s.slice(1).split(' ')[0];
+      expect(vocab).toContain(first);
+    }
+  });
+
+  it('keeps a matched tag recognisable when a long unbroken token precedes it', () => {
+    const body = `Title\n${'x'.repeat(200)}${'y'.repeat(30)} #night ${filler(3)}`;
+    const parsed = { words: [] as string[], tagTerms: ['night'] };
+    const s = matchSnippet(body, parsed);
+    expect(s).toContain('#night');
+    expect(highlightRanges(s, parsed).length).toBeGreaterThan(0);
+    expect(Array.from(s).length).toBeLessThanOrEqual(120);
+  });
+
+  it('keeps word matches and the 120 cap with and without a "#" at the cut', () => {
+    for (let pad = 20; pad < 50; pad += 1) {
+      const body = `Title\n${'x'.repeat(150)}${'y'.repeat(pad)} #night needle ${filler(3)}`;
+      for (const parsed of [words('needle'), { words: [], tagTerms: ['night'] }]) {
+        const s = matchSnippet(body, parsed);
+        expect(Array.from(s).length).toBeLessThanOrEqual(120);
+        expect(highlightRanges(s, parsed).length).toBeGreaterThan(0);
+      }
+    }
   });
 });

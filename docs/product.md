@@ -31,7 +31,7 @@ Use these terms consistently in UI copy, code and data models. Status: **Built**
 | Body             | The markdown text of a note, including its first line.                                                                                                                                         |
 | Voice note       | An audio recording attached to a note (a note can have several), shown as a card with play, a waveform and a close button; tapping a card opens the expanded view.                             |
 | Transcript       | The text of a voice note produced by on-device transcription, added to the body. A new voice note is transcribed automatically after recording, on the device only (not verified on a device). |
-| Today view       | A smart view in the drawer: notes created today.                                                                                                                                               |
+| Today view       | A smart view in the drawer: notes written or edited today (updated or created on the local day). Pinning and restoring do not count as an edit.                                                |
 | Todo view        | A smart view: notes that contain at least one checkbox line.                                                                                                                                   |
 | Untagged view    | A smart view: notes with no tag.                                                                                                                                                               |
 | Pinned           | A smart view of the notes the user pinned; also the act of pinning a note.                                                                                                                     |
@@ -89,11 +89,11 @@ Status: **Built** (the launch note since the 7a cutover; resume on a new day sin
 
 ### Note list and drawer
 
-Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is All Notes); row swipe actions (Pin, Delete) are **Built** (7b-3). Not yet verified on a device.
+Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is Today); row swipe actions (Pin, Delete) are **Built** (7b-3). Not yet verified on a device.
 
 - The main screen is a note list: each row shows the title, a short preview of the body and a relative time in full words ("2 seconds ago", "37 minutes ago", "3 hours ago", "2 days ago", then a short date from 7 days on; "Just now" for under a second). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
 - A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view, the list of tags, **Recently Deleted**, and **Settings**.
-- **Smart views** (chosen from the dropdown): **Today** (notes created today), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
+- **Smart views** (chosen from the dropdown): **Today** (notes written or edited today; the default view), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
 - Tags in the drawer are flat, shown with how many notes use them, sorted alphabetically. Open: whether the drawer shows every tag or only the most used.
 - Which day a note belongs to follows when it was first stored, in the device's local time.
 - Rows swipe left to reveal **Pin** (or **Unpin**) and, in red, **Delete** (this moves the note to Recently Deleted at once, with no confirmation and no undo; Recently Deleted is the way back). Screen readers get "Pin"/"Unpin" and "Delete" actions on every row instead of the swipe. Rows do not swipe while another trash action is running (**Built**).
