@@ -1,7 +1,14 @@
-import { useNavigation, usePreventRemove } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, usePreventRemove } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  Animated,
+  BackHandler,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useAppFlow } from '../app/AppFlowProvider';
 import { NotesDrawer } from '../components/NotesDrawer';
@@ -12,7 +19,7 @@ import { drawerWidthFor, useDrawerProgress } from '../hooks/useDrawerProgress';
 import { useNow } from '../hooks/useNow';
 import { NoteEditorWithVoice } from '../screens/NoteEditorWithVoice';
 import { NoteListScreen } from '../screens/NoteListScreen';
-import { NoteSearchScreen } from '../screens/NoteSearchScreen';
+import { NoteSearchPanel, SearchHeader } from '../screens/NoteSearchPanel';
 import { RecentlyDeletedScreen } from '../screens/RecentlyDeletedScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { colors } from '../theme';
@@ -30,6 +37,14 @@ import type { NotesStackParamList } from './NotesNavigator';
 // other means never returns to an open drawer. It closes by tapping the visible strip of the page,
 // dragging left, or Android back (the drawer handles it while open); on the list otherwise back
 // exits the app. A swipe from the left edge opens it (`useDrawerGesture`).
+//
+// Search is a state of this route, not a screen: the search icon turns the list header into the
+// search field and draws the results over the list body. The query and the selected chips live
+// here, so they survive a note being opened over the list (this route stays mounted under the
+// pushed Editor) and are cleared when search closes. Results come from the provider's note list, so
+// a note edited or trashed meanwhile is current when the user comes back. No timers, no debounce.
+// Search closes with the arrow or Android back (the handler is on only while this route is
+// focused and searching, so an editor pushed over it keeps its own back), or when the drawer opens.
 export function NotesRoute() {
   const navigation = useNavigation<NativeStackNavigationProp<NotesStackParamList>>();
   const {
@@ -49,12 +64,21 @@ export function NotesRoute() {
   const { progress, animateTo } = useDrawerProgress();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rowOpen, setRowOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const closeSearch = useCallback(() => {
+    setSearching(false);
+    setQuery('');
+    setSelectedTags([]);
+  }, [setQuery]);
   const setOpen = useCallback(
     (open: boolean) => {
+      if (open) closeSearch();
       setDrawerOpen(open);
       animateTo(open ? 1 : 0);
     },
-    [animateTo],
+    [animateTo, closeSearch],
   );
   const closeDrawer = useCallback(() => setOpen(false), [setOpen]);
   useEffect(() => navigation.addListener('blur', closeDrawer), [navigation, closeDrawer]);
@@ -63,7 +87,12 @@ export function NotesRoute() {
     progress,
     width,
     open: drawerOpen,
-    enabled: drawerGestureEnabled({ open: drawerOpen, rowOpen, swipeDisabled: trashBusy }),
+    enabled: drawerGestureEnabled({
+      open: drawerOpen,
+      rowOpen,
+      searching,
+      swipeDisabled: trashBusy,
+    }),
     onSettle: setOpen,
   });
 
@@ -79,8 +108,29 @@ export function NotesRoute() {
   const unreadable = notes.indexStatus === 'unreadable';
   const openSearch = () => {
     setOpen(false);
-    if (navigation.isFocused()) navigation.navigate('Search');
+    setSearching(true);
   };
+  useFocusEffect(
+    useCallback(() => {
+      if (!searching) return;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        closeSearch();
+        return true;
+      });
+      return () => sub.remove();
+    }, [searching, closeSearch]),
+  );
+  const { sections, resultCount } = useMemo(() => {
+    if (!searching) return { sections: [], resultCount: 0 };
+    const results = searchResults(notes.all, query, selectedTags);
+    return { sections: monthSections(results, now), resultCount: results.length };
+  }, [searching, notes.all, query, selectedTags, now]);
+  const chips = useMemo(() => searchChips(notes.tags, selectedTags), [notes.tags, selectedTags]);
+  const toggleTag = useCallback(
+    (tag: string) =>
+      setSelectedTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag])),
+    [],
+  );
 
   const pageX = progress.interpolate({
     inputRange: [0, 1],
@@ -141,6 +191,34 @@ export function NotesRoute() {
               onDeleteNote={(id) => void trashNote(id)}
               swipeDisabled={trashBusy}
               onRowOpenChange={setRowOpen}
+              searchHeader={
+                searching ? (
+                  <SearchHeader
+                    query={query}
+                    onChangeQuery={setQuery}
+                    onClose={closeSearch}
+                    disabled={unreadable}
+                  />
+                ) : undefined
+              }
+              searchPanel={
+                searching ? (
+                  <NoteSearchPanel
+                    query={query}
+                    selectedTags={selectedTags}
+                    onToggleTag={toggleTag}
+                    chips={chips}
+                    sections={sections}
+                    resultCount={resultCount}
+                    now={now}
+                    indexStatus={notes.indexStatus}
+                    onOpenNote={(id) => {
+                      setOpen(false);
+                      openNote(id);
+                    }}
+                  />
+                ) : undefined
+              }
             />
           </View>
           <Animated.View pointerEvents="none" style={[styles.fill, styles.dim, { opacity: dim }]} />
@@ -285,43 +363,6 @@ export function RecentlyDeletedRoute() {
       onRestore={(id) => void restoreNote(id)}
       onDeleteForever={requestDeleteForever}
       onEmpty={requestEmptyTrash}
-    />
-  );
-}
-
-// Search as a route of its own. The query and the selected chips are local to the route, so they
-// survive a note being opened over it (the editor is pushed on top) and are gone once Search is
-// popped. Results come from the provider's note list, so a note edited or trashed meanwhile is
-// current when the user comes back. No timers, no debounce.
-export function SearchRoute() {
-  const navigation = useNavigation();
-  const { notes, openNote } = useAppFlow();
-  const now = useNow();
-  const [query, setQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const { sections, resultCount } = useMemo(() => {
-    const results = searchResults(notes.all, query, selectedTags);
-    return { sections: monthSections(results, now), resultCount: results.length };
-  }, [notes.all, query, selectedTags, now]);
-  const chips = useMemo(() => searchChips(notes.tags, selectedTags), [notes.tags, selectedTags]);
-  const toggleTag = useCallback(
-    (tag: string) =>
-      setSelectedTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag])),
-    [],
-  );
-  return (
-    <NoteSearchScreen
-      query={query}
-      onChangeQuery={setQuery}
-      selectedTags={selectedTags}
-      onToggleTag={toggleTag}
-      chips={chips}
-      sections={sections}
-      resultCount={resultCount}
-      now={now}
-      indexStatus={notes.indexStatus}
-      onOpenNote={openNote}
-      onBack={() => navigation.goBack()}
     />
   );
 }

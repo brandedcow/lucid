@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,19 +8,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { listClearance } from '../components/NewNoteButton';
 import { NoteRow } from '../components/NoteRow';
 import { SearchIcon } from '../components/SearchIcon';
 import { Note } from '../services/notesStorage';
-import { colors, fonts, spacing } from '../theme';
-import { MonthSection } from '../utils/noteSearch';
+import { colors, spacing } from '../theme';
+import { MonthSection, parseQuery } from '../utils/noteSearch';
 import { NoteRowData, noteRow } from '../utils/noteRow';
 import { TagCount } from '../utils/noteViews';
 
 /** All wording of Search, in one place. */
 export const SEARCH_COPY = {
-  back: 'Back to notes',
-  title: 'Search',
+  close: 'Close search',
   fieldLabel: 'Search notes',
   placeholder: 'Search',
   clear: 'Clear search',
@@ -32,7 +32,6 @@ export const SEARCH_COPY = {
 type Props = {
   /** The text in the field, exactly as typed (never trimmed here). */
   query: string;
-  onChangeQuery: (query: string) => void;
   selectedTags: readonly string[];
   onToggleTag: (tag: string) => void;
   /** The chips to show (see `searchChips`). */
@@ -43,7 +42,6 @@ type Props = {
   now: Date;
   indexStatus: 'ok' | 'unreadable';
   onOpenNote: (id: string) => void;
-  onBack: () => void;
 };
 
 function TagChip({
@@ -78,15 +76,80 @@ function TagChip({
   );
 }
 
+/** The count line: "1 note found" / "N notes found". */
+export function foundText(count: number): string {
+  return count === 1 ? '1 note found' : `${count} notes found`;
+}
+
+type HeaderProps = {
+  /** The text in the field, exactly as typed (never trimmed here). */
+  query: string;
+  onChangeQuery: (query: string) => void;
+  onClose: () => void;
+  /** The index is unreadable: the field is disabled. */
+  disabled?: boolean;
+};
+
 /**
- * The Search page. Props only: no storage, no navigation. Header (back arrow, title), the field
- * with a clear button, a horizontal row of tag chips, then month-grouped results as note rows (no
- * swipe), or one of: the hint (nothing typed or selected), "No notes found.", or the unreadable
- * message (field disabled).
+ * The search field that takes the place of the note list header while searching: a "Close search"
+ * arrow, the field (focused on mount, return key "search") and a clear button. Props only.
  */
-export function NoteSearchScreen({
+export function SearchHeader({ query, onChangeQuery, onClose, disabled = false }: HeaderProps) {
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={SEARCH_COPY.close}
+        onPress={onClose}
+        hitSlop={12}
+        style={styles.iconButton}
+      >
+        <Text style={styles.back} accessible={false}>
+          ←
+        </Text>
+      </Pressable>
+      <View style={styles.field}>
+        <View style={styles.glyph}>
+          <SearchIcon />
+        </View>
+        <TextInput
+          autoFocus
+          value={query}
+          onChangeText={onChangeQuery}
+          editable={!disabled}
+          placeholder={SEARCH_COPY.placeholder}
+          placeholderTextColor={colors.muted}
+          accessibilityLabel={SEARCH_COPY.fieldLabel}
+          returnKeyType="search"
+          autoCorrect={false}
+          style={styles.input}
+        />
+        {query !== '' && !disabled && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={SEARCH_COPY.clear}
+            onPress={() => onChangeQuery('')}
+            hitSlop={8}
+            style={styles.clear}
+          >
+            <Text style={styles.clearGlyph} accessible={false}>
+              ×
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </>
+  );
+}
+
+/**
+ * The search results, drawn over the note list body: a row of tag chips, the "N notes found" line
+ * (a polite live region), then month-grouped results as note rows with the matches highlighted (no
+ * swipe), or one of: the hint (nothing typed or selected), "No notes found.", or the unreadable
+ * message. Props only: no storage, no navigation.
+ */
+export function NoteSearchPanel({
   query,
-  onChangeQuery,
   selectedTags,
   onToggleTag,
   chips,
@@ -95,18 +158,18 @@ export function NoteSearchScreen({
   now,
   indexStatus,
   onOpenNote,
-  onBack,
 }: Props) {
   const insets = useSafeAreaInsets();
   const unreadable = indexStatus === 'unreadable';
   const idle = query.trim() === '' && selectedTags.length === 0;
+  const parsed = useMemo(() => parseQuery(query), [query]);
 
   const renderItem = useCallback(
     ({ item }: { item: Note }) => {
-      const row: NoteRowData = noteRow(item, now);
+      const row: NoteRowData = noteRow(item, now, parsed);
       return <NoteRow row={row} onOpen={onOpenNote} />;
     },
-    [now, onOpenNote],
+    [now, parsed, onOpenNote],
   );
   const keyExtractor = useCallback((n: Note) => n.id, []);
 
@@ -125,90 +188,46 @@ export function NoteSearchScreen({
     );
   } else if (resultCount === 0) {
     body = (
-      <View style={styles.empty}>
+      <View style={styles.empty} accessibilityLiveRegion="polite">
         <Text style={styles.emptyText}>{SEARCH_COPY.noMatch}</Text>
       </View>
     );
   } else {
     body = (
-      <SectionList<Note, MonthSection>
-        testID="search-results"
-        sections={sections as MonthSection[]}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.month} accessibilityRole="header">
-            {section.title}
-          </Text>
-        )}
-        stickySectionHeadersEnabled={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        initialNumToRender={12}
-        windowSize={9}
-        contentContainerStyle={{ paddingBottom: insets.bottom + spacing.lg }}
-      />
+      <>
+        <View accessibilityLiveRegion="polite">
+          <Text style={styles.found}>{foundText(resultCount)}</Text>
+        </View>
+        <SectionList<Note, MonthSection>
+          testID="search-results"
+          sections={sections as MonthSection[]}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => (
+            <Text style={styles.month} accessibilityRole="header">
+              {section.title}
+            </Text>
+          )}
+          stickySectionHeadersEnabled={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          initialNumToRender={12}
+          windowSize={9}
+          contentContainerStyle={{ paddingBottom: listClearance(insets.bottom) }}
+        />
+      </>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={SEARCH_COPY.back}
-          onPress={onBack}
-          hitSlop={12}
-          style={styles.iconButton}
-        >
-          <Text style={styles.back} accessible={false}>
-            ←
-          </Text>
-        </Pressable>
-        <Text style={styles.title} accessibilityRole="header">
-          {SEARCH_COPY.title}
-        </Text>
-      </View>
-
-      <View style={styles.field}>
-        <View style={styles.glyph}>
-          <SearchIcon />
-        </View>
-        <TextInput
-          autoFocus
-          value={query}
-          onChangeText={onChangeQuery}
-          editable={!unreadable}
-          placeholder={SEARCH_COPY.placeholder}
-          placeholderTextColor={colors.muted}
-          accessibilityLabel={SEARCH_COPY.fieldLabel}
-          returnKeyType="search"
-          autoCorrect={false}
-          style={styles.input}
-        />
-        {query !== '' && !unreadable && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={SEARCH_COPY.clear}
-            onPress={() => onChangeQuery('')}
-            hitSlop={8}
-            style={styles.clear}
-          >
-            <Text style={styles.clearGlyph} accessible={false}>
-              ×
-            </Text>
-          </Pressable>
-        )}
-      </View>
-
+    <View style={styles.container} testID="search-panel">
       {!unreadable && chips.length > 0 && (
         <View style={styles.chipScroll}>
           <ChipRow chips={chips} selectedTags={selectedTags} onToggleTag={onToggleTag} />
         </View>
       )}
-
       <View style={styles.body}>{body}</View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -242,24 +261,14 @@ function ChipRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 56,
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.lg,
-    paddingTop: spacing.sm,
-  },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   back: { color: colors.text, fontSize: 24 },
-  title: { color: colors.text, fontFamily: fonts.serif, fontSize: 28 },
   field: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 44,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
+    marginRight: spacing.sm,
     borderRadius: 22,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -300,6 +309,12 @@ const styles = StyleSheet.create({
   chipText: { color: colors.muted, fontSize: 14 },
   chipTextSelected: { color: colors.emotionChipText },
   body: { flex: 1 },
+  found: {
+    color: colors.muted,
+    fontSize: 13,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+  },
   month: {
     color: colors.muted,
     fontSize: 12,

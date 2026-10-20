@@ -182,4 +182,25 @@ describe('NoteListScreen', () => {
       jest.restoreAllMocks();
     });
   });
+
+  it('while searching, the search header replaces the title row and the panel is drawn over the list', async () => {
+    await setup({
+      searchHeader: <Text>the-field</Text>,
+      searchPanel: <Text>the-results</Text>,
+    });
+    expect(screen.getByText('the-field')).toBeTruthy();
+    expect(screen.getByText('the-results')).toBeTruthy();
+    expect(screen.queryByLabelText('Open menu')).toBeNull();
+    expect(screen.queryByRole('header', { name: 'All Notes' })).toBeNull();
+    // The list stays mounted underneath but is hidden from screen readers.
+    expect(screen.getByTestId('note-list', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByTestId('note-list')).toBeNull();
+    expect(screen.getByLabelText('New note')).toBeTruthy();
+  });
+
+  it('without a search header it shows the menu button and title, and no panel', async () => {
+    await setup({ searchPanel: <Text>the-results</Text> });
+    expect(screen.getByLabelText('Open menu')).toBeTruthy();
+    expect(screen.queryByText('the-results')).toBeNull();
+  });
 });

@@ -47,13 +47,13 @@ describe('App (notes shell)', () => {
     expect(screen.queryByTestId('note-page')).toBeNull();
   });
 
-  it('the search icon opens Search, and back returns to the list', async () => {
+  it('the search icon opens the search field over the list, and Close search returns to it', async () => {
     await writeSettings({ autoOpenNewNote: false });
     await render(<App />);
     await waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: 'Search notes' }));
     expect(await screen.findByText('Search your notes by words or #tags.')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Back to notes'));
+    await fireEvent.press(screen.getByLabelText('Close search'));
     await waitFor(() => expect(screen.getByRole('header', { name: 'Today' })).toBeTruthy());
   });
 });

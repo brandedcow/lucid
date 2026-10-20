@@ -71,6 +71,13 @@ type Props = {
   swipeDisabled?: boolean;
   /** Called with true when a swipe row opens and false when none is open (the drawer swipe waits). */
   onRowOpenChange?: (open: boolean) => void;
+  /**
+   * While searching: replaces the header row (menu button, title, `rightSlot`) with the search
+   * field. The list stays mounted underneath.
+   */
+  searchHeader?: ReactNode;
+  /** While searching: drawn over the list body; the list is hidden from screen readers. */
+  searchPanel?: ReactNode;
 };
 
 /** Three bars drawn with Views. Hidden from screen readers; the button names it. */
@@ -132,6 +139,8 @@ export function NoteListScreen({
   onDeleteNote,
   swipeDisabled = false,
   onRowOpenChange,
+  searchHeader,
+  searchPanel,
 }: Props) {
   const insets = useSafeAreaInsets();
 
@@ -177,9 +186,10 @@ export function NoteListScreen({
     if (wasDrawerOpen.current && !drawerOpen) focusNode(menuRef.current);
     wasDrawerOpen.current = drawerOpen;
   }, [drawerOpen]);
+  const searching = searchHeader !== undefined;
   useEffect(() => {
-    if (drawerOpen) closeOpenRow();
-  }, [drawerOpen, closeOpenRow]);
+    if (drawerOpen || searching) closeOpenRow();
+  }, [drawerOpen, searching, closeOpenRow]);
   const handleOpen = useCallback(
     (id: string) => {
       closeOpenRow();
@@ -257,22 +267,37 @@ export function NoteListScreen({
         importantForAccessibility={drawerOpen ? 'no-hide-descendants' : 'auto'}
       >
         <View style={styles.header}>
-          <Pressable
-            ref={menuRef}
-            accessibilityRole="button"
-            accessibilityLabel={LIST_COPY.openMenu}
-            onPress={onOpenMenu}
-            style={styles.iconButton}
-          >
-            <MenuIcon />
-          </Pressable>
-          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-            {title}
-          </Text>
-          <View style={styles.right}>{rightSlot}</View>
+          {searching ? (
+            searchHeader
+          ) : (
+            <>
+              <Pressable
+                ref={menuRef}
+                accessibilityRole="button"
+                accessibilityLabel={LIST_COPY.openMenu}
+                onPress={onOpenMenu}
+                style={styles.iconButton}
+              >
+                <MenuIcon />
+              </Pressable>
+              <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+                {title}
+              </Text>
+              <View style={styles.right}>{rightSlot}</View>
+            </>
+          )}
         </View>
         {migrationNotice && <NoticeLine notice={migrationNotice} />}
-        <View style={styles.body}>{body}</View>
+        <View style={styles.body}>
+          <View
+            style={styles.listLayer}
+            accessibilityElementsHidden={searching}
+            importantForAccessibility={searching ? 'no-hide-descendants' : 'auto'}
+          >
+            {body}
+          </View>
+          {searching && searchPanel && <View style={styles.searchLayer}>{searchPanel}</View>}
+        </View>
       </SafeAreaView>
       <NewNoteButton onPress={onNewNote} disabled={newNoteDisabled} bottomInset={insets.bottom} />
     </View>
@@ -294,6 +319,8 @@ const styles = StyleSheet.create({
   title: { flex: 1, color: colors.text, fontFamily: fonts.serif, fontSize: 28 },
   right: { minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
   body: { flex: 1 },
+  listLayer: { flex: 1 },
+  searchLayer: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
   menuBox: { width: 22, height: 18, justifyContent: 'space-between' },
   menuBar: { height: 2, borderRadius: 1, backgroundColor: colors.muted },
   notice: {

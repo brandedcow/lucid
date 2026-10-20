@@ -5,18 +5,13 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { BackHandler, PanResponder, Platform } from 'react-native';
+import { BackHandler, PanResponder, Platform, StyleSheet } from 'react-native';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { State } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Note } from '../services/notesStorage';
-import {
-  EditorRoute,
-  NotesRoute,
-  NotesSettingsRoute,
-  RecentlyDeletedRoute,
-  SearchRoute,
-} from './notesRoutes';
+import { colors } from '../theme';
+import { EditorRoute, NotesRoute, NotesSettingsRoute, RecentlyDeletedRoute } from './notesRoutes';
 
 // A stand-in Swipeable that records its instances, so a test can open and close a row by hand
 // (the real one needs a device). It renders content and actions like the real one.
@@ -134,7 +129,6 @@ type Params = {
   Editor: undefined;
   Settings: undefined;
   RecentlyDeleted: undefined;
-  Search: undefined;
 };
 const Stack = createNativeStackNavigator<Params>();
 const METRICS = {
@@ -238,7 +232,6 @@ function Tree({ initial }: { initial: (keyof Params)[] }) {
           <Stack.Screen name="Editor" component={EditorRoute} options={{ gestureEnabled: false }} />
           <Stack.Screen name="Settings" component={NotesSettingsRoute} />
           <Stack.Screen name="RecentlyDeleted" component={RecentlyDeletedRoute} />
-          <Stack.Screen name="Search" component={SearchRoute} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
@@ -510,7 +503,7 @@ describe('NotesRoute drawer behind the page', () => {
   it('closes when the route loses focus', async () => {
     await render(<Tree initial={['Notes']} />);
     await fireEvent.press(screen.getByLabelText('Open menu'));
-    await act(async () => ref.navigate('Search'));
+    await act(async () => ref.navigate('Settings'));
     await act(async () => ref.goBack());
     expect(drawerRoot().props.pointerEvents).toBe('none');
   });
@@ -721,121 +714,263 @@ describe('RecentlyDeletedRoute and NotesSettingsRoute', () => {
   });
 });
 
-describe('Search wiring', () => {
-  // No open session, so the editor over Search does not prevent its own removal.
-  beforeEach(() => setFlow({ session: null }));
+describe('Inline search', () => {
+  // No open session, so the editor over the list does not prevent its own removal.
+  const LONG = `Long note\n${'x'.repeat(200)} lighthouse ending`;
+  const TRASHED = { ...note('t', 'Second trashed'), deletedAt: '2026-10-18T10:00:00.000Z' };
+  const flowNotes = (all: Note[], over: Record<string, unknown> = {}) => ({
+    loaded: true,
+    visible: all.filter((n) => !('deletedAt' in n)),
+    all,
+    tags: [{ tag: 'night', count: 1 }],
+    trashed: all.filter((n) => 'deletedAt' in n),
+    indexStatus: 'ok',
+    ...over,
+  });
+  const NOTES = [
+    note('a', 'Quiet harbour\nThe quiet harbour at dawn #night'),
+    note('b', 'Second note'),
+    note('c', LONG),
+    TRASHED,
+  ];
+  let backHandlers: (() => boolean | null | undefined)[];
+  beforeEach(() => {
+    setFlow({ session: null, notes: flowNotes(NOTES) });
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    backHandlers = [];
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, h) => {
+      backHandlers.push(h as () => boolean);
+      return { remove: () => void backHandlers.splice(backHandlers.indexOf(h as never), 1) };
+    });
+  });
   const openSearch = () => fireEvent.press(screen.getByLabelText('Search notes'));
-  const field = () => screen.getByLabelText('Search notes', { includeHiddenElements: false });
+  const field = () => screen.getByPlaceholderText('Search');
+  const type = (text: string) => fireEvent.changeText(field(), text);
+  const searchOpen = () => screen.queryByPlaceholderText('Search') !== null;
+  const isHit = (text: string) =>
+    screen
+      .queryAllByText(text, { exact: false })
+      .some((t) => StyleSheet.flatten(t.props.style)?.backgroundColor === colors.highlight);
+  const backNow = async () => {
+    let handled: boolean | null | undefined;
+    await act(async () => {
+      handled = backHandlers[backHandlers.length - 1]();
+    });
+    return handled;
+  };
+  const drag = (translationX: number, velocityX = 0) =>
+    act(async () => {
+      fireGestureHandler(getByGestureTestId('drawer-pan'), [
+        { state: State.BEGAN, x: 5 },
+        { state: State.ACTIVE, translationX: translationX / 2 },
+        { state: State.ACTIVE, translationX },
+        { state: State.END, translationX, velocityX },
+      ]);
+    });
 
-  it('the header search icon pushes Search, once', async () => {
+  it('the icon turns the header into a focused search field, in place (no new route)', async () => {
     await render(<Tree initial={['Notes']} />);
+    expect(searchOpen()).toBe(false);
     await openSearch();
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Search notes', includeHiddenElements: true }),
-    );
-    expect(names()).toEqual(['Notes', 'Search']);
+    expect(searchOpen()).toBe(true);
+    expect(field().props.autoFocus).toBe(true);
+    expect(field().props.returnKeyType).toBe('search');
+    expect(screen.queryByLabelText('Open menu')).toBeNull();
+    expect(screen.queryByRole('header', { name: 'All Notes' })).toBeNull();
+    expect(screen.getByLabelText('Close search')).toBeTruthy();
     expect(screen.getByText('Search your notes by words or #tags.')).toBeTruthy();
+    expect(names()).toEqual(['Notes']);
+  });
+
+  it('the list below is hidden from screen readers while searching, and back to normal after', async () => {
+    await render(<Tree initial={['Notes']} />);
+    const list = () => screen.getByTestId('note-list', { includeHiddenElements: true });
+    const layer = () => {
+      let n = list().parent;
+      while (n && n.props.importantForAccessibility === undefined) n = n.parent;
+      return n as never as { props: Record<string, unknown> };
+    };
+    await openSearch();
+    expect(layer().props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(layer().props.accessibilityElementsHidden).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Close search'));
+    expect(layer().props.importantForAccessibility).toBe('auto');
   });
 
   it('hides the icon when the index is unreadable', async () => {
-    setFlow({
-      notes: {
-        loaded: true,
-        visible: [],
-        all: [],
-        tags: [],
-        trashed: [],
-        indexStatus: 'unreadable',
-      },
-    });
+    setFlow({ notes: flowNotes([], { indexStatus: 'unreadable' }) });
     await render(<Tree initial={['Notes']} />);
     expect(screen.queryByLabelText('Search notes')).toBeNull();
   });
 
   it('typing filters, a chip narrows, and a trashed note never appears', async () => {
-    const trashed = { ...note('t', 'Second trashed'), deletedAt: '2026-10-18T10:00:00.000Z' };
-    setFlow({
-      notes: {
-        loaded: true,
-        visible: [],
-        all: [note('a', 'First note #night'), note('b', 'Second note'), trashed],
-        tags: [{ tag: 'night', count: 1 }],
-        trashed: [trashed],
-        indexStatus: 'ok',
-      },
-    });
-    await render(<Tree initial={['Notes', 'Search']} />);
-    await fireEvent.changeText(field(), 'note');
-    expect(screen.getByLabelText(/First note/)).toBeTruthy();
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('note');
     expect(screen.getByLabelText(/Second note/)).toBeTruthy();
-    await fireEvent.changeText(field(), 'second');
+    expect(screen.getByLabelText(/Long note/)).toBeTruthy();
+    await type('second');
     expect(screen.queryByLabelText(/Second trashed/)).toBeNull();
     expect(screen.getByLabelText(/Second note/)).toBeTruthy();
-    await fireEvent.changeText(field(), '');
+    await type('');
     await fireEvent.press(screen.getByLabelText('#night'));
-    expect(screen.getByLabelText(/First note/)).toBeTruthy();
+    expect(screen.getByLabelText(/Quiet harbour/)).toBeTruthy();
     expect(screen.queryByLabelText(/Second note/)).toBeNull();
   });
 
-  it('shows the count and the sections from the same results', async () => {
-    await render(<Tree initial={['Notes', 'Search']} />);
-    await fireEvent.changeText(field(), 'zzz');
-    expect(screen.getByText('No notes found.')).toBeTruthy();
-    await fireEvent.changeText(field(), 'note');
-    expect(screen.getByText('OCTOBER')).toBeTruthy();
+  it('highlights the match in the title, the preview and the tag line', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('harbour');
+    expect(isHit('Harbour')).toBe(true);
+    expect(isHit('harbour')).toBe(true);
+    await type('#nig');
+    expect(isHit('#nig')).toBe(true);
+    await type('zzz');
+    expect(isHit('zzz')).toBe(false);
   });
 
-  it('opening a result hands the id to the provider; the query is kept while the editor is over Search', async () => {
-    await render(<Tree initial={['Notes', 'Search']} />);
-    await fireEvent.changeText(field(), 'second');
+  it('shows an excerpt around a match that is beyond the preview', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('lighthouse');
+    expect(isHit('lighthouse')).toBe(true);
+    expect(screen.getByText(/…/, { exact: false })).toBeTruthy();
+  });
+
+  it('shows the count from the same results as the sections, and "No notes found."', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('zzz');
+    expect(screen.getByText('No notes found.')).toBeTruthy();
+    expect(screen.queryByText(/notes? found$/)).toBeNull();
+    await type('note');
+    expect(screen.getByText('2 notes found')).toBeTruthy();
+    expect(screen.getByText('OCTOBER')).toBeTruthy();
+    expect(screen.getByText('2 notes found').parent?.props.accessibilityLiveRegion).toBe('polite');
+    await type('lighthouse');
+    expect(screen.getByText('1 note found')).toBeTruthy();
+  });
+
+  it('clearing the field keeps search open', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('note');
+    await fireEvent.press(screen.getByLabelText('Clear search'));
+    expect(field().props.value).toBe('');
+    expect(screen.getByText('Search your notes by words or #tags.')).toBeTruthy();
+  });
+
+  it('Close search returns to the list and clears the query and the chips', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('note');
+    await fireEvent.press(screen.getByLabelText('#night'));
+    await fireEvent.press(screen.getByLabelText('Close search'));
+    expect(searchOpen()).toBe(false);
+    expect(screen.getByLabelText('Open menu')).toBeTruthy();
+    await openSearch();
+    expect(field().props.value).toBe('');
+    expect(screen.getByLabelText('#night').props.accessibilityState).toEqual({ selected: false });
+  });
+
+  it('Android Back closes search first (and clears it); with search closed Back is left to the app', async () => {
+    await render(<Tree initial={['Notes']} />);
+    const before = backHandlers.length;
+    await openSearch();
+    await type('note');
+    expect(backHandlers).toHaveLength(before + 1);
+    expect(await backNow()).toBe(true);
+    expect(searchOpen()).toBe(false);
+    expect(backHandlers).toHaveLength(before);
+    await openSearch();
+    expect(field().props.value).toBe('');
+    expect(names()).toEqual(['Notes']);
+  });
+
+  it('opening a result pushes the editor via the provider; the query and results are kept on return', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('second');
     await fireEvent.press(screen.getByLabelText(/Second note/));
     expect(fn.openNote).toHaveBeenCalledWith('b');
-    // The provider pushes Editor; leaving pops back to the same Search route instance.
     await act(async () => ref.navigate('Editor'));
-    expect(names()).toEqual(['Notes', 'Search', 'Editor']);
+    expect(names()).toEqual(['Notes', 'Editor']);
     await act(async () => ref.goBack());
-    expect(names()).toEqual(['Notes', 'Search']);
+    expect(names()).toEqual(['Notes']);
     expect(field().props.value).toBe('second');
+    expect(screen.getByLabelText(/Second note/)).toBeTruthy();
   });
 
-  it('a note edited meanwhile shows its new text in the result row', async () => {
-    await render(<Tree initial={['Notes', 'Search']} />);
-    await fireEvent.changeText(field(), 'note');
+  it('Back is not taken by search while the editor is over the list', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    const withSearch = backHandlers.length;
+    await act(async () => ref.navigate('Editor'));
+    expect(backHandlers.length).toBe(withSearch - 1);
+    await act(async () => ref.goBack());
+    expect(backHandlers).toHaveLength(withSearch);
+    expect(await backNow()).toBe(true);
+    expect(searchOpen()).toBe(false);
+  });
+
+  it('a note edited or trashed meanwhile is current when the user comes back', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await type('note');
     await act(async () => ref.navigate('Editor'));
     await update({
-      notes: {
-        ...(mockFlow.current.notes as object),
-        all: [note('a', 'First note edited'), note('b', 'Second note')],
-      },
+      notes: flowNotes([
+        note('a', 'Quiet harbour\nThe quiet harbour at dawn #night'),
+        note('c', LONG),
+        { ...note('b', 'Second note'), deletedAt: '2026-10-18T11:00:00.000Z' },
+        note('d', 'First note edited'),
+      ]),
     });
     await act(async () => ref.goBack());
     expect(screen.getByLabelText(/First note edited/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Second note/)).toBeNull();
+    expect(screen.getByText('2 notes found')).toBeTruthy();
   });
 
-  it('the query is gone once Search is popped and opened again', async () => {
+  it('a launch note pushed over the list while searching returns to the same search', async () => {
     await render(<Tree initial={['Notes']} />);
     await openSearch();
-    await fireEvent.changeText(field(), 'note');
+    await type('harbour');
+    await act(async () => ref.navigate('Editor'));
     await act(async () => ref.goBack());
-    await openSearch();
-    expect(field().props.value).toBe('');
+    expect(searchOpen()).toBe(true);
+    expect(field().props.value).toBe('harbour');
+    expect(screen.getByLabelText(/Quiet harbour/)).toBeTruthy();
   });
 
-  it('the back arrow and Android back return to the list', async () => {
-    await render(<Tree initial={['Notes', 'Search']} />);
-    await fireEvent.press(screen.getByLabelText('Back to notes'));
-    expect(names()).toEqual(['Notes']);
-    await act(async () => ref.navigate('Search'));
-    await act(async () => ref.goBack());
-    expect(names()).toEqual(['Notes']);
-  });
-
-  it('the drawer is closed when the list loses focus by any route', async () => {
+  it('the drawer drag is off while searching and back on once search closes', async () => {
     await render(<Tree initial={['Notes']} />);
-    await fireEvent.press(screen.getByLabelText('Open menu'));
-    expect(await screen.findByLabelText('Settings')).toBeTruthy();
-    await act(async () => ref.navigate('Search'));
-    await act(async () => ref.goBack());
-    await drawerGone();
+    await openSearch();
+    await drag(200, 900);
+    expect(
+      screen.getByTestId('notes-drawer', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('none');
+    expect(screen.queryByLabelText('Close menu')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Close search'));
+    await drag(200, 900);
+    expect(
+      screen.getByTestId('notes-drawer', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('auto');
+  });
+
+  it('the + button stays and starts a new note while searching', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await fireEvent.press(screen.getByLabelText('New note'));
+    expect(fn.openNewNote).toHaveBeenCalledTimes(1);
+  });
+
+  it('the unreadable index disables the field and shows the message', async () => {
+    await render(<Tree initial={['Notes']} />);
+    await openSearch();
+    await update({ notes: flowNotes([], { indexStatus: 'unreadable' }) });
+    expect(field().props.editable).toBe(false);
+    expect(screen.getByText('Your notes could not be read. Nothing was changed.')).toBeTruthy();
   });
 });

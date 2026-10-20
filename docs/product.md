@@ -95,7 +95,7 @@ Status: **Built** for the list, the drawer views and migration lines (since the 
 - A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view, the list of tags, **Recently Deleted**, and **Settings**.
 - **Smart views** (chosen from the dropdown): **Today** (notes written or edited today; the default view), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
 - Tags in the drawer are flat, shown with how many notes use them, sorted alphabetically. Open: whether the drawer shows every tag or only the most used.
-- Which day a note belongs to follows when it was first stored, in the device's local time.
+- Which day a note belongs to follows when it was first stored, in the device's local time. Today view is the one exception: it also lists a note edited today (pinning and restoring do not count as an edit), and the launch rule still counts only notes created today.
 - Rows swipe left to reveal **Pin** (or **Unpin**) and, in red, **Delete** (this moves the note to Recently Deleted at once, with no confirmation and no undo; Recently Deleted is the way back). Screen readers get "Pin"/"Unpin" and "Delete" actions on every row instead of the swipe. Rows do not swipe while another trash action is running (**Built**).
 - Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row. Pinning does not change a note's order in the main list, which stays by edit time (**Built**).
 
@@ -123,7 +123,7 @@ Status: **Built** (7b-3): Delete, Recently Deleted, Restore, Delete forever and 
 Status: **Built** (since 7c-3; not verified on a device).
 
 - One field for words and tags, with tag chips under it. It looks in the body (so the title and tags too) of every note, and a result must have all selected tags. Results are newest first, grouped by month. Opening a result and going back returns to the results with the query and chips kept. It is plain text matching on the device, not analysis or interpretation.
-- Recently Deleted notes are not searched. Search opens from a magnifier icon at the right of the note list header (default; the drawer is the alternative). It is a screen of its own: Android back or the arrow returns to the list, and the query and chips are cleared when it closes.
+- Recently Deleted notes are not searched. Search opens from a magnifier icon at the right of the note list header (default; the drawer is the alternative). It is not a screen of its own: the header turns into the search field and the results are shown over the list, with a line "N notes found". Matches are highlighted in the title, the preview and the tag line; when a word is found only beyond the preview, the row shows an excerpt around it. "Close search" (the arrow) or Android back closes it and clears the query and chips; opening a result and coming back keeps them. The drawer cannot be opened while searching.
 
 ### Settings
 
@@ -135,7 +135,7 @@ Status: **Built** (since the 7a cutover, with the label "Open a new note on laun
 
 ### Navigation
 
-Status: **Built**. The routes are Notes (the list, root), Editor, Settings, Recently Deleted and Search, on the native stack.
+Status: **Built**. The routes are Notes (the list, root, which also hosts the drawer and inline search), Editor, Settings and Recently Deleted, on the native stack.
 
 - Android back on the note list exits the app. Back from any other screen returns to where the user came from.
 - Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. It also closes whenever another screen is pushed over the list. Settings and Recently Deleted open from the drawer and go back to the list.

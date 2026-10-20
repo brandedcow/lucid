@@ -35,7 +35,7 @@ App.tsx              entry; wraps the app in AppFlowProvider and NotesNavigator 
 src/
   app/               AppFlowProvider (launch rule, one-time import of older data, trash actions)
   navigation/        NotesNavigator, notesRoutes (Notes, Editor, Settings, Recently Deleted, Search)
-  screens/           NoteListScreen, NoteEditorScreen, NoteEditorWithVoice, NoteSearchScreen, RecentlyDeletedScreen, SettingsScreen
+  screens/           NoteListScreen, NoteEditorScreen, NoteEditorWithVoice, NoteSearchPanel, RecentlyDeletedScreen, SettingsScreen
   components/        NoteBodyInput, NoteToolbar, NotesDrawer, NoteRow, SwipeNoteRow, DeletedNoteRow, RecordingPanel, VoiceNoteCarousel, VoiceAttachmentCard, VoiceNoteSheet, TagSuggestionBar, OverflowMenu, and others
   hooks/             useNotes, useNoteSession, useNoteEditor, useVoiceRecorder, useRecordingPlayback, useRecordingTranscription, useAutoTranscribe, useSettings, useDayMarker, useToday, useLegacyMigration, and others
   services/          notesStorage (notes.json + audio files), legacyImport (one-time read-only import of dreams.json), settingsStorage, dayMarker, recordingFiles, transcription, shareRecording, clipboard

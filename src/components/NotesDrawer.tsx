@@ -116,7 +116,8 @@ export function NotesDrawer({
     extrapolate: 'clamp',
   });
   const smartCurrent = SMART_VIEWS.find((v) => v.kind === view.kind);
-  // A tag or Recently Deleted is not one of the dropdown's options; show the default there.
+  // A tag or Recently Deleted is not one of the dropdown's options; the label falls back to All Notes
+  // there (the neutral broadest name), not to the default view, which is Today.
   const dropdownLabel = viewTitle(smartCurrent ?? { kind: 'all' });
   return (
     <View
