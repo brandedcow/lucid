@@ -295,7 +295,7 @@ export function EditorRoute() {
 
   // All removals (arrow, Android back, iOS swipe) are prevented while a note is open and land in
   // `leaveEditor`. `usePreventRemove` also tells iOS to let the swipe start and report it.
-  const preventRemove = !!openSession && !allowLeave;
+  const preventRemove = (!!openSession || locked) && !allowLeave;
   usePreventRemove(preventRemove, () => void leaveEditor());
 
   // The app's own exit: pops once, in the render after `allowLeave` lowered the prevention.
