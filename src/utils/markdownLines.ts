@@ -3,7 +3,6 @@ import {
   fenceStates,
   inlineSpans,
   isRuleLine,
-  lineExclusions,
   splitLines,
   type FenceState,
   type InlineSpan,
@@ -248,11 +247,9 @@ function tokenizeLine(line: string, eol: string, state: FenceState | null): Mark
   if (kind === 'rule') return { kind, runs: [{ text: line, marker: true }], eol };
 
   const spans = inlineSpans(line);
-  const excluded = lineExclusions(spans);
+  // scanTags applies the same excluded ranges, so tag runs equal scanTags(body) by construction.
   const tags = new Map<number, number>();
-  for (const m of scanTags(line)) {
-    if (!excluded.some(([a, b]) => m.start < b && a < m.end)) tags.set(m.start, m.end);
-  }
+  for (const m of scanTags(line)) tags.set(m.start, m.end);
 
   const builder = new InlineBuilder(line, tags, spans);
   if (indentEnd > 0) builder.run(0, indentEnd, false, false);

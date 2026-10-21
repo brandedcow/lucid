@@ -6,6 +6,7 @@ import {
   type LineKind,
   type MarkdownRun,
 } from './markdownLines';
+import { scanTags } from './inlineTags';
 import { excludedRanges } from './markdownSpans';
 
 const texts = (body: string) => markdownLines(body).map((l) => l.runs.map((r) => r.text));
@@ -620,6 +621,45 @@ describe('markdownLines properties', () => {
         expect(b).toBeLessThanOrEqual(s.length);
         prevEnd = b;
       }
+    }
+  });
+
+  const tagRuns = (body: string) => {
+    const out: { text: string; at: number }[] = [];
+    let at = 0;
+    for (const l of markdownLines(body)) {
+      for (const r of l.runs) {
+        if (r.tag) out.push({ text: r.text, at });
+        at += r.text.length;
+      }
+      at += l.eol.length;
+    }
+    return out;
+  };
+  const scanned = (body: string) =>
+    scanTags(body).map((m) => ({ text: body.slice(m.start, m.end), at: m.start }));
+
+  it.each([
+    '[#x](u)',
+    '[link](#anchor)',
+    '[[#x]]',
+    '`#x`',
+    '```\n#x\n```',
+    '```\n#x',
+    '#a`c`',
+    '#a `c` #b',
+    '- [ ] #a [l](#b) `#c`',
+    '> #q\r\n```\r\n#x\r\n```\r\n#y',
+  ])('tag runs equal scanTags for %j', (body) => {
+    expect(tagRuns(body)).toEqual(scanned(body));
+  });
+
+  it('tag runs equal scanTags(body) for random bodies', () => {
+    for (let i = 0; i < 1500; i++) {
+      let s = '';
+      const n = Math.floor(rnd() * 30);
+      for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)];
+      expect(tagRuns(s)).toEqual(scanned(s));
     }
   });
 });

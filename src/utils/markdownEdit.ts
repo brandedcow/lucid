@@ -1,4 +1,4 @@
-import { markdownLines, parseListPrefix } from './markdownLines';
+import { markdownLineKinds, parseListPrefix, type LineKind } from './markdownLines';
 
 /**
  * Pure markdown edit helpers for the note editor: list continuation on Enter, checkbox toggle and
@@ -32,6 +32,13 @@ export function lineAt(text: string, offset: number): LineInfo {
     if (offset < l.end + l.eol.length) return l;
   }
   return lines[lines.length - 1];
+}
+
+/** The kind of `line` (a line of `text` from `splitLines` / `lineAt`). */
+function kindAtLine(text: string, line: LineInfo): LineKind {
+  const kinds = markdownLineKinds(text);
+  const index = splitLines(text).findIndex((l) => l.start === line.start);
+  return kinds[index];
 }
 
 const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff;
@@ -73,7 +80,7 @@ export function continueList(prev: string, next: string, caretBefore?: number): 
   const line = lineAt(prev, c);
   const offset = c - line.start;
   if (offset > line.text.length) return null; // inside a "\r\n"
-  const p = parseListPrefix(line.text);
+  const p = parseListPrefix(line.text, kindAtLine(prev, line));
   if (!p) return null;
   if (offset < p.length) return null; // newline above the item stays plain
   if (p.kind === 'numbered' && !Number.isSafeInteger(p.number! + 1)) return null;
@@ -112,9 +119,19 @@ type TogglePlan = {
 
 function planToggle(text: string, sel: Sel): TogglePlan | null {
   const line = lineAt(text, sel.start);
-  const kind = markdownLines(line.text)[0].kind;
-  if (kind === 'heading1' || kind === 'heading2' || kind === 'quote') return null;
-  const p = parseListPrefix(line.text);
+  const kind = kindAtLine(text, line);
+  if (
+    kind === 'heading1' ||
+    kind === 'heading2' ||
+    kind === 'heading3' ||
+    kind === 'quote' ||
+    kind === 'rule' ||
+    kind === 'fence' ||
+    kind === 'code'
+  ) {
+    return null;
+  }
+  const p = parseListPrefix(line.text, kind);
   if (p?.kind === 'checkbox') {
     const action = p.checked ? 'uncheck' : 'check';
     const mark = p.checked ? ' ' : 'x';
@@ -141,12 +158,27 @@ export function checkboxAction(text: string, sel: Sel): 'check' | 'uncheck' | 'a
 
 /**
  * Toggles the checkbox on the line at `sel.start`: unchecked -> checked -> unchecked; a bullet,
- * numbered or plain line gains an unchecked box. Never removes a checkbox. Null for headings and
- * quotes.
+ * numbered or plain line gains an unchecked box. Never removes a checkbox. Null for headings,
+ * quotes, rules and fenced code.
  */
 export function toggleCheckbox(text: string, sel: Sel): EditResult | null {
   const plan = planToggle(text, sel);
   if (!plan) return null;
+  return applyToggle(text, sel, plan);
+}
+
+/**
+ * Toggles the checkbox on the line containing `offset` (for tapping a box in the reading view).
+ * Only an existing checkbox is toggled: null for any other line, including code lines.
+ */
+export function toggleCheckboxAtLine(text: string, offset: number): EditResult | null {
+  const sel = { start: offset, end: offset };
+  const plan = planToggle(text, sel);
+  if (!plan || plan.action === 'add') return null;
+  return applyToggle(text, sel, plan);
+}
+
+function applyToggle(text: string, sel: Sel, plan: TogglePlan): EditResult {
   const { line, oldLen, newPrefix } = plan;
   const oldEnd = line.start + oldLen;
   const delta = newPrefix.length - oldLen;
@@ -165,14 +197,15 @@ export function toggleCheckbox(text: string, sel: Sel): EditResult | null {
 /** Indents (or outdents) the list lines touched by the selection by one level (two spaces). */
 export function indentLines(text: string, sel: Sel, outdent = false): EditResult | null {
   const lines = splitLines(text);
+  const kinds = markdownLineKinds(text);
   const edits: { at: number; removed: number; inserted: number }[] = [];
-  for (const l of lines) {
+  for (const [index, l] of lines.entries()) {
     const lineEnd = l.end + l.eol.length;
     const touches =
       sel.start === sel.end
         ? sel.start >= l.start && (sel.start < lineEnd || lineEnd === text.length)
         : sel.start < lineEnd && sel.end > l.start;
-    if (!touches || !parseListPrefix(l.text)) continue;
+    if (!touches || !parseListPrefix(l.text, kinds[index])) continue;
     if (!outdent) {
       edits.push({ at: l.start, removed: 0, inserted: INDENT_UNIT.length });
     } else {

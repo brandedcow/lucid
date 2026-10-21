@@ -196,3 +196,20 @@ describe('very large bodies', () => {
     expect(Date.now() - t).toBeLessThan(3000);
   });
 });
+
+describe('highlightRanges on cleaned text with code or link text', () => {
+  it('may highlight a #x that came from a code span or link text (accepted)', () => {
+    // The cleaned preview text has no backticks, so scanTags sees a plain "#x".
+    expect(hits('use #x here', 'foo #x'.slice(4))).toEqual(['#x']);
+  });
+
+  it('matching still uses the raw body: a code-span #x is not a tag of the note', () => {
+    const n: Note = {
+      id: 'a',
+      createdAt: '2026-10-01T09:00:00',
+      updatedAt: '2026-10-01T09:00:00',
+      body: 'T\n`#x`',
+    };
+    expect(searchResults([n], '#x')).toEqual([]);
+  });
+});

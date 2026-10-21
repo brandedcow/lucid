@@ -1,4 +1,12 @@
-import { checkboxAction, continueList, indentLines, lineAt, toggleCheckbox } from './markdownEdit';
+import {
+  checkboxAction,
+  continueList,
+  indentLines,
+  lineAt,
+  toggleCheckbox,
+  toggleCheckboxAtLine,
+} from './markdownEdit';
+import { parseListPrefix } from './markdownLines';
 
 /** Simulates typing Enter at `c` in `prev`. */
 const enter = (prev: string, c: number) => prev.slice(0, c) + '\n' + prev.slice(c);
@@ -282,5 +290,91 @@ describe('indentLines', () => {
 
   it('outdent selection inside the removed run goes to its start', () => {
     expect(indentLines('  - a', at(1), true)).toEqual({ text: '- a', selection: at(0) });
+  });
+});
+
+describe('code, fence and rule lines are plain for the edit helpers', () => {
+  const fenced = '```\n- item\n- [ ] box\n1. one\n```';
+
+  it.each([
+    ['inside a fence, bullet', fenced, 9],
+    ['inside a fence, checkbox', fenced, 19],
+    ['inside a fence, numbered', fenced, 27],
+    ['unclosed fence', '```\n- a', 7],
+  ])('continueList leaves Enter alone: %s', (_n, text, c) => {
+    expect(cont(text, c)).toBeNull();
+  });
+
+  it('continueList still continues a list after the fence closes', () => {
+    expect(cont('```\nx\n```\n- a')!.text).toBe('```\nx\n```\n- a\n- ');
+  });
+
+  it('continueList does not treat a rule as a bullet', () => {
+    expect(cont('- - -')).toBeNull();
+    expect(cont('* * *')).toBeNull();
+    expect(cont('---')).toBeNull();
+  });
+
+  it('toggleCheckbox / checkboxAction ignore code, fence and rule lines', () => {
+    for (const [text, at] of [
+      [fenced, 9],
+      [fenced, 19],
+      [fenced, 1],
+      ['- - -', 2],
+      ['* * *', 0],
+      ['---', 1],
+      ['```js\nplain', 3],
+      ['```\nplain code', 6],
+    ] as [string, number][]) {
+      expect(toggleCheckbox(text, { start: at, end: at })).toBeNull();
+      expect(checkboxAction(text, { start: at, end: at })).toBe('none');
+    }
+  });
+
+  it('toggleCheckbox still works after a closed fence and on `### ` stays null', () => {
+    expect(toggleCheckbox('```\nx\n```\nplain', { start: 12, end: 12 })!.text).toBe(
+      '```\nx\n```\n- [ ] plain',
+    );
+    expect(toggleCheckbox('### h', { start: 0, end: 0 })).toBeNull();
+  });
+
+  it('indentLines skips code, fence and rule lines', () => {
+    expect(indentLines(fenced, { start: 0, end: fenced.length })).toBeNull();
+    expect(indentLines('- - -', { start: 0, end: 0 })).toBeNull();
+    expect(indentLines('```\n- a\n```\n- b', { start: 0, end: 15 })!.text).toBe(
+      '```\n- a\n```\n  - b',
+    );
+    expect(indentLines('```\n  - a\n```', { start: 5, end: 5 }, true)).toBeNull();
+  });
+
+  it('parseListPrefix: rule-looking lines are null with and without a kind', () => {
+    for (const line of ['- - -', '* * *', '-  -  -']) {
+      expect(parseListPrefix(line)).toBeNull();
+      expect(parseListPrefix(line, 'rule')).toBeNull();
+    }
+    expect(parseListPrefix('- a', 'code')).toBeNull();
+    expect(parseListPrefix('- a', 'bullet')).not.toBeNull();
+  });
+});
+
+describe('toggleCheckboxAtLine', () => {
+  it('toggles the checkbox on the line containing the offset', () => {
+    const t = 'T\n- [ ] a\n- [x] b';
+    expect(toggleCheckboxAtLine(t, 5)!.text).toBe('T\n- [x] a\n- [x] b');
+    expect(toggleCheckboxAtLine(t, 14)!.text).toBe('T\n- [ ] a\n- [ ] b');
+    expect(toggleCheckboxAtLine(t, 9)!.text).toBe('T\n- [x] a\n- [x] b');
+  });
+
+  it('is null for non-checkbox, heading, rule and code lines', () => {
+    expect(toggleCheckboxAtLine('T\n- a', 3)).toBeNull();
+    expect(toggleCheckboxAtLine('T\nplain', 3)).toBeNull();
+    expect(toggleCheckboxAtLine('# h', 0)).toBeNull();
+    expect(toggleCheckboxAtLine('- - -', 1)).toBeNull();
+    expect(toggleCheckboxAtLine('```\n- [ ] a\n```', 6)).toBeNull();
+  });
+
+  it('keeps CRLF and clamps odd offsets', () => {
+    expect(toggleCheckboxAtLine('- [ ] a\r\nz', 3)!.text).toBe('- [x] a\r\nz');
+    expect(toggleCheckboxAtLine('- [ ] a', 99)!.text).toBe('- [x] a');
   });
 });
