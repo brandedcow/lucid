@@ -197,18 +197,17 @@ describe('NotesDrawer content', () => {
     expect(screen.getAllByLabelText(/^#t\d\d, 1$/)).toHaveLength(80);
   });
 
-  it('always shows Recently Deleted, with its count only above zero, and it opens trash', async () => {
+  it('shows Recently Deleted only in the dropdown: none while it is closed, a count only above zero', async () => {
     const onOpenTrash = jest.fn();
-    const view = await render(drawer({ onOpenTrash }));
-    expect(screen.getByLabelText('Recently Deleted')).toBeTruthy();
-    expect(screen.queryByLabelText(/^Recently Deleted, /)).toBeNull();
-    await fireEvent.press(screen.getByLabelText('Recently Deleted'));
-    expect(onOpenTrash).toHaveBeenCalledTimes(1);
-    onOpenTrash.mockClear();
-    await view.rerender(drawer({ onOpenTrash, trashedCount: 3 }));
-    expect(screen.queryByLabelText('Recently Deleted')).toBeNull();
+    const view = await render(drawer({ onOpenTrash, trashedCount: 3 }));
+    expect(screen.queryByLabelText(/^Recently Deleted/)).toBeNull();
+    expect(screen.queryByText('Recently Deleted')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('View, All Notes'));
     await fireEvent.press(screen.getByLabelText('Recently Deleted, 3'));
     expect(onOpenTrash).toHaveBeenCalledTimes(1);
+    await view.rerender(drawer({ onOpenTrash, trashedCount: 0 }));
+    expect(screen.getByLabelText('Recently Deleted')).toBeTruthy();
+    expect(screen.queryByLabelText(/^Recently Deleted, /)).toBeNull();
   });
 
   it('the Settings row opens settings', async () => {
@@ -321,17 +320,14 @@ describe('NotesDrawer Recently Deleted in the dropdown', () => {
     expect(screen.getByLabelText('View, All Notes')).toBeOnTheScreen();
   });
 
-  it('the footer row still opens trash', async () => {
-    const onOpenTrash = jest.fn();
-    await render(drawer({ onOpenTrash, trashedCount: 2 }));
-    await fireEvent.press(footer().getByLabelText('Recently Deleted, 2'));
-    expect(onOpenTrash).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows both rows with the same label while expanded', async () => {
-    await render(drawer());
+  it('has exactly one Recently Deleted element, in the dropdown and not in the footer', async () => {
+    await render(drawer({ trashedCount: 2 }));
+    expect(screen.queryAllByLabelText(/^Recently Deleted/)).toHaveLength(0);
     await fireEvent.press(screen.getByLabelText('View, All Notes'));
-    expect(screen.getAllByLabelText('Recently Deleted')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Recently Deleted/)).toHaveLength(1);
+    expect(footer().queryByLabelText(/^Recently Deleted/)).toBeNull();
+    expect(footer().queryByText('Recently Deleted')).toBeNull();
+    expect(footer().queryByTestId('trash-icon', HIDDEN)).toBeNull();
   });
 });
 
@@ -352,13 +348,12 @@ describe('NotesDrawer icons', () => {
     expect(screen.getByTestId('all-notes-icon', HIDDEN)).toBeOnTheScreen();
   });
 
-  it('puts an icon on every dropdown option and the Recently Deleted rows, none on tags', async () => {
+  it('puts an icon on every dropdown option (Recently Deleted included), none on tags', async () => {
     await render(drawer({ view: { kind: 'today' } }));
     await fireEvent.press(screen.getByLabelText('View, Today'));
     for (const id of ['today', 'all-notes', 'todo', 'untagged', 'pinned', 'trash']) {
       expect(options().getByTestId(`${id}-icon`, HIDDEN)).toBeOnTheScreen();
     }
-    expect(footer().getByTestId('trash-icon', HIDDEN)).toBeOnTheScreen();
     const tagRow = within(screen.getByLabelText('#dream, 12'));
     expect(tagRow.queryByTestId(/-icon$/, HIDDEN)).toBeNull();
   });

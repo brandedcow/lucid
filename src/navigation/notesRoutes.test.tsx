@@ -313,9 +313,11 @@ describe('NotesRoute', () => {
     expect(listFlag()).toBe('no-hide-descendants');
   });
 
-  it('always shows the Recently Deleted row, with a count only above zero', async () => {
+  it('shows the Recently Deleted row only in the dropdown, with a count only above zero', async () => {
     await render(<Tree initial={['Notes']} />);
     await fireEvent.press(screen.getByLabelText('Open menu'));
+    expect(screen.queryByLabelText(/^Recently Deleted/)).toBeNull();
+    await fireEvent.press(await screen.findByLabelText('View, All Notes'));
     expect(await screen.findByLabelText('Recently Deleted')).toBeTruthy();
     await update({
       notes: {
@@ -351,6 +353,7 @@ describe('NotesRoute', () => {
   it('opening Recently Deleted closes the drawer and pushes it', async () => {
     await render(<Tree initial={['Notes']} />);
     await fireEvent.press(screen.getByLabelText('Open menu'));
+    await fireEvent.press(await screen.findByLabelText('View, All Notes'));
     await fireEvent.press(await screen.findByLabelText('Recently Deleted'));
     expect(names()).toEqual(['Notes', 'RecentlyDeleted']);
     expect(screen.getByText('Deleted notes will appear here.')).toBeTruthy();
