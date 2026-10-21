@@ -24,6 +24,18 @@ describe('EditorSpikeScreen', () => {
     await render(<EditorSpikeScreen />);
     expect(bodyText(body())).toBe(SPIKE_SEED);
     expect(screen.getByText('Heading one').props.style).toMatchObject({ fontSize: 25.5 });
+    // Every new syntax is in the seed so the device spike can see it.
+    for (const line of [
+      '### Heading three',
+      '---',
+      '`code`',
+      '```',
+      '[web link](',
+      '![image alt](',
+      '[[wikilink]]',
+    ]) {
+      expect(SPIKE_SEED).toContain(line);
+    }
   });
 
   it('switching the style level restyles without losing text', async () => {
