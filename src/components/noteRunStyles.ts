@@ -1,12 +1,14 @@
-import type { TextStyle } from 'react-native';
+import { Platform, type TextStyle } from 'react-native';
 import { colors } from '../theme';
 import { markdownLines, type MarkdownLine, type MarkdownRun } from '../utils/markdownLines';
 
 /**
  * How much of the note's markdown the editor shows styled. The device spike (chunk 6c) decides the
  * shipped values of the constants below; see the fallback ladder in the chunk 6 architect report.
- * - full: sized headings, bold / italic, dimmed markers, strike-through on checked items, tags.
- * - basic: as full, but headings are bold + heading colour at body size (no fontSize / lineHeight).
+ * - full: sized headings, bold / italic, dimmed markers, strike-through on checked items, tags,
+ *   monospace code on a muted background, underlined accent links.
+ * - basic: as full, but headings are bold + heading colour at body size (no fontSize / lineHeight),
+ *   links are accent colour only, and code is not styled.
  * - tagsOnly: only `#tag` runs are styled.
  * - none: one plain run.
  */
@@ -22,9 +24,16 @@ export const LIST_CONTINUE = true;
 export const DEFAULT_BODY_FONT_SIZE = 17;
 export const HEADING1_SCALE = 1.5;
 export const HEADING2_SCALE = 1.25;
+export const HEADING3_SCALE = 1.125;
 const HEADING_LINE_HEIGHT_SCALE = 1.3;
 
 export type RunSpec = { key: string; text: string; style?: TextStyle };
+
+// Code keeps the body font size and sets no lineHeight (a per-child lineHeight in a TextInput is risky).
+const CODE_STYLE: TextStyle = {
+  fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+  backgroundColor: colors.tagChipBg,
+};
 
 // Same look as the tag runs of the shipped TaggedBodyInput (copied, not imported: chunk 8 deletes it).
 const TAG_STYLE: TextStyle = {
@@ -43,12 +52,19 @@ function runStyle(
   const style: TextStyle = {};
   const markdown = level === 'full' || level === 'basic';
   if (markdown) {
-    const heading = line.kind === 'heading1' || line.kind === 'heading2';
+    const heading =
+      line.kind === 'heading1' || line.kind === 'heading2' || line.kind === 'heading3';
     if (heading) {
       style.fontWeight = '700';
       style.color = colors.text;
       if (level === 'full') {
-        const size = baseSize * (line.kind === 'heading1' ? HEADING1_SCALE : HEADING2_SCALE);
+        const scale =
+          line.kind === 'heading1'
+            ? HEADING1_SCALE
+            : line.kind === 'heading2'
+              ? HEADING2_SCALE
+              : HEADING3_SCALE;
+        const size = baseSize * scale;
         style.fontSize = size;
         style.lineHeight = size * HEADING_LINE_HEIGHT_SCALE;
       }
@@ -65,10 +81,17 @@ function runStyle(
       style.color = colors.muted;
       style.textDecorationLine = 'line-through';
     }
+    // After the marker styling: link text (and markers inside it, which carry `link`) takes the
+    // accent; the brackets and destination do not carry `link` and stay dimmed.
+    if (run.link) {
+      style.color = colors.accent;
+      if (level === 'full') style.textDecorationLine = 'underline';
+    }
+    if (run.code && level === 'full') Object.assign(style, CODE_STYLE);
   }
   if (run.tag) {
     Object.assign(style, TAG_STYLE);
-    if (markdown && (run.bold || line.kind === 'heading1' || line.kind === 'heading2')) {
+    if (markdown && (run.bold || line.kind.startsWith('heading'))) {
       style.fontWeight = '700';
     }
     if (markdown && line.kind === 'checkbox' && line.checked && level === 'full') {
