@@ -37,9 +37,10 @@ describe('noteTitle', () => {
     expect(noteTitle('Flying #dream')).toBe('Flying #dream');
   });
 
-  it('does not count a bare # or ### as tags', () => {
+  it('does not count a bare # as a tag, and #### stays plain', () => {
     expect(noteTitle('# #')).toBe('#');
-    expect(noteTitle('### x')).toBe('### x');
+    expect(noteTitle('### x')).toBe('x');
+    expect(noteTitle('#### x')).toBe('#### x');
   });
 
   it('handles CRLF and unicode', () => {
