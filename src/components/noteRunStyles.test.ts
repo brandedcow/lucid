@@ -22,6 +22,7 @@ const BODIES = [
   '[web **bold** link](http://a.b) ![alt](http://i.png) [[Wiki Page]] [[x|y]]',
   '[`code link`](http://a) [unclosed](http://a `tick',
   '- [x](http://a) item\r\n```\r\nunclosed fence',
+  '[😀 link](http://a/😀) `co😀de` [[Wiki 😀]]',
 ];
 
 const find = (body: string, level: StyleLevel, text: string) =>
@@ -249,6 +250,31 @@ describe('noteRuns', () => {
         color: colors.accent,
         textDecorationLine: 'underline',
       });
+    });
+
+    it('keeps the strike-through on a checked item whose text is a link', () => {
+      expect(styleOf('- [x] [a](http://u)', 'full', 'a')).toEqual({
+        color: colors.accent,
+        textDecorationLine: 'underline line-through',
+      });
+      expect(styleOf('- [x] [a](http://u)', 'basic', 'a')).toEqual({ color: colors.accent });
+      expect(styleOf('- [x] [a](http://u)', 'tagsOnly', 'a')).toBeUndefined();
+      expect(styleOf('- [ ] [a](http://u)', 'full', 'a')).toEqual({
+        color: colors.accent,
+        textDecorationLine: 'underline',
+      });
+      expect(styleOf('- [x] plain', 'full', 'plain')).toEqual({
+        color: colors.muted,
+        textDecorationLine: 'line-through',
+      });
+    });
+
+    it('inline code in a heading keeps the heading size and sets none of its own', () => {
+      const head = styleOf('# Head `c` x', 'full', 'Head ');
+      const code = styleOf('# Head `c` x', 'full', 'c');
+      expect(code).toMatchObject({ fontFamily: mono, fontSize: head?.fontSize });
+      expect(code?.lineHeight).toBe(head?.lineHeight);
+      expect(head?.fontSize).toBeGreaterThan(DEFAULT_BODY_FONT_SIZE);
     });
 
     it('does not style the wikilink by whether the note exists', () => {

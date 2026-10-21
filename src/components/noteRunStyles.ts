@@ -85,7 +85,11 @@ function runStyle(
     // accent; the brackets and destination do not carry `link` and stay dimmed.
     if (run.link) {
       style.color = colors.accent;
-      if (level === 'full') style.textDecorationLine = 'underline';
+      if (level === 'full') {
+        // A checked item keeps its strike-through: RN accepts the combined value on nested Text.
+        style.textDecorationLine =
+          style.textDecorationLine === 'line-through' ? 'underline line-through' : 'underline';
+      }
     }
     if (run.code && level === 'full') Object.assign(style, CODE_STYLE);
   }
