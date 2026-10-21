@@ -612,7 +612,7 @@ function VoiceNotePlaceholder({ note }: { note: SheetNote }) {
 }
 
 type Props = {
-  /** The entry's visible notes, in order. The active note is tracked by id. */
+  /** The note's visible voice notes, in order. The active note is tracked by id. */
   notes: readonly SheetNote[];
   /** Index of the note to open on (the tapped card). */
   initialIndex: number;

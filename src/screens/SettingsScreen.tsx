@@ -4,8 +4,8 @@ import { colors, fonts, spacing } from '../theme';
 
 /**
  * Props:
- * - `autoOpenDreamCapture`: whether the app opens to dream capture on launch.
- * - `onChangeAutoOpenDreamCapture(value)`: the switch was toggled.
+ * - `autoOpenNewNote`: whether the app opens a new note on launch.
+ * - `onChangeAutoOpenNewNote(value)`: the switch was toggled.
  * - `onlineTranscription`: whether voice notes may be transcribed on Apple's / Google's servers
  *   when this phone cannot do it itself (default off).
  * - `onChangeOnlineTranscription(value)`: turning it ON is called only after the user confirms the
@@ -13,22 +13,22 @@ import { colors, fonts, spacing } from '../theme';
  * - `onBack()`: the back arrow.
  */
 type Props = {
-  autoOpenDreamCapture: boolean;
-  onChangeAutoOpenDreamCapture: (value: boolean) => void;
+  autoOpenNewNote: boolean;
+  onChangeAutoOpenNewNote: (value: boolean) => void;
   onlineTranscription: boolean;
   onChangeOnlineTranscription: (value: boolean) => void;
   onBack: () => void;
 };
 
-const ROW_LABEL = 'Open dream capture on launch';
+const ROW_LABEL = 'Open a new note on launch';
 const ONLINE_LABEL = 'Transcribe voice notes online';
 
 // The provider is named for the platform: iOS speech recognition is Apple's, Android's is Google's.
 const provider = () => (Platform.OS === 'ios' ? 'Apple' : 'Google');
 
 export function SettingsScreen({
-  autoOpenDreamCapture,
-  onChangeAutoOpenDreamCapture,
+  autoOpenNewNote,
+  onChangeAutoOpenNewNote,
   onlineTranscription,
   onChangeOnlineTranscription,
   onBack,
@@ -54,7 +54,7 @@ export function SettingsScreen({
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to Today"
+          accessibilityLabel="Back to notes"
           onPress={onBack}
           hitSlop={12}
           style={styles.backButton}
@@ -69,14 +69,14 @@ export function SettingsScreen({
       <View style={styles.row}>
         <View style={styles.rowText}>
           <Text style={styles.label}>{ROW_LABEL}</Text>
-          <Text style={styles.helper}>When off, the app opens to Today.</Text>
+          <Text style={styles.helper}>When off, the app opens to the note list.</Text>
         </View>
         <Switch
           accessibilityRole="switch"
           accessibilityLabel={ROW_LABEL}
-          accessibilityState={{ checked: autoOpenDreamCapture }}
-          value={autoOpenDreamCapture}
-          onValueChange={onChangeAutoOpenDreamCapture}
+          accessibilityState={{ checked: autoOpenNewNote }}
+          value={autoOpenNewNote}
+          onValueChange={onChangeAutoOpenNewNote}
           trackColor={{ false: colors.border, true: colors.accent }}
           thumbColor={colors.text}
           ios_backgroundColor={colors.border}

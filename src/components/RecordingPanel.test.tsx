@@ -1,13 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, AlertButton } from 'react-native';
-import { discardRecording } from '../services/dreamStorage';
+import { discardRecording } from '../services/recordingFiles';
 import { LEVEL_SAMPLE_MS, RecordingPanel } from './RecordingPanel';
 
-jest.mock('../services/dreamStorage', () => ({ discardRecording: jest.fn() }));
+jest.mock('../services/recordingFiles', () => ({ discardRecording: jest.fn() }));
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
-jest.mock('../hooks/useDreamRecorder', () => ({
-  useDreamRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
+jest.mock('../hooks/useVoiceRecorder', () => ({
+  useVoiceRecorder: () => ({ ...mockRec, pause: jest.fn(), resume: jest.fn(), isRecording: true }),
 }));
 
 const CACHE = 'file:///cache/p1.m4a';
@@ -186,5 +186,69 @@ describe('RecordingPanel recording', () => {
     await act(async () => {});
     expect(mockRec.stop).toHaveBeenCalledTimes(1);
     expect(discardRecording).toHaveBeenCalledWith(CACHE);
+  });
+});
+
+describe('RecordingPanel failures', () => {
+  it('a recorder that throws on start alerts, returns to idle and allows a retry', async () => {
+    mockRec.start.mockRejectedValueOnce(new Error('boom'));
+    await renderPanel();
+    await tap('Start recording');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not start recording', 'Please try again.');
+    expect(handlers.onClosed).not.toHaveBeenCalled();
+    await tap('Start recording');
+    expect(mockRec.start).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('Stop recording')).toBeTruthy();
+  });
+
+  it('a stop that produces no recording alerts and stays in recording', async () => {
+    await renderPanel();
+    await tap('Start recording');
+    mockRec.stop.mockResolvedValueOnce(null);
+    await tap('Stop recording');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not finish recording', 'Please try again.');
+    expect(handlers.onRecorded).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Stop recording')).toBeTruthy();
+  });
+
+  it('a stop that throws alerts and stays in recording', async () => {
+    await renderPanel();
+    await tap('Start recording');
+    mockRec.stop.mockRejectedValueOnce(new Error('boom'));
+    await tap('Stop recording');
+    expect(Alert.alert).toHaveBeenCalledWith('Could not finish recording', 'Please try again.');
+    expect(handlers.onRecorded).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Stop recording')).toBeTruthy();
+  });
+
+  it('choosing Keep recording in the discard confirmation keeps recording and allows asking again', async () => {
+    await renderPanel();
+    await tap('Start recording');
+    await act(async () => leaveRef.current?.());
+    await act(async () =>
+      buttons()
+        .find((b) => b.text === 'Keep recording')
+        ?.onPress?.(),
+    );
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(handlers.onDiscarded).not.toHaveBeenCalled();
+    await act(async () => leaveRef.current?.());
+    expect(Alert.alert).toHaveBeenCalledTimes(2);
+  });
+
+  it('a discard whose recorder cannot be stopped alerts, deletes nothing and stays', async () => {
+    await renderPanel();
+    await tap('Start recording');
+    await act(async () => leaveRef.current?.());
+    mockRec.stop.mockRejectedValueOnce(new Error('boom'));
+    await act(async () =>
+      buttons()
+        .find((b) => b.text === 'Discard')
+        ?.onPress?.(),
+    );
+    expect(Alert.alert).toHaveBeenLastCalledWith('Could not finish recording', 'Please try again.');
+    expect(discardRecording).not.toHaveBeenCalled();
+    expect(handlers.onDiscarded).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Stop recording')).toBeTruthy();
   });
 });

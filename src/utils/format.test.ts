@@ -1,5 +1,6 @@
 import {
   countWords,
+  formatDayKey,
   formatDuration,
   formatEntryDateTime,
   formatShortDate,
@@ -108,4 +109,29 @@ describe('formatShortDate', () => {
   it('gives an empty string for an invalid date', () => {
     expect(formatShortDate(new Date('nope'), now)).toBe('');
   });
+});
+
+describe('formatDayKey', () => {
+  it.each([
+    ['2026-10-20', 'Tuesday, October 20'],
+    ['2026-12-31', 'Thursday, December 31'],
+    ['2027-01-01', 'Friday, January 1'],
+    ['2028-02-29', 'Tuesday, February 29'],
+    ['2026-03-08', 'Sunday, March 8'],
+    ['2026-11-01', 'Sunday, November 1'],
+    ['2026-01-05', 'Monday, January 5'],
+  ])('%s is %s', (key, expected) => {
+    expect(formatDayKey(key)).toBe(expected);
+  });
+  it('uses plain spaces and no year', () => {
+    const out = formatDayKey('2026-10-20');
+    expect(out).not.toMatch(/[\u202f\u00a0]/);
+    expect(out).not.toContain('2026');
+  });
+  it.each(['', '2026-13-40', 'abc', '2026-02-30', '2026-1-5', '2026-10-20T00:00'])(
+    'gives an empty string for %p',
+    (key) => {
+      expect(formatDayKey(key)).toBe('');
+    },
+  );
 });

@@ -1,6 +1,6 @@
 # Lucid
 
-A voice-first dream journal for mobile. React Native (Expo, TypeScript). Dreams can be recorded by voice (several recordings per entry), written up with a title, text and inline #tags, and stored on the device.
+A voice-first note app for mobile. React Native (Expo, TypeScript). Notes are markdown text (the first line is the title), can hold several voice notes, are organized only by `#tags` written in the body, and are stored on the device.
 
 Start here:
 
@@ -31,16 +31,19 @@ npm run format       # apply Prettier
 ## Structure
 
 ```
-App.tsx              entry; switches between Today, the journals, the Dream log, Add entry, Search and Settings screens
+App.tsx              entry; wraps the app in AppFlowProvider and NotesNavigator (a dev-only editor spike harness is behind EXPO_PUBLIC_EDITOR_SPIKE)
 src/
-  screens/           TodayScreen, AddEntryScreen, AddEntryWithVoice, DreamLogScreen, JournalsScreen, SearchScreen, SettingsScreen
-  components/        RecordingPanel, VoiceNoteCarousel, VoiceAttachmentCard, VoiceNoteSheet, JournalPicker, TaggedBodyInput, TagSuggestionBar, EntryToolbar, EmotionInput, DreamChips, EntryRow, and others
-  hooks/             useDreamRecorder, useEntrySession, useEntryHistory, useRecordingPlayback, useKeyboardInset, useDreamLibrary, useJournals, useToday, useLogView, useSettings
-  services/          dreamStorage (local audio files + dreams.json), journalStorage, settingsStorage, dayMarker
-  utils/             format, tags, inlineTags, tagSuggestions, emotions, capitalizeFirst, dreamLog, paragraphs, sessionNavigation, journals, today, waveform
-  types/             dream (Dream, DreamDetails), entry (EntryType)
-  theme/             colors, spacing, fonts
-  test/              fakeFileSystem (in-memory expo-file-system for Jest), fakeKeyboard (mocked Keyboard events)
+  app/               AppFlowProvider (launch rule, one-time import of older data, trash actions)
+  navigation/        NotesNavigator, notesRoutes (Notes, Editor, Settings, Recently Deleted, Search)
+  screens/           NoteListScreen, NoteEditorScreen, NoteEditorWithVoice, NoteSearchPanel, RecentlyDeletedScreen, SettingsScreen
+  components/        NoteBodyInput, NoteToolbar, NotesDrawer, NoteRow, SwipeNoteRow, DeletedNoteRow, RecordingPanel, VoiceNoteCarousel, VoiceAttachmentCard, VoiceNoteSheet, TagSuggestionBar, OverflowMenu, and others
+  hooks/             useNotes, useNoteSession, useNoteEditor, useVoiceRecorder, useRecordingPlayback, useRecordingTranscription, useAutoTranscribe, useSettings, useDayMarker, useToday, useLegacyMigration, and others
+  services/          notesStorage (notes.json + audio files), legacyImport (one-time read-only import of dreams.json), settingsStorage, dayMarker, recordingFiles, transcription, shareRecording, clipboard
+  utils/             noteTitle, notePreview, noteViews, noteSearch, noteTodo, tags, inlineTags, tagSuggestions, markdownLines, markdownEdit, relativeTime, noteLaunch, noteResume, and others
+  types/             recording (StoredRecording)
+  theme/             index.ts (colors, spacing, fonts)
+  dev/               EditorSpikeScreen (dev-only harness)
+  test/              Jest helpers: fakeFileSystem (in-memory expo-file-system), fakeKeyboard, fakeSpeechRecognition, fakeTranscription, hardwareBackChain, bodyText
 docs/                product.md, status.md, ios-dev-build.md, spike-live-transcription.md
 assets/              app icon, adaptive icon and splash images (moon mark; sources in assets/icon-source/)
 ```

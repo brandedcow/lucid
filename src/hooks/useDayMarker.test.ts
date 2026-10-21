@@ -1,14 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { readNoDreamDate, writeNoDreamDate } from '../services/dayMarker';
+import { readDoneDate, writeDoneDate } from '../services/dayMarker';
 import { useDayMarker } from './useDayMarker';
 
 jest.mock('../services/dayMarker', () => ({
-  readNoDreamDate: jest.fn(),
-  writeNoDreamDate: jest.fn(),
+  readDoneDate: jest.fn(),
+  writeDoneDate: jest.fn(),
 }));
 
-const mockRead = readNoDreamDate as jest.Mock;
-const mockWrite = writeNoDreamDate as jest.Mock;
+const mockRead = readDoneDate as jest.Mock;
+const mockWrite = writeDoneDate as jest.Mock;
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -29,31 +29,31 @@ describe('useDayMarker', () => {
     mockRead.mockReturnValue(load.promise);
     const { result } = await renderHook(() => useDayMarker());
     expect(result.current.loaded).toBe(false);
-    expect(result.current.noDreamDate).toBeNull();
+    expect(result.current.doneDate).toBeNull();
     await act(async () => {
       load.resolve('2026-10-09');
       await load.promise;
     });
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.noDreamDate).toBe('2026-10-09');
+    expect(result.current.doneDate).toBe('2026-10-09');
   });
 
   it('is loaded with no date when the read fails', async () => {
     mockRead.mockRejectedValue(new Error('boom'));
     const { result } = await renderHook(() => useDayMarker());
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.noDreamDate).toBeNull();
+    expect(result.current.doneDate).toBeNull();
   });
 
-  it('markNoDream sets state at once, then writes', async () => {
+  it('markDayDone sets state at once, then writes', async () => {
     const { result } = await renderHook(() => useDayMarker());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     const write = deferred<void>();
     mockWrite.mockReturnValue(write.promise);
     await act(async () => {
-      result.current.markNoDream('2026-10-10');
+      result.current.markDayDone('2026-10-10');
     });
-    expect(result.current.noDreamDate).toBe('2026-10-10');
+    expect(result.current.doneDate).toBe('2026-10-10');
     expect(mockWrite).toHaveBeenCalledWith('2026-10-10');
   });
 
@@ -62,24 +62,24 @@ describe('useDayMarker', () => {
     const { result } = await renderHook(() => useDayMarker());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     await act(async () => {
-      result.current.markNoDream('2026-10-10');
+      result.current.markDayDone('2026-10-10');
     });
-    expect(result.current.noDreamDate).toBe('2026-10-10');
+    expect(result.current.doneDate).toBe('2026-10-10');
   });
 
-  it('a read that finishes after markNoDream does not overwrite it', async () => {
+  it('a read that finishes after markDayDone does not overwrite it', async () => {
     const load = deferred<string | null>();
     mockRead.mockReturnValue(load.promise);
     const { result } = await renderHook(() => useDayMarker());
     await act(async () => {
-      result.current.markNoDream('2026-10-10');
+      result.current.markDayDone('2026-10-10');
     });
     await act(async () => {
       load.resolve('2026-10-01');
       await load.promise;
     });
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.noDreamDate).toBe('2026-10-10');
+    expect(result.current.doneDate).toBe('2026-10-10');
   });
 
   it('does not update state after unmount', async () => {
@@ -93,9 +93,9 @@ describe('useDayMarker', () => {
       await load.promise;
     });
     expect(result.current.loaded).toBe(false);
-    expect(result.current.noDreamDate).toBeNull();
-    result.current.markNoDream('2026-10-10');
-    expect(result.current.noDreamDate).toBeNull();
+    expect(result.current.doneDate).toBeNull();
+    result.current.markDayDone('2026-10-10');
+    expect(result.current.doneDate).toBeNull();
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });

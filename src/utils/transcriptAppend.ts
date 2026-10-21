@@ -1,5 +1,5 @@
 /**
- * The entry body with a voice note's transcript added at the end, after one blank line (or on its
+ * The note body with a voice note's transcript added at the end, after one blank line (or on its
  * own when the body is empty). Trailing whitespace of the body and surrounding whitespace of the
  * transcript are dropped. A blank transcript returns the body unchanged.
  */

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { RecordingTranscription } from '../services/transcription';
-import { SessionRecording } from './useEntrySession';
+import { SessionRecording } from '../types/recording';
 
 /** What the page needs from the recognizer; `cancelAll` is the App hook's (falls back to `cancel`). */
 export type AutoTranscribeSource = RecordingTranscription & { cancelAll?: () => void };

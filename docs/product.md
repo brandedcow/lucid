@@ -2,146 +2,179 @@
 
 This document describes what the app is and the decisions made so far. Read it before working on features, UI, or copy. If something you're asked to build conflicts with this doc, raise it instead of guessing.
 
+**Status of this document (2026-10-18).** The concept below (notes organized by tags) was decided on 2026-10-18 and is built on the branch `feat/notes-model`. It is not merged to `main`, and none of it has been verified on a device yet. The older concept (separate title field, containers for writing, an explicit save step; see Retired terms) is gone from the app; only the one-time import of old data remains. Each section carries a status line: **Built** means the code does it and Jest covers it (not verified on a device unless a line says so); **Planned** means decided but not built yet; **Open** means undecided (ask before assuming).
+
 ## What it is
 
-A mobile-first personal journal with two kinds of writing:
+A mobile-first, voice-first note app. The user writes notes in markdown, attaches voice notes to them, and finds them again through tags. There are no folders or containers: tags are the only organization.
 
-- **Life entries**: everyday writing about what happened and what's on the user's mind.
-- **Dreams**: capturing dreams right after waking.
-
-The app holds several journals. Two are built in, Dreams and Life, the user can add their own, and each entry lives in one of them.
-
-The idea behind it: the journal reflects the conscious mind, dreams reflect the unconscious. Over time, seeing the two together helps the user notice patterns and arrive at their own insights.
+Capturing something quickly, by voice or by typing, is the core. The first launch each day opens a new note so the user can capture straight away.
 
 ## Principles
 
-- **Journal first.** Version one is a journal app. There are no AI features in v1.
-- **Insight comes from the user.** The app helps the user capture, organize and revisit. It does not interpret, analyze or tell the user what their entries mean.
-- **Open structure that guides.** The app offers a light structure (a title, how it felt, tags) so entries are easy to find and compare later, without dictating what the user says. Fields are free text, never fixed lists, scales or ratings, so the user decides what goes in them. Keep required fields to the minimum that makes an entry findable (currently just the dream title); everything else is optional.
-- **Low friction.** Capturing should never feel like data entry. The structure above guides but never gets in the way: no streaks, no scores, no gamification.
+- **Notes first.** Version one is a notes app. There are no AI features in v1.
+- **Insight comes from the user.** The app helps the user capture, organize and revisit. It does not interpret, analyze or tell the user what their notes mean.
+- **Open structure that guides.** The only structure is what the user writes: the first line is the title, and `#words` are tags. Nothing is a fixed list, scale or rating, and nothing is required.
+- **Low friction.** Capturing should never feel like data entry. No streaks, no scores, no gamification.
 - **On-device only.** Transcription runs on the device. No audio or text is sent anywhere.
-- **Plain language.** The design is inspired by Jungian ideas (conscious and unconscious, recurring symbols, noticing strong reactions), but the app never uses psychological or Jungian terms. No "shadow," "archetype," "individuation," etc. in UI copy, and don't present anything as psychological interpretation.
+- **Plain language.** The app never uses psychological or Jungian terms in UI copy, and never presents anything as psychological interpretation. The older text's Jungian-inspired framing is dropped and stays dropped.
 
 ## Vocabulary
 
-Use these terms consistently in UI copy, code and data models.
+Use these terms consistently in UI copy, code and data models. Status: **Built** (the code, the copy and the data model use these terms; the older terms survive only as listed under Retired terms).
 
-| Term           | Meaning                                                                                                                                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Journal        | A container of entries. The app has two built-in journals, Dreams and Life, plus any the user creates (custom journals). Every entry lives in one journal.                                                                |
-| Entry          | One piece of writing in a journal. Existing dreams are entries of type Dream in the Dreams journal.                                                                                                                       |
-| Life entry     | A free-form daily writing entry, kept in the Life journal. (Formerly called a "Journal entry".)                                                                                                                           |
-| Dream          | A dream capture, usually made right after waking.                                                                                                                                                                         |
-| Title          | A short name the user gives a dream so it can be found later. Required to finish a dream (a Draft needs no title).                                                                                                        |
-| Emotion        | Free text about how a dream felt. No longer entered on the add-entry page (dropped, 2026-10-11); emotions saved earlier are kept and shown on the entry and in the logs.                                                  |
-| Tag            | A label the user applies to entries (dreams and Life entries), written in the body as a `#word`.                                                                                                                          |
-| No dream       | Backing out of the empty launch page, for a morning with nothing to record. Counts as done for the day: the app then opens to Today, not the Dreams page, for the rest of that day.                                       |
-| Today          | The main screen: lists only today's entries, from every journal (drafts included), newest first, with a "+" button to start an entry or a new journal.                                                                    |
-| Draft          | An entry saved with "Save draft" (on the leave prompt) that is not finished yet. Needs nothing but something on the page (a brand-new entry with nothing at all is simply not kept).                                      |
-| Transcript     | The text of an entry: the body of the add-entry page, typed by the user (stored as `transcript`). Transcribing a voice note into it after recording is planned, not built.                                                |
-| Dream log      | The screen that lists the Dreams journal's dreams and drafts by month, with a tag filter and search.                                                                                                                      |
-| Life log       | The same kind of screen for the Life journal: its entries and drafts by month, with a tag filter and search.                                                                                                              |
-| Journals home  | The screen with a card for each journal. Tapping a card opens that journal's log.                                                                                                                                         |
-| Search         | Search across all journals at once, by words and tags. Entered from the Journals home.                                                                                                                                    |
-| Add-entry page | The single page that creates and edits an entry in any journal: journal picker, title, body (with tags written in it), optional voice notes, and a toolbar. It replaces the old Capture, Read it back and Review screens. |
-| Voice note     | An audio recording attached to an entry (an entry can have several), shown as a card above the title with play, a waveform and a close button; swiping between cards and tapping one opens the expanded view.             |
-| Dream entry    | One saved dream. Tapping it in the Dream log, Today or Search opens it on the editable add-entry page; there is no separate reading screen.                                                                               |
+| Term             | Meaning                                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Note             | One piece of writing: markdown text (the body) with optional voice notes. Everything the user writes is a note.                                                                                                                 |
+| Title            | The first line of the body. Derived, never stored separately. Shows as "Untitled" when the first line is empty or only a tag.                                                                                                   |
+| Tag              | A label written in the body as `#word`. Flat: no nesting (`#a/b` is not a hierarchy). Derived from the body on read, never stored separately.                                                                                   |
+| Body             | The markdown text of a note, including its first line.                                                                                                                                                                          |
+| Voice note       | An audio recording attached to a note (a note can have several), shown as a card with play, a waveform and a close button; tapping a card opens the expanded view.                                                              |
+| Transcript       | The text of a voice note produced by on-device transcription, added to the body. A new voice note is transcribed automatically after recording, on the device only (not verified on a device).                                  |
+| Today view       | A smart view in the drawer: notes written or edited today (updated or created on the local day). Pinning and restoring do not count as an edit.                                                                                 |
+| Todo view        | A smart view: notes that contain at least one checkbox line.                                                                                                                                                                    |
+| Untagged view    | A smart view: notes with no tag.                                                                                                                                                                                                |
+| Pinned           | A smart view of the notes the user pinned; also the act of pinning a note.                                                                                                                                                      |
+| Recently Deleted | Where a deleted note goes. The user can restore it or delete it forever.                                                                                                                                                        |
+| Drawer           | The left-hand panel: a dropdown of smart views (which also holds Recently Deleted, the only way to it from the drawer), the list of tags, and a footer with a Settings gear (bottom left) and a tag sort button (bottom right). |
+| Search           | Search by words and tags across all notes.                                                                                                                                                                                      |
 
-Tags cover anything the user wants to track over time, such as a recurring dream image ("water"), strong emotional reactions, or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up, and it is now possible through the Dream log's tag filter and search. There is no separate "tracker" concept; tags fill that role.
+Tags cover anything the user wants to track over time, such as a recurring theme or something practical like "agent mistake." Seeing everything under one tag over time is the main way patterns show up. There is no separate "tracker" concept; tags fill that role.
 
 ## Core behavior (v1)
 
-### Morning dream capture
+### Notes and markdown
 
-- When the user opens the app and has not yet created a finished dream today or backed out of the launch page today ("No dream"), it opens to the add-entry page for the Dreams journal (unless "Open dream capture on launch" is turned off in Settings; see Navigation and Settings). Once a finished dream is created today or "No dream" is counted, the app opens to Today for the rest of that day.
-- The launch page can always be dismissed with one tap: its back arrow (and Android back) while the page is empty counts as "No dream": the marker is written, the app lands on Today, and the launch page does not reappear that day. There is no confirmation and no separate "No dream" button. With something on the page, back asks the usual "Save a draft?" question and does not count as "No dream". A saved draft does not count as done, so the launch page opens again next launch.
-- "No dream" counts as done for the day. The app remembers only the latest date it was counted, in a small file on the device. Nothing leaves the phone.
-- Audio recordings are kept alongside the text (an entry written without a voice note has no audio).
-- Starting must be fast: the page opens with the title focused and the voice note one tap away, since dreams fade within minutes.
-- The screen should be calm and low-glare (dark), suitable for use right after waking.
+Status: **Built** (the body is one markdown text field with styling for headings, bold, italic and tags; no separate title field). Not verified on a device.
 
-### The add-entry page
+- A note is markdown text. The first line is the title. If the first line is empty or only a tag, the title shows as "Untitled". The title is never stored; it is read from the body each time.
+- Markdown scope in v1: headings, bullets, numbered lists, checkboxes (`- [ ]` and `- [x]`), bold and italic. Nothing else (no links, code, tables or images in v1).
+- Checkboxes are plain markdown text. There are no task features: no due dates, reminders, assignment or completion tracking. The Todo view simply lists notes that contain checkboxes.
+- Open: how markdown is shown while editing (live styling in the text field versus a separate reading view) is a technical choice still to be made and is not decided here.
+- Tags are written in the body as `#word`, one word each, no spaces, no nesting, and are shown highlighted as they are typed. Tags are not stored separately: they are read from the body. Nothing is derived from the content beyond what the user typed.
 
-- One page creates and edits every entry (a new entry, a reopened draft, an edit of a saved entry), in any journal. Top bar: a back arrow, the **journal picker** (a pill with a dropdown) and a **check** that saves. Under it: the date, optional **voice note cards**, the **title** and the **body**, where tags are typed as `#words`. At the bottom, above the keyboard when it is open, a **toolbar**: undo, redo, record a voice note, and "#" for tags; above it, while a tag is being typed, a row of tag suggestions.
-- **Journal picker.** A new entry starts in the journal chosen from the "+" sheet or the log it was started from (Dreams on launch), and can be switched until it is first saved. A reopened draft and a saved entry never move journals. The check follows the picked journal: a Dream needs a title, other journals do not.
-- **Voice note.** The waveform button in the toolbar opens a recording panel at the bottom of the page. It starts idle (a large timer, a flat waveform and a big red button); tapping the red button starts recording (the time and a live waveform; no pause) and tapping it again stops. Closing the idle panel (its handle, or back) needs no confirmation. When a recording stops, a card appears above the title: play/pause, a waveform that fills in as the note plays, its length, and a close button. The toolbar button stays available, so an entry can hold several notes (no limit); with several, the cards sit in a row the user swipes sideways in the order recorded (the next one peeks in, with page dots) and only one plays at a time. Tapping a card opens the **expanded view** of the note: share, trash, a large waveform to scrub, the time, back and forward 15 seconds, play/pause and a playback-speed button; with several notes the user swipes between them there. Trash is the same as the card's close (below). The notes are kept with the entry when it is saved. The app does not yet turn the note into text: the body is typed (transcribing after recording is planned; there is no live text while recording).
-- **Closing the voice note.** Each card's close button removes that note from the entry, but nothing stored is deleted until the entry is saved, and the close can be undone. Saving after closing a note that was stored removes that recording from the phone for good (the entry, its text and its other notes stay); saving after closing a new note simply does not keep it. Leaving without saving deletes nothing that was already stored.
-- **Undo and redo** cover typing in the body (tags included, since they are body text) and closing a voice note (one history, most recent first). They do not cover the title or the journal. They are off while the recording panel is open or while saving.
-- **Tags** are optional and are written in the body: a `#` followed by a word (for example `#water`) is a tag, shown highlighted as it is typed, and saving derives the entry's tags from these words (lowercase, each once). The "#" button types a `#` at the cursor. While a tag is being typed, a row above the toolbar suggests tags the user has used before and tags already in this entry; tapping one completes the word. Nothing is derived from the content beyond what the user typed. A tag is one word (no spaces); an older tag with spaces or punctuation shows as a hyphenated `#tag` line added at the end of the text when the entry is opened (one undo step). Removing the word removes the tag when the entry is saved. Emotion is not on the page.
-- **Leaving.** The back arrow (and Android back) closes an empty new page at once. A new entry or draft with something on it (a title, text, a voice note) asks "Save a draft?" with Save draft, Discard and Keep writing; nothing is stored until a choice is made. An edit with changes asks "Discard changes?" (Keep editing / Discard); an edit without changes just returns. While the recording panel is open and idle, back just closes it. While recording, back first asks "Discard this recording?" (Keep recording / Discard), and Discard deletes the unsaved recording and then carries on leaving.
-- **Check.** It saves a finished entry (a Dream needs a title) and goes where the page was started from (see Navigation). It is off while the recording panel is open or while saving. On an edit with no changes it just returns to where the entry was opened.
-- Emotion stays free text in storage, never a fixed list or rating, but the page no longer asks for it.
+### The editor
 
-### Dream log
+Status: **Built** for autosave and the first-line title. Not verified on a device.
 
-- The Dream log lists the Dreams journal's dreams, newest first, grouped by month, under the header "Dreams". It has a back arrow to the Journals home.
-- Each dream is a row with its day, title, a two-line preview of the transcript, and chips for how it felt and its tags. Rows have no play button; the recording is played from the entry's page.
-- Drafts appear in the same list, by date, as an outlined card: the title (or "Untitled dream", followed by the recording length when there is audio), then "Draft · <date>" (for example "Draft · Oct 4") with "Draft" in red. Tapping a draft reopens it on the add-entry page.
-- A row of tag chips ("All" and each tag with its count) filters the list. The user can select several tags, and a dream must have all of the selected tags to be shown. The row shows the most-used tags (up to 20); other tags can still be found through search.
-- Search looks for the typed words in a dream's title, transcript, emotion and tags. It is plain text matching on the device, not analysis or interpretation of dreams.
-- A finished dream row can be swiped left to reveal a red "Delete". Tapping it asks the same "Delete this dream?" confirmation as the entry's "..." menu (see below). Drafts swipe and delete the same way (a draft row has no chevron). Screen readers get a "Delete" action on every row instead of the swipe.
-- A "New dream" button opens the add-entry page. When there are no dreams, or nothing matches, the screen says so.
-- The filter, the search and the scroll position are kept when the user opens a dream and comes back. The Dream log and the Life log share one filter and search view, which starts fresh whenever the other journal's log is opened.
+- One page creates and edits every note. Top bar: a back arrow and, for a saved note, a "..." menu. Under it: the date, optional **voice note cards** and the **body**. At the bottom, above the keyboard when it is open, a **toolbar**: undo, redo, record a voice note, "#" for tags, and a checkbox button for the current line (add, check or uncheck); above it, while a tag is being typed, a row of tag suggestions.
+- **Autosave.** There is no save button and no check. The editor saves on its own: a note is saved shortly after typing stops, and again when the user leaves the editor. An empty note (no text and no voice note) is never kept. Leaving the editor never asks whether to save or discard. Closing a stored voice note does not delete it at once: the recording is held, with undo, until the note is left.
+- **Tag suggestions.** While a tag is being typed, a row above the toolbar suggests tags the user has used before and tags already in this note; tapping one completes the word. The "#" button types a `#` at the cursor.
+- **Undo and redo** cover typing in the body (tags included, since they are body text) and closing a voice note (one history, most recent first). They are off while the recording panel is open.
+- **Leaving.** The back arrow (and Android back) leaves the editor and returns to where the note was opened; what is on the note is already saved. While the recording panel is open and idle, back just closes it. While recording, back first asks "Discard this recording?" (Keep recording / Discard), and Discard deletes the unsaved recording and then carries on leaving.
+- Opening a saved note does not open the keyboard by itself.
 
-### Opening a saved entry
+### Voice notes
 
-- Tapping a saved dream (or any saved entry or draft) in the Dream log, Life log, Today or Search opens it on the editable add-entry page, with its title, body (tags highlighted), voice notes and journal. The journal cannot change, the keyboard does not open by itself, and nothing is saved until the check. Emotions the entry already has show as a read-only chip line under the title (the page has no emotion field).
-- Back (the arrow or Android back) with no changes returns at once to where the entry was opened (Today, a log or Search). With changes it asks "Discard changes?" (Keep editing / Discard). The check saves the changes (with none it just returns) and returns the same way. A finished dream is never turned into a draft.
-- A "..." (More options) menu at the top, left of the check, shows for a saved entry or draft only (a new entry has none). Its one item, in red, is **Delete dream** (**Delete entry** in other journals).
-- **Delete** (in the "..." menu, or by swiping a row in the Dream log or Today, draft or finished) works on any entry. It asks "Delete this dream?" / "The recording and text will be permanently deleted. This can't be undone." (Keep / Delete); a dream with no recording says "The text will be permanently deleted. This can't be undone." Deleting is permanent: no trash and no undo. The recording, the text and any saved copy of the dream are removed, and, when deleted from the page, the app returns to where the entry was opened, with unsaved edits dropped without a prompt (a delete from a list just removes the row). The menu item is off while saving, while the recording panel is open and while another delete runs, and back and the check are ignored while this entry deletes. If the delete fails, an alert says so, the dream stays and the page keeps its edits.
+Status: **Built** (recording, cards, the expanded view and closing with undo), and automatic transcription of new recordings on the device. Not verified on a device; whether transcription works well enough on a phone is still open.
 
-### Journals
+- The waveform button in the toolbar opens a recording panel at the bottom of the page. It starts idle (a large timer, a flat waveform and a big red button); tapping the red button starts recording (the time and a live waveform; no pause) and tapping it again stops. Closing the idle panel (its handle, or back) needs no confirmation.
+- When a recording stops, a card appears above the body: play/pause, a waveform that fills in as the voice note plays, its length, and a close button. The toolbar button stays available, so a note can hold several voice notes (no limit); with several, the cards sit in a row the user swipes sideways in the order recorded (the next one peeks in, with page dots) and only one plays at a time.
+- Tapping a card opens the **expanded view**: share, trash, a large waveform to scrub, the time, back and forward 15 seconds, play/pause and a playback-speed button; with several voice notes the user swipes between them. Trash is the same as the card's close.
+- **Closing a voice note.** Each card has a close button that removes that voice note from the note. Closing a stored voice note moves its recording to a hold area, with undo until the note is left. Nothing stored is deleted by the close itself. When the note is left, its held recordings are permanently deleted from the phone.
+- Voice notes are kept with the note when it is saved. After a recording stops, the app transcribes it on the device and adds the text to the body; there is no live text while recording. Only new recordings are transcribed, never stored ones, and nothing is sent anywhere. How well this works on a phone is not yet tested on a device (see Open decisions).
 
-- A journal is a container. The built-in journals are **Dreams** (everything captured as dreams so far) and **Life** (everyday entries). Entries are written chronologically within a journal, and an entry never moves to another journal when edited.
-- The **Journals home** shows a card for each journal, Dreams first, with a quiet count of finished entries ("12 dreams", "5 entries"; drafts are not counted). It has a search button, a back arrow to Today and the same "+" add-entry button and sheet as Today (see Today). Tapping a card opens that journal's log.
-- The **Life log** works like the Dream log (month groups, tag filter, search, swipe to delete, the entry opens on the add-entry page) under the header "Life", with a "New entry" button.
-- **Life entries** use the same add-entry page as dreams. Differences: the check is "Save entry", there is no "No dream" (only an empty launch page counts), and a back arrow returns to where the page was started (the Life log, or Today). The title is optional (an untitled finished entry shows the start of its body in the log, in the title's place, because the date is already in the row's date column, and "Untitled entry" if it has no body; a draft shows "Untitled entry"; Dreams are unchanged), and tags are optional as for dreams. Dreams still need a title.
-- **Custom journals.** The user can create their own journals ("New journal" at the bottom of the "+" sheet, on Today or the Journals home; see Today). The name is 1 to 24 characters and must be unique, ignoring capitals, among all journals including Dreams and Life; a name can be reused after its journal is deleted. A custom journal works like Life: the title is optional, and its log, entry date line ("<Name> · <date>"), search label and empty state use the journal's name. There are no icons or colors, journals keep creation order (after Dreams and Life) and there is no limit on how many. After creating one, its empty log opens with "New entry".
-- **Rename.** On the Journals home, swiping a custom journal's card reveals **Rename** (and **Delete**). Rename opens a sheet titled "Rename journal", prefilled with the name, with "Save"; only the name changes. Dreams and Life cannot be renamed or deleted.
-- **Delete journal.** Swiping a custom card and tapping **Delete** asks `Delete "<name>"?` with the entry count (drafts included, recordings mentioned when there are any) and says it can't be undone. Deleting removes every entry in the journal and their audio, permanently. While it runs, the card is greyed and reads "Deleting..." and the journal's entries are hidden everywhere. If it fails, an alert says how many entries were deleted and how many remain, and the journal stays listed; the journal itself is removed last, so entries are never left without it.
-- **Search** (from the Journals home) is one field for words and tags, with tag chips under it. It looks in titles, transcripts, emotions and tags of every journal at once, and a result must have all selected tags. Results are mixed, newest first, grouped by month, each marked with its journal. Only finished entries are searched: drafts are not included. Opening a result and going back returns to the results with the query and chips kept.
-- **Navigation:**
-  - **Launch rule.** If no finished dream was created today and no "No dream" is recorded for today and "Open dream capture on launch" is on (the default), the app opens to the add-entry page for Dreams. Otherwise it opens to Today. The app waits briefly for its stored data before deciding, with a cap of 1000 ms: if the data is not ready by then, it opens the Dreams page so capturing is never delayed. Backing out of the launch page while it is empty, with the back arrow or Android back, counts as "No dream" for the day (see Morning dream capture).
-  - Saving, and Save draft, from the launch page open Today.
-  - **Where the page returns.** A page started from the "+" sheet (on Today or the Journals home) returns to Today after a save and on back. A page started from a log ("New dream" or "New entry") returns to that log. Only the launch page counts an empty back as "No dream". A draft opened from Today returns to Today; from a log, to that log. Saving an edit, backing out of one, and deleting from the page all return to where the entry was opened (Today, a log or Search).
-  - **Today.** It has a book icon at the top left (Open Journals), the title and date, and a gear at the top right (Open Settings). Android back on Today exits the app. Tapping a finished entry opens it on the add-entry page, and back returns to Today. Tapping a draft reopens it on the add-entry page.
-  - **Journals home** is reached from the book icon on Today. It has a back arrow, and Android back goes to Today. A log's back arrow goes to the Journals home (when the log's search field is open, back closes it first). Search is entered from the Journals home and its back goes there.
-  - **Settings** is reached from the gear on Today. Its back arrow and Android back return to Today.
-  - Leaving Search resets it.
-  - **Leaving a recording.** While recording, back (the arrow or Android back) asks "Discard this recording?" ("Your recording will be deleted." with "Keep recording" and "Discard"). Discard stops the recording, deletes the unsaved recording, then leaves as it would have: an empty launch page counts as "No dream" and opens Today; a page with text asks its usual "Save a draft?"; any other page returns to Today or the log it was opened from, with no "No dream" marker. If the recording cannot be stopped, the "Could not finish recording" alert shows and the user stays.
-  - **Resume on a new day.** When the app comes back to the foreground on a different day than it left on, and nothing is done today, and "Open dream capture on launch" is on, it jumps to the launch Dreams page. It never does this while the user is on the add-entry page (or while an entry is being saved or deleted), and never when midnight passes while the app is open (Today just shows the new day). It happens at most once per new day: if it was blocked because the user was mid-flow, it does not happen again that day.
+### Launch and first note of the day
 
-### Today
+Status: **Built** (the launch note since the 7a cutover; resume on a new day since chunk 7c). Not yet verified on a device.
 
-- Today shows only entries created today, from any journal (drafts included), newest first, in one list. Rows are flat, screenshot-style items (no cards), separated by hairlines, with one more hairline after the last. Each has a small uppercase label, "DREAM · 6:22 AM" or "LIFE · 6:22 AM" (the time is when the entry was first saved), a large serif title (none for an untitled Life entry), the full body (never cut short, however long), then outlined chips for all its emotions followed by its tags (no "+N"). A draft uses the same frame with a red "DRAFT" in the label, no body, and tapping it reopens it on the add-entry page. Rows swipe to delete like in the logs; the Dream log, Life log and Search rows are unchanged. Which day an entry belongs to follows when it was first stored, in the device's local time.
-- If "No dream" was chosen today and there is no dream or draft today, a quiet "No dream today" line shows. With nothing at all, it says "Nothing here yet today." ("Nothing else yet today." under the "No dream today" line).
-- A round "+" floating button at the bottom right opens a bottom sheet headed "Add entry", with one row per journal (Dreams, then Life, then custom ones) styled like the cards on the Journals home; tapping a row starts a new entry on the add-entry page, and a save or back returns to Today. Tapping the dimmed backdrop, or Android back, closes the sheet; it also closes if a delete starts. Below the journal rows, set apart by a rule, a "New journal" row opens a sheet to name it ("Create" / "Cancel"); the name rules show as the user types. Custom journals get a row each, in creation order. The Journals home has the same button and sheet: picking a journal starts an entry that returns to Today (on back, on leaving and after a save), not to the Journals home, and "New journal" creates the journal and opens its empty log. The button is hidden while a name sheet (new or rename) is open and disabled while a journal delete runs. The logs keep their own "New dream" / "New entry" buttons. There is no search on Today; search is on the Journals home.
-- Whether today is done is worked out from the saved dreams and the "No dream" date, so deleting today's only finished dream makes the next launch open the Dreams page again.
+- When the user opens the app and nothing is done yet today, it opens to a new, empty note. Once a note with content exists today, or the user backs out of the empty new note (see below), the app opens to the note list for the rest of that day. This can be turned off in Settings.
+- The launch note can always be dismissed with one tap: its back arrow (and Android back) while the note is empty counts as done for the day: the day marker is written, the app lands on the note list, and the launch note does not reappear that day. There is no confirmation and no separate button. With something on the note, back just leaves; the note is already saved by autosave, which makes today done.
+- The app remembers only the latest date it was counted done, in a small file on the device (the existing day marker). Nothing leaves the phone.
+- Whether today is done is worked out from the saved notes and that marker. Deleting today's only note (moving it to Recently Deleted) does not reopen the launch note: once today is done it stays done for that day.
+- The launch also applies when the app returns to the foreground on a different day than it left on, nothing is done today, and the setting is on. It never does this while the user is on the editor (or while a note is being saved or deleted), and never when midnight passes while the app is open. It happens at most once per new day. The new note opens over whatever screen is showing (the list, Settings, Recently Deleted) and leaving it returns to that screen.
+- The app waits briefly for its stored data before deciding, with a cap of 1000 ms: if the data is not ready by then, it opens a new note so capturing is never delayed.
+- Starting must be fast: the editor opens with the body focused and the voice note one tap away.
+- The screen should be calm and low-glare (dark), suitable for use first thing in the morning.
+
+### Note list and drawer
+
+Status: **Built** for the list, the drawer views and migration lines (since the 7a cutover; the default view is Today); row swipe actions (Pin, Delete) are **Built** (7b-3). Not yet verified on a device.
+
+- The main screen is a note list: each row shows the title, a short preview of the body and a relative time in full words ("2 seconds ago", "37 minutes ago", "3 hours ago", "2 days ago", then a short date from 7 days on; "Just now" for under a second). Newest first. A round "+" button at the bottom right starts a new note; leaving the editor returns to the list.
+- A **drawer** opens from the left (a swipe from the left edge or a menu button). It holds, top to bottom: a dropdown to choose the smart view (its last row is **Recently Deleted**, with a count when there are any; it is reachable from the drawer only there), the list of tags, and a footer with a **Settings** gear at the bottom left and a **sort** button at the bottom right. The smart views, Recently Deleted and the tag rows have small icons.
+- **Smart views** (chosen from the dropdown): **Today** (notes written or edited today; the default view), **Todo** (notes that contain checkboxes), **Untagged** (notes with no tag) and **Pinned**. Choosing a tag in the drawer lists the notes with that tag. The chosen view or tag is kept when the user opens a note and comes back.
+- Tags in the drawer are flat, shown with how many notes use them. The sort button opens a small menu above it with **A to Z** (the default) and **Most notes** (most used first, ties A to Z); the choice applies at once and is remembered on the device. Open: whether the drawer shows every tag or only the most used.
+- The **Today** view shows today's date under its title (for example "Tuesday, October 20"); it moves to the next day at midnight. Other views, and the list while searching, show no date line.
+- Which day a note belongs to follows when it was first stored, in the device's local time. Today view is the one exception: it also lists a note edited today (pinning and restoring do not count as an edit), and the launch rule still counts only notes created today.
+- Rows swipe left to reveal **Pin** (or **Unpin**) and, in red, **Delete** (this moves the note to Recently Deleted at once, with no confirmation and no undo; Recently Deleted is the way back). Screen readers get "Pin"/"Unpin" and "Delete" actions on every row instead of the swipe. Rows do not swipe while another trash action is running (**Built**).
+- Pinning a note puts it in the Pinned view. Pin is in the note's "..." menu and by swipe on a note row. Pinning does not change a note's order in the main list, which stays by edit time (**Built**).
+
+### Opening a saved note
+
+Status: **Built**. Not verified on a device.
+
+- Tapping a note in the list or in Search opens it on the editable editor page, with its body (tags highlighted) and voice notes. There is no separate reading screen. Edits are saved by autosave; back (the arrow or Android back) returns to where the note was opened.
+- A "..." (More options) menu at the top right shows for a saved note only. Its items are **Pin** (or **Unpin**) and, in red, **Delete** (see Deleting notes).
+
+### Deleting notes
+
+Status: **Built** (7b-3): Delete, Recently Deleted, Restore, Delete forever and Empty. Not yet verified on a device.
+
+- **Delete** (in the "..." menu, or by swiping a row) moves the note to **Recently Deleted**. Its voice notes are kept with it. Nothing is removed from the phone at this point. When deleted from the editor, the app returns to where the note was opened, with no prompt.
+- In Recently Deleted the user can **Restore** a note (it returns to the list with its voice notes, in its old position, since restoring does not change its edit time) or **Delete forever**. After a restore the user stays on Recently Deleted: the note leaves the list, a line says `Restored "title".` and screen readers hear "Restored". The note is not opened.
+- **Delete forever** and **Empty Recently Deleted** are the only ways a whole note and its voice notes' audio are permanently removed, apart from one case: when the user leaves a note, voice notes they closed in it (held recordings) are permanently deleted from the phone. Both Delete forever and Empty Recently Deleted ask for confirmation first and say that they can't be undone.
+- **Safety copies.** Delete forever does not remove leftover safety copies named `notes.corrupt-...` (rare; they exist only after a storage damage event). It does remove the deleted note's text from the other backup copies.
+- Emptying an existing note (all text removed and no voice notes) moves it to Recently Deleted. A pinned note moved to Recently Deleted keeps its pin, so Restore brings it back pinned.
+- There is no automatic purge: nothing in Recently Deleted is ever removed unless the user chooses to. (Decided 2026-10-18; a time-based purge would need a separate decision and a change to the deletion rules.)
+- If a delete fails, an alert says so and the note stays.
+
+### Search
+
+Status: **Built** (since 7c-3; not verified on a device).
+
+- One field for words and tags, with tag chips under it. It looks in the body (so the title and tags too) of every note, and a result must have all selected tags. Results are newest first, grouped by month. Opening a result and going back returns to the results with the query and chips kept. It is plain text matching on the device, not analysis or interpretation.
+- Recently Deleted notes are not searched. Search opens from a magnifier icon at the right of the note list header (default; the drawer is the alternative). It is not a screen of its own: the header turns into the search field and the results are shown over the list, with a line "N notes found". Matches are highlighted in the title, the preview and the tag line; when a word is found only beyond the preview, the row shows an excerpt around it. "Close search" (the arrow) or Android back closes it and clears the query and chips; opening a result and coming back keeps them. The drawer cannot be opened while searching.
 
 ### Settings
 
-- Opened from the gear on Today. One switch, **Open dream capture on launch**, on by default, with the line "When off, the app opens to Today."
-- When off, the app always opens to Today and resume on a new day changes nothing. Backing out of an empty launch page and "New dream" are unaffected.
+Status: **Built** (since the 7a cutover, with the label "Open a new note on launch").
+
+- Opened from the drawer. One switch controlling whether the app opens a new note on the first launch each day, on by default, labelled "Open a new note on launch", with the line "When off, the app opens to the note list."
+- When off, the app always opens to the note list and resume on a new day changes nothing. Backing out of an empty launch note and the "+" button are unaffected.
 - The choice applies at once and is stored on the device only (one yes/no value in a small file). A damaged or missing file means on.
 
-#### Planned, not built
+### Navigation
 
-- A floating "+" add button in the logs, as another way to add entries (idea; Today already has one).
+Status: **Built**. The routes are Notes (the list, root, which also hosts the drawer and inline search), Editor, Settings and Recently Deleted, on the native stack.
 
-### Where journals are stored
+- Android back on the note list exits the app. Back from any other screen returns to where the user came from.
+- Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. It also closes whenever another screen is pushed over the list. Settings and Recently Deleted open from the drawer and go back to the list.
+- Bottom sheets (the recording panel, the expanded voice note view) close by dragging down, tapping the dimmed backdrop, or Android back.
+- Leaving a recording asks "Discard this recording?" ("Your recording will be deleted." with "Keep recording" and "Discard"). Discard stops the recording, deletes the unsaved recording, then leaves as it would have. If the recording cannot be stopped, the "Could not finish recording" alert shows and the user stays.
+- Back is ignored while a delete started from the editor is in progress.
 
-- The list of custom journals is kept in a small file on the device (`journals.json`); Dreams and Life are built in and not stored. Journal names never leave the phone. The file is written safely and the app never deletes it. Entries keep their journal's id, and an entry whose journal is not in the list is kept but hidden.
-- Downgrade: a build from before journals existed ignores which journal an entry is in, so it shows custom-journal entries (and Life entries) as dreams; a build that knows Dreams and Life but not custom journals hides custom-journal entries. The data is preserved either way and shows correctly again in a build that knows custom journals.
+### Where notes are stored
 
-### Tags
+Status: **Built**. Not verified on a device.
 
-- Tags apply to every entry, in any journal, and are shared across journals: suggestions come from all of them, and Search finds tags across journals.
-- Tagging is optional and lightweight.
-- In a log the user can filter its entries by one or more tags (all selected tags must match) and search by text; Search does the same across all journals.
+- Notes are stored on the device only, in a notes index file (`notes.json`) with voice note audio in a `notes/` folder. Each note keeps its text, created and updated times, whether it is pinned, when it was deleted (if it is in Recently Deleted) and its voice notes. The title, preview, tags and the Todo flag are worked out from the text and never stored.
+- The index is written safely (a temporary file, then replaced) and an unreadable index is never overwritten blindly. Storage rules for contributors are in `CLAUDE.md`.
+
+## Retired terms and migration
+
+Status: **Built**. The import runs once at app start, inside the launch gate (`src/app/AppFlowProvider.tsx`), and is a one-time cutover: anything an older build writes to `dreams.json` afterwards is not imported.
+
+These terms belong to the older concept (journals, dreams and entries, with a check button to save and "Save a draft?" or "Discard changes?" prompts when leaving) and are retired. The older screens and hooks have been removed. The terms survive only in the one-time import (`src/services/legacyImport.ts`), in migrated data, and in on-disk names kept on purpose so no stored data changes (the day marker file `no-dream.json` with its key `noDreamDate`, and the `autoOpenDreamCapture` key in the settings file). Do not use them in new copy, code or data models.
+
+| Retired term                             | Replaced by / fate                                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Journal, Journals home                   | Gone. Tags organize notes.                                                                          |
+| Entry, Life entry, Dream, Dream entry    | Note.                                                                                               |
+| Dream log, Life log                      | The note list with a tag chosen in the drawer.                                                      |
+| Emotion                                  | Gone as a field.                                                                                    |
+| "No dream"                               | The day marker: backing out of the empty launch note counts as done for the day (see Launch above). |
+| Add-entry page                           | The editor.                                                                                         |
+| Custom journals, rename, delete journal  | Gone.                                                                                               |
+| Draft, Save draft                        | Gone. A note exists once it has content; the editor autosaves. Drafts in old data become notes.     |
+| Check button, "Discard changes?"         | Gone. No explicit save and no leave prompts (autosave).                                             |
+| "Open dream capture on launch" (setting) | The launch switch in Settings, labelled "Open a new note on launch".                                |
+
+Existing data is brought over by a read-only import of the older data file (`dreams.json`) into notes. It runs once (a small marker file records that it ran) and never changes or removes the old files. Each old entry becomes a note laid out as: the title as the first line, then the text, then an `Emotion: sad, afraid` line when the old entry had an emotion, then one line of tags. The journal becomes the first tag (`#dreams`, `#life`, or a custom journal's name made into a tag, for example `#dream-work`), followed by the entry's own tags. Drafts become ordinary notes. The old audio stays in its old place and is played from there; it is never copied or deleted. An entry that cannot be converted (damaged id or date, or completely empty) is skipped and listed in the marker file; its data stays in `dreams.json`. If `dreams.json` cannot be read, nothing is imported and the import is tried again next time.
 
 ## Platforms
 
-- **Mobile**: capture and daily reflection. This is the primary platform.
+- **Mobile**: capture and daily use. This is the primary platform.
 - **Desktop/tablet**: browsing, organizing and looking back over time. Later.
 
 ## Not in scope yet
@@ -149,17 +182,20 @@ Tags cover anything the user wants to track over time, such as a recurring dream
 Do not build these unless explicitly asked:
 
 - Any AI features (classification, suggestions, summaries, pattern-finding)
+- Tasks as a feature (due dates, reminders, completion tracking). The Todo view only lists notes that contain plain-markdown checkboxes.
+- Nested tags
+- Markdown beyond headings, bullets, numbered lists, checkboxes, bold and italic (no links, code, tables or images)
+- Automatic purge of Recently Deleted
 - Threads or other higher-level grouping beyond tags
-- Tasks or to-do lists
 - Periodic roundups or summaries
 - An explore/hub view
 - Desktop app
 
 ## Open decisions
 
-Resolved (2026-10-11): one add-entry page replaces the voice-first capture; voice is an optional note attached to an entry, and text is typed. Whether and how a voice note becomes text after recording is open (planned, needs a device test).
-
 These are undecided. Ask before assuming an answer.
 
 - How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
-- Journal structure is partly resolved (see Journals and Today): an add button in logs is still to be designed and needs the user's go-ahead (user-created journals are built). How the app should navigate in the long run (Expo Router or the current state switch) is undecided.
+- How markdown is shown in the editor, and whether there is also a rendered reading view with tap-to-toggle checkboxes (a technical decision for the architect).
+- Whether the drawer shows every tag. (Search is entered from the list header icon, by default; change it if you prefer the drawer.)
+- Whether transcribing a voice note into text after recording works well enough on device (needs a device test).
