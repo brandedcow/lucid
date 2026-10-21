@@ -39,7 +39,7 @@ import { TagSortMenu } from './TagSortMenu';
  * - `tagSort` (default `alpha`), `onChangeTagSort(order)`: the tag order and the sort menu's choice.
  * - `trashedCount`: notes in Recently Deleted. The count shows when above zero.
  * - `onOpenTrash()`: Recently Deleted was chosen, from the last dropdown row (after a separator; it is a
- *   place, not a view, so it is never selected and never changes the dropdown label) or the footer row.
+ *   place, not a view, so it is never selected and never changes the dropdown label). It is the only entry.
  * - `onOpenSettings()`: the gear (footer, bottom left) was tapped. The sort button is at the bottom right.
  * - `unreadable`: the notes could not be read; the tag list is replaced by a message.
  */
@@ -243,18 +243,6 @@ export function NotesDrawer({
             testID="notes-drawer-footer"
             style={[styles.footer, { paddingBottom: insets.bottom + spacing.sm }]}
           >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={trashLabel}
-              onPress={onOpenTrash}
-              style={styles.row}
-            >
-              <View style={styles.rowLabel}>
-                <ViewIcon kind="trash" color={colors.text} size={22} />
-                <Text style={styles.rowText}>Recently Deleted</Text>
-              </View>
-              {trashedCount > 0 && <Text style={styles.count}>{trashedCount}</Text>}
-            </Pressable>
             <View style={styles.iconRow}>
               <Pressable
                 accessibilityRole="button"
