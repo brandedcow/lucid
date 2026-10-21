@@ -58,14 +58,12 @@ export function ReadingImage({ alt, url, imagesEnabled, linksDisabled, onEdit }:
   const status = imageUrlStatus(url);
   const label = alt === '' ? 'Image' : alt;
 
-  if (status === 'invalid') {
-    return <Placeholder alt={alt} note="Can't show this image" onPress={onEdit} />;
-  }
+  const safe = safeImageUrl(url);
+
   if (status === 'needs-https') {
     return <Placeholder alt={alt} note="This image needs https" onPress={onEdit} />;
   }
-  const safe = safeImageUrl(url);
-  if (safe === null) {
+  if (status === 'invalid' || safe === null) {
     return <Placeholder alt={alt} note="Can't show this image" onPress={onEdit} />;
   }
   if (!imagesEnabled && !requested) {
@@ -85,6 +83,7 @@ export function ReadingImage({ alt, url, imagesEnabled, linksDisabled, onEdit }:
         alt={alt}
         note="Couldn't load this image. Tap to try again."
         role="button"
+        disabled={linksDisabled}
         onPress={() => {
           setFailed(false);
           setRatio(null);

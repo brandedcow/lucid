@@ -84,6 +84,19 @@ describe('ReadingImage', () => {
     expect(screen.getByTestId('reading-image', { hidden: true })).toBeTruthy();
   });
 
+  it('linksDisabled: the failure placeholder is inert, and retry works again when re-enabled', async () => {
+    const msg = "Couldn't load this image. Tap to try again.";
+    const view = await render(el({ imagesEnabled: true, linksDisabled: false }));
+    await fireEvent(screen.getByTestId('reading-image', { hidden: true }), 'error', {});
+    await view.rerender(el({ imagesEnabled: true, linksDisabled: true }));
+    await fireEvent.press(screen.getByText(msg));
+    expect(screen.queryByTestId('reading-image', { hidden: true })).toBeNull();
+    expect(screen.getByRole('button').props.accessibilityState?.disabled).toBe(true);
+    await view.rerender(el({ imagesEnabled: true, linksDisabled: false }));
+    await fireEvent.press(screen.getByText(msg));
+    expect(screen.getByTestId('reading-image', { hidden: true })).toBeTruthy();
+  });
+
   it('linksDisabled: tap to load is inert', async () => {
     await render(el({ linksDisabled: true }));
     await fireEvent.press(screen.getByRole('button'));
