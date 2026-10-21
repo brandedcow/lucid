@@ -1,6 +1,11 @@
 import { useState } from 'react';
-import { Image, Pressable, Text, type ImageLoadEventData } from 'react-native';
-import type { NativeSyntheticEvent } from 'react-native';
+import {
+  Image,
+  Pressable,
+  Text,
+  type ImageLoadEventData,
+  type NativeSyntheticEvent,
+} from 'react-native';
 import { imageUrlStatus, safeImageUrl } from '../utils/safeUrl';
 import { readingStyles as s } from './readingStyles';
 
