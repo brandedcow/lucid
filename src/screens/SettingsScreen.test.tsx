@@ -8,9 +8,10 @@ const METRICS = {
   insets: { top: 0, left: 0, right: 0, bottom: 34 },
 };
 
-async function setup(autoOpenNewNote = true, onlineTranscription = false) {
+async function setup(autoOpenNewNote = true, onlineTranscription = false, loadImages = false) {
   const onChange = jest.fn();
   const onChangeOnline = jest.fn();
+  const onChangeImages = jest.fn();
   const onBack = jest.fn();
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -19,11 +20,13 @@ async function setup(autoOpenNewNote = true, onlineTranscription = false) {
         onChangeAutoOpenNewNote={onChange}
         onlineTranscription={onlineTranscription}
         onChangeOnlineTranscription={onChangeOnline}
+        loadImages={loadImages}
+        onChangeLoadImages={onChangeImages}
         onBack={onBack}
       />
     </SafeAreaProvider>,
   );
-  return { onChange, onChangeOnline, onBack };
+  return { onChange, onChangeOnline, onChangeImages, onBack };
 }
 
 describe('SettingsScreen', () => {
@@ -145,6 +148,46 @@ describe('SettingsScreen', () => {
       await fireEvent(screen.getByRole('switch', { name: LABEL }), 'valueChange', false);
       expect(alert).not.toHaveBeenCalled();
       expect(onChangeOnline).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('load images row', () => {
+    const LABEL = 'Load images from the web';
+
+    it('shows the label and the helper', async () => {
+      await setup();
+      expect(screen.getByText(LABEL)).toBeTruthy();
+      expect(
+        screen.getByText(
+          'Off: images in your notes show a placeholder you can tap to load. On: images load when you open a note. Loading an image contacts the website it comes from.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('exposes switch role, label and checked state', async () => {
+      await setup(true, false, false);
+      const sw = screen.getByRole('switch', { name: LABEL });
+      expect(sw.props.accessibilityState).toEqual({ checked: false });
+      expect(sw.props.value).toBe(false);
+      await screen.unmount();
+      await setup(true, false, true);
+      expect(screen.getByRole('switch', { name: LABEL }).props.accessibilityState).toEqual({
+        checked: true,
+      });
+    });
+
+    it('calls the handler at once in both directions, with no Alert', async () => {
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const { onChangeImages, onChange, onChangeOnline } = await setup(true, false, false);
+      await fireEvent(screen.getByRole('switch', { name: LABEL }), 'valueChange', true);
+      expect(onChangeImages).toHaveBeenLastCalledWith(true);
+      await fireEvent(screen.getByRole('switch', { name: LABEL }), 'valueChange', false);
+      expect(onChangeImages).toHaveBeenLastCalledWith(false);
+      expect(onChangeImages).toHaveBeenCalledTimes(2);
+      expect(alert).not.toHaveBeenCalled();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onChangeOnline).not.toHaveBeenCalled();
+      alert.mockRestore();
     });
   });
 });

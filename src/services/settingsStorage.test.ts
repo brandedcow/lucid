@@ -14,6 +14,7 @@ describe('readSettings', () => {
       autoOpenNewNote: true,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 
@@ -33,6 +34,7 @@ describe('readSettings', () => {
       autoOpenNewNote: true,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 
@@ -43,6 +45,7 @@ describe('readSettings', () => {
       autoOpenNewNote: true,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 
@@ -52,6 +55,7 @@ describe('readSettings', () => {
       autoOpenNewNote: false,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 });
@@ -63,12 +67,14 @@ describe('writeSettings', () => {
       autoOpenNewNote: false,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
     await writeSettings({ autoOpenNewNote: true });
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 
@@ -106,6 +112,7 @@ describe('writeSettings', () => {
       autoOpenNewNote: false,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 
@@ -137,6 +144,7 @@ describe('writeSettings', () => {
       autoOpenNewNote: true,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
     const a = writeSettings({ autoOpenNewNote: true });
     const b = writeSettings({ autoOpenNewNote: false });
@@ -145,6 +153,7 @@ describe('writeSettings', () => {
       autoOpenNewNote: false,
       onlineTranscription: false,
       tagSort: 'alpha',
+      loadImages: false,
     });
   });
 });
@@ -179,12 +188,14 @@ describe('onlineTranscription', () => {
       autoOpenNewNote: true,
       onlineTranscription: true,
       tagSort: 'alpha',
+      loadImages: false,
     });
     __fs.put(FILE, '{"autoOpenDreamCapture":"x","onlineTranscription":true}');
     expect(await readSettings()).toEqual({
       autoOpenNewNote: true,
       onlineTranscription: true,
       tagSort: 'alpha',
+      loadImages: false,
     });
     await writeSettings({ onlineTranscription: false });
     expect((await readSettings()).onlineTranscription).toBe(false);
@@ -276,6 +287,7 @@ describe('tagSort', () => {
       autoOpenNewNote: false,
       onlineTranscription: true,
       tagSort: 'alpha',
+      loadImages: false,
     });
     await writeSettings({ tagSort: 'count' });
     expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
@@ -305,6 +317,110 @@ describe('tagSort', () => {
   });
 });
 
+describe('loadImages', () => {
+  it('defaults to false when the file is missing', async () => {
+    expect((await readSettings()).loadImages).toBe(false);
+  });
+
+  it.each([
+    ['a string', '{"loadImages":"true"}'],
+    ['a number', '{"loadImages":1}'],
+    ['null', '{"loadImages":null}'],
+    ['an object', '{"loadImages":{"a":true}}'],
+    ['corrupt JSON', '{"loadImages":tru'],
+    ['an array file', '[true]'],
+    ['zero-length', ''],
+    ['absent from a file written by the previous build', '{"onlineTranscription":true}'],
+  ])('is false for %s', async (_name, content) => {
+    __fs.put(FILE, content);
+    expect((await readSettings()).loadImages).toBe(false);
+  });
+
+  it('is false when the file cannot be read, and the next read finds the stored value', async () => {
+    __fs.put(FILE, '{"loadImages":true}');
+    __fs.failNext('text');
+    expect((await readSettings()).loadImages).toBe(false);
+    expect((await readSettings()).loadImages).toBe(true);
+  });
+
+  it('writes the on-disk key loadImages and reads it back, each key validated on its own', async () => {
+    await writeSettings({ loadImages: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ loadImages: true });
+    expect(await readSettings()).toEqual({
+      autoOpenNewNote: true,
+      onlineTranscription: false,
+      tagSort: 'alpha',
+      loadImages: true,
+    });
+    await writeSettings({ loadImages: false });
+    expect((await readSettings()).loadImages).toBe(false);
+  });
+
+  it('patching loadImages:true keeps the other keys and unknown keys in the written file', async () => {
+    __fs.put(
+      FILE,
+      '{"autoOpenDreamCapture":false,"onlineTranscription":true,"tagSort":"count","later":{"a":1}}',
+    );
+    await writeSettings({ loadImages: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      autoOpenDreamCapture: false,
+      onlineTranscription: true,
+      tagSort: 'count',
+      later: { a: 1 },
+      loadImages: true,
+    });
+  });
+
+  it('writing the other settings keeps loadImages, and does not write it when the patch lacks it', async () => {
+    __fs.put(FILE, '{"loadImages":true}');
+    await writeSettings({ tagSort: 'count' });
+    await writeSettings({ autoOpenNewNote: false });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({
+      loadImages: true,
+      tagSort: 'count',
+      autoOpenDreamCapture: false,
+    });
+    __fs.reset();
+    await writeSettings({ onlineTranscription: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).not.toHaveProperty('loadImages');
+  });
+
+  it('two quick writes end with the last value', async () => {
+    const a = writeSettings({ loadImages: true });
+    const b = writeSettings({ loadImages: false });
+    await Promise.all([a, b]);
+    expect((await readSettings()).loadImages).toBe(false);
+    const c = writeSettings({ loadImages: false });
+    const d = writeSettings({ loadImages: true });
+    await Promise.all([c, d]);
+    expect((await readSettings()).loadImages).toBe(true);
+  });
+
+  it('a persistent read failure writes nothing and later reads default to false', async () => {
+    const stored = '{"onlineTranscription":true,"later":1}';
+    __fs.put(FILE, stored);
+    __fs.failWhen('text', (uri) => uri === FILE);
+    const write = jest.spyOn(File.prototype, 'write');
+    await expect(writeSettings({ loadImages: true })).resolves.toBeUndefined();
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
+    expect((await readSettings()).loadImages).toBe(false);
+    expect(__fs.read(FILE)).toBe(stored);
+  });
+
+  it('a corrupt file is replaced by the patch alone', async () => {
+    __fs.put(FILE, '{garbage');
+    await writeSettings({ loadImages: true });
+    expect(JSON.parse(__fs.read(FILE) ?? '')).toEqual({ loadImages: true });
+  });
+
+  it('a failed write never throws and the value stays false on disk', async () => {
+    __fs.failNext('write');
+    await expect(writeSettings({ loadImages: true })).resolves.toBeUndefined();
+    expect((await readSettings()).loadImages).toBe(false);
+  });
+});
+
 describe('write guard (unreadable vs corrupt vs missing)', () => {
   const STORED =
     '{"autoOpenDreamCapture":false,"onlineTranscription":true,"tagSort":"count","later":{"a":1}}';
@@ -326,6 +442,7 @@ describe('write guard (unreadable vs corrupt vs missing)', () => {
     ['autoOpenNewNote', { autoOpenNewNote: true }],
     ['onlineTranscription', { onlineTranscription: false }],
     ['tagSort', { tagSort: 'alpha' as const }],
+    ['loadImages', { loadImages: true }],
   ])('a persistent read failure leaves the disk byte-identical (%s)', async (_name, patch) => {
     __fs.put(FILE, STORED);
     unreadable();
@@ -364,6 +481,7 @@ describe('write guard (unreadable vs corrupt vs missing)', () => {
         autoOpenNewNote: true,
         onlineTranscription: false,
         tagSort: 'count',
+        loadImages: false,
       });
     },
   );

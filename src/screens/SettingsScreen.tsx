@@ -10,6 +10,9 @@ import { colors, fonts, spacing } from '../theme';
  *   when this phone cannot do it itself (default off).
  * - `onChangeOnlineTranscription(value)`: turning it ON is called only after the user confirms the
  *   Alert; turning it OFF is called at once.
+ * - `loadImages`: whether images written in notes load from the web automatically (default off).
+ * - `onChangeLoadImages(value)`: called at once in both directions; there is no confirmation, the
+ *   helper line explains that loading an image contacts the site it comes from.
  * - `onBack()`: the back arrow.
  */
 type Props = {
@@ -17,11 +20,14 @@ type Props = {
   onChangeAutoOpenNewNote: (value: boolean) => void;
   onlineTranscription: boolean;
   onChangeOnlineTranscription: (value: boolean) => void;
+  loadImages: boolean;
+  onChangeLoadImages: (value: boolean) => void;
   onBack: () => void;
 };
 
 const ROW_LABEL = 'Open a new note on launch';
 const ONLINE_LABEL = 'Transcribe voice notes online';
+const IMAGES_LABEL = 'Load images from the web';
 
 // The provider is named for the platform: iOS speech recognition is Apple's, Android's is Google's.
 const provider = () => (Platform.OS === 'ios' ? 'Apple' : 'Google');
@@ -31,6 +37,8 @@ export function SettingsScreen({
   onChangeAutoOpenNewNote,
   onlineTranscription,
   onChangeOnlineTranscription,
+  loadImages,
+  onChangeLoadImages,
   onBack,
 }: Props) {
   // OFF is immediate. ON needs a confirmation naming the provider; Cancel changes and saves nothing.
@@ -96,6 +104,26 @@ export function SettingsScreen({
           accessibilityState={{ checked: onlineTranscription }}
           value={onlineTranscription}
           onValueChange={changeOnline}
+          trackColor={{ false: colors.border, true: colors.accent }}
+          thumbColor={colors.text}
+          ios_backgroundColor={colors.border}
+        />
+      </View>
+
+      <View style={styles.row}>
+        <View style={styles.rowText}>
+          <Text style={styles.label}>{IMAGES_LABEL}</Text>
+          <Text style={styles.helper}>
+            Off: images in your notes show a placeholder you can tap to load. On: images load when
+            you open a note. Loading an image contacts the website it comes from.
+          </Text>
+        </View>
+        <Switch
+          accessibilityRole="switch"
+          accessibilityLabel={IMAGES_LABEL}
+          accessibilityState={{ checked: loadImages }}
+          value={loadImages}
+          onValueChange={onChangeLoadImages}
           trackColor={{ false: colors.border, true: colors.accent }}
           thumbColor={colors.text}
           ios_backgroundColor={colors.border}

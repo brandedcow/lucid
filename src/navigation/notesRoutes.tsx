@@ -387,6 +387,8 @@ export function NotesSettingsRoute() {
       onChangeAutoOpenNewNote={settings.setAutoOpenNewNote}
       onlineTranscription={settings.onlineTranscription}
       onChangeOnlineTranscription={settings.setOnlineTranscription}
+      loadImages={settings.loadImages}
+      onChangeLoadImages={settings.setLoadImages}
       onBack={() => navigation.goBack()}
     />
   );
