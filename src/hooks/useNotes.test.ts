@@ -184,6 +184,48 @@ describe('useNotes', () => {
     expect(result.current.error?.action).toBe('load');
   });
 
+  it('refresh resolves with the loaded notes, trashed ones included', async () => {
+    await seed();
+    await storage.softDeleteNote('3');
+    const { result } = await setup();
+    let loaded: Note[] | null = null;
+    await act(async () => {
+      loaded = await result.current.refresh();
+    });
+    expect(ids(loaded as unknown as Note[])).toEqual(['1', '2', '3']);
+  });
+
+  it('refresh resolves null when the load failed', async () => {
+    await seed();
+    const { result } = await setup();
+    jest.spyOn(storage, 'listNotes').mockRejectedValueOnce(new Error('boom'));
+    let loaded: Note[] | null = [];
+    await act(async () => {
+      loaded = await result.current.refresh();
+    });
+    expect(loaded).toBeNull();
+  });
+
+  it('refresh resolves null when a newer load superseded it', async () => {
+    await seed();
+    const { result } = await setup();
+    let release!: (list: Note[]) => void;
+    const slow = new Promise<Note[]>((res) => {
+      release = res;
+    });
+    const real = storage.listNotes;
+    jest.spyOn(storage, 'listNotes').mockReturnValueOnce(slow).mockImplementation(real);
+    let first!: Promise<Note[] | null>;
+    let second: Note[] | null = null;
+    await act(async () => {
+      first = result.current.refresh();
+      second = await result.current.refresh();
+    });
+    release([]);
+    expect(await first).toBeNull();
+    expect(second).not.toBeNull();
+  });
+
   it('ignores a stale slow first load that resolves after a newer refresh', async () => {
     await seed();
     let release!: (list: Note[]) => void;

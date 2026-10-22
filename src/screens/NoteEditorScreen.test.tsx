@@ -74,6 +74,14 @@ describe('NoteEditorScreen', () => {
     expect(callbacks.onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('labels the back arrow with backLabel when given', async () => {
+    await render(<Harness backLabel="Back to previous note" />);
+    expect(screen.getByLabelText('Back to previous note')).toBeTruthy();
+    expect(screen.queryByLabelText('Back to notes')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back to previous note'));
+    expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+  });
+
   describe('menu', () => {
     it('is absent for a note that is not stored', async () => {
       await render(<Harness stored={false} />);
