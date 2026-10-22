@@ -236,7 +236,8 @@ export function completeWikiToken(
  * most recently edited first (the order of `index.entries`). Otherwise prefix matches first, then
  * substring matches, case-insensitive on the normalised key, each group newest first. The query is
  * normalised like a key (whitespace collapsed, trimmed). Left out: the note `currentId`, and titles
- * containing `[` or `]` (they cannot be written as a link). Untitled notes are not in the index.
+ * containing `[` or `]` or longer than the wikilink limit (they cannot be written as a link).
+ * Untitled notes are not in the index.
  */
 export function matchTitles(
   index: TitleIndex,
@@ -249,7 +250,8 @@ export function matchTitles(
   const prefix: TitleEntry[] = [];
   const inner: TitleEntry[] = [];
   for (const e of index.entries) {
-    if (e.id === currentId || /[[\]]/.test(e.title)) continue;
+    if (e.id === currentId || /[[\]]/.test(e.title) || e.title.trim().length > MAX_WIKILINK_LENGTH)
+      continue;
     if (q === '') prefix.push(e);
     else if (e.key.startsWith(q)) prefix.push(e);
     else if (e.key.indexOf(q) !== -1) inner.push(e);
