@@ -175,6 +175,8 @@ describe('undo and redo', () => {
 
   it('groups typing into steps and undoes and redoes them', async () => {
     await renderPage();
+    // The real input is focused by autoFocus; without a focus the new note falls back to reading.
+    await fireEvent(body(), 'focus');
     await typeBody('first');
     await typeBody('first second');
     await press('Undo');
@@ -542,6 +544,8 @@ describe('transcription', () => {
 
   it('flushes pending typing first, so it is its own step', async () => {
     await renderPage({ initial: { stored: true, recordings: [storedVoice] } });
+    // A stored note opens in the reading view; Edit brings the input back.
+    await press('Edit note');
     await fireEvent.changeText(body(), 'typed words');
     await press('Open recording');
     await addFromMenu();
