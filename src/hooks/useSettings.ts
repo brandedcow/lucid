@@ -17,9 +17,11 @@ export function useSettings() {
   const [autoOpenNewNote, setAuto] = useState(DEFAULT_SETTINGS.autoOpenNewNote);
   const [onlineTranscription, setOnline] = useState(DEFAULT_SETTINGS.onlineTranscription);
   const [tagSort, setTagSortState] = useState<TagSortOrder>(DEFAULT_SETTINGS.tagSort);
+  const [loadImages, setLoadImagesState] = useState(DEFAULT_SETTINGS.loadImages);
   const changed = useRef(false);
   const changedOnline = useRef(false);
   const changedTagSort = useRef(false);
+  const changedLoadImages = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export function useSettings() {
         if (!changed.current) setAuto(settings.autoOpenNewNote);
         if (!changedOnline.current) setOnline(settings.onlineTranscription);
         if (!changedTagSort.current) setTagSortState(settings.tagSort);
+        if (!changedLoadImages.current) setLoadImagesState(settings.loadImages);
         setLoaded(true);
       })
       .catch(() => {
@@ -58,6 +61,12 @@ export function useSettings() {
     writeSettings({ tagSort: value }).catch(() => {});
   }, []);
 
+  const setLoadImages = useCallback((value: boolean) => {
+    changedLoadImages.current = true;
+    setLoadImagesState(value);
+    writeSettings({ loadImages: value }).catch(() => {});
+  }, []);
+
   return {
     loaded,
     autoOpenNewNote,
@@ -66,5 +75,7 @@ export function useSettings() {
     setOnlineTranscription,
     tagSort,
     setTagSort,
+    loadImages,
+    setLoadImages,
   };
 }

@@ -6,7 +6,12 @@ import { useSettings } from './useSettings';
 jest.mock('expo-file-system', () => jest.requireActual('../test/fakeFileSystem'));
 
 jest.mock('../services/settingsStorage', () => ({
-  DEFAULT_SETTINGS: { autoOpenNewNote: true, onlineTranscription: false, tagSort: 'alpha' },
+  DEFAULT_SETTINGS: {
+    autoOpenNewNote: true,
+    onlineTranscription: false,
+    tagSort: 'alpha',
+    loadImages: false,
+  },
   readSettings: jest.fn(),
   writeSettings: jest.fn(),
 }));
@@ -15,6 +20,7 @@ type Stored = {
   autoOpenNewNote: boolean;
   onlineTranscription: boolean;
   tagSort: 'alpha' | 'count';
+  loadImages?: boolean;
 };
 
 const mockRead = readSettings as jest.Mock;
@@ -246,4 +252,85 @@ it('with a persistent read failure in the real service, setters update memory, t
   });
   expect(__fs.read(FILE)).toBe(stored);
   __fs.reset();
+});
+
+describe('loadImages', () => {
+  it('is false until loaded, then the stored value', async () => {
+    const read = deferred<Stored>();
+    mockRead.mockReturnValue(read.promise);
+    const { result } = await renderHook(() => useSettings());
+    expect(result.current.loadImages).toBe(false);
+    await act(async () =>
+      read.resolve({
+        autoOpenNewNote: true,
+        onlineTranscription: false,
+        tagSort: 'alpha',
+        loadImages: true,
+      }),
+    );
+    expect(result.current.loadImages).toBe(true);
+  });
+
+  it('is false when the read fails', async () => {
+    mockRead.mockRejectedValue(new Error('boom'));
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.loadImages).toBe(false);
+  });
+
+  it('updates at once, writes only loadImages, and keeps the value when the write rejects', async () => {
+    mockWrite.mockRejectedValue(new Error('disk full'));
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => result.current.setLoadImages(true));
+    expect(result.current.loadImages).toBe(true);
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+    expect(mockWrite).toHaveBeenCalledWith({ loadImages: true });
+  });
+
+  it('two quick toggles end with the last value, each saved on its own', async () => {
+    const { result } = await renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => {
+      result.current.setLoadImages(true);
+      result.current.setLoadImages(false);
+    });
+    expect(result.current.loadImages).toBe(false);
+    expect(mockWrite.mock.calls).toEqual([[{ loadImages: true }], [{ loadImages: false }]]);
+  });
+
+  it('a late read does not overwrite a newer toggle, and the other keys still load', async () => {
+    const read = deferred<Stored>();
+    mockRead.mockReturnValue(read.promise);
+    const { result } = await renderHook(() => useSettings());
+    await act(async () => result.current.setLoadImages(true));
+    await act(async () =>
+      read.resolve({
+        autoOpenNewNote: false,
+        onlineTranscription: true,
+        tagSort: 'count',
+        loadImages: false,
+      }),
+    );
+    expect(result.current.loadImages).toBe(true);
+    expect(result.current.autoOpenNewNote).toBe(false);
+    expect(result.current.onlineTranscription).toBe(true);
+    expect(result.current.tagSort).toBe('count');
+  });
+
+  it('setting other keys does not stop a late loadImages read from applying', async () => {
+    const read = deferred<Stored>();
+    mockRead.mockReturnValue(read.promise);
+    const { result } = await renderHook(() => useSettings());
+    await act(async () => result.current.setTagSort('count'));
+    await act(async () =>
+      read.resolve({
+        autoOpenNewNote: true,
+        onlineTranscription: false,
+        tagSort: 'alpha',
+        loadImages: true,
+      }),
+    );
+    expect(result.current.loadImages).toBe(true);
+  });
 });
