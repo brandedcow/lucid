@@ -156,6 +156,8 @@ describe('followNoteLink', () => {
     expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith('Created "Foo"');
 
     await press('editor-back');
+    await waitFor(() => expect(flow().session?.id).toBe('a'));
+    await press('editor-back');
     await waitFor(() => expect(route()).toBe('Notes'));
     expect(stored().map((n) => n.body)).toContain('Foo');
     const fooId = stored().find((n) => n.body === 'Foo')!.id;
@@ -204,6 +206,8 @@ describe('followNoteLink', () => {
     await act(async () => {
       await Promise.all([flow().followNoteLink('Foo'), flow().followNoteLink('Foo')]);
     });
+    await press('editor-back');
+    await waitFor(() => expect(flow().session?.id).toBe('a'));
     await press('editor-back');
     await waitFor(() => expect(route()).toBe('Notes'));
     expect(stored().filter((n) => n.body === 'Foo')).toHaveLength(1);
