@@ -240,4 +240,46 @@ describe('NoteBodyInput', () => {
     await render(<Harness initial="# Big" style={{ fontSize: 20 }} />);
     expect(screen.getByText('Big').props.style).toMatchObject({ fontSize: 30 });
   });
+
+  it('seeds the selection from the prop at mount, clamped', async () => {
+    await render(
+      <NoteBodyInput
+        text="hello"
+        selection={{ start: 2, end: 99 }}
+        onChangeText={() => {}}
+        testID="note-body"
+      />,
+    );
+    expect(input().props.selection).toEqual({ start: 2, end: 5 });
+  });
+
+  it('has no selection at mount when none is given', async () => {
+    await render(<NoteBodyInput text="hello" onChangeText={() => {}} testID="note-body" />);
+    expect(input().props.selection).toBeUndefined();
+  });
+
+  it('focuses at mount when the focus signal is already above 0', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await render(<NoteBodyInput text="a" onChangeText={() => {}} focusSignal={1} />);
+    expect(focus).toHaveBeenCalledTimes(1);
+    focus.mockRestore();
+  });
+
+  it('calls onRemount when a programmatic edit remounts the input, not at mount', async () => {
+    const onRemount = jest.fn();
+    await render(<Harness initial="abc" onRemount={onRemount} />);
+    expect(onRemount).not.toHaveBeenCalled();
+    await outside('abcd');
+    expect(onRemount).toHaveBeenCalledTimes(1);
+    await outside('abcde');
+    expect(onRemount).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call onRemount for typing or in place edits', async () => {
+    const onRemount = jest.fn();
+    await render(<Harness initial="abc" editMode="inPlace" onRemount={onRemount} />);
+    await fireEvent(input(), 'changeText', 'abcd');
+    await outside('abcde');
+    expect(onRemount).not.toHaveBeenCalled();
+  });
 });

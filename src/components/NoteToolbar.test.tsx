@@ -78,4 +78,21 @@ describe('NoteToolbar', () => {
     expect(screen.queryByLabelText('Indent')).toBeNull();
     expect(screen.queryByLabelText('Outdent')).toBeNull();
   });
+
+  it('formatDisabled disables only the tags and checkbox buttons', async () => {
+    await renderBar({ formatDisabled: true, checkboxAction: 'check' });
+    expect(disabled('Add tags')).toBe(true);
+    expect(disabled('Check item')).toBe(true);
+    expect(disabled('Undo')).toBe(false);
+    expect(disabled('Redo')).toBe(false);
+    expect(disabled('Record voice note')).toBe(false);
+    await fireEvent.press(screen.getByLabelText('Add tags'));
+    expect(handlers.onTags).not.toHaveBeenCalled();
+  });
+
+  it('leaves the format buttons enabled by default', async () => {
+    await renderBar({ checkboxAction: 'check' });
+    expect(disabled('Add tags')).toBe(false);
+    expect(disabled('Check item')).toBe(false);
+  });
 });

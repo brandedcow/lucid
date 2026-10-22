@@ -4,6 +4,7 @@ import {
   checkboxAction as planCheckbox,
   indentLines,
   toggleCheckbox as applyToggle,
+  toggleCheckboxAtLine,
   type EditResult,
   type Sel,
 } from '../utils/markdownEdit';
@@ -27,9 +28,13 @@ export type NoteEditor = {
   /** What the checkbox button would do on the caret's line, for its state and label. */
   checkboxAction: 'check' | 'uncheck' | 'add' | 'none';
   toggleCheckbox(): void;
+  /** Toggles the checkbox on the line at `offset` (reading view); no selection change. */
+  toggleCheckboxAt(offset: number): void;
   indent(): void;
   outdent(): void;
   focus(): void;
+  /** Marks the body as not focused (leaving editing mode without a native blur event). */
+  markBlurred(): void;
   /** Moves the caret to `sel` together with a body change made in the same update (a tag edit). */
   select(sel: Sel): void;
 };
@@ -81,9 +86,16 @@ export function useNoteEditor(args: {
     focused,
     checkboxAction: planCheckbox(body, selection),
     toggleCheckbox: () => apply(applyToggle(body, selection)),
+    toggleCheckboxAt: (offset) => {
+      const result = toggleCheckboxAtLine(body, offset);
+      if (!result) return;
+      setBody(result.text);
+      onEdit?.(body, result.text, 'format');
+    },
     indent: () => apply(indentLines(body, selection)),
     outdent: () => apply(indentLines(body, selection, true)),
     focus: () => setFocusSignal((n) => n + 1),
+    markBlurred: () => setFocused(false),
     select: (sel) => {
       setSelection(sel);
       setPending(sel);

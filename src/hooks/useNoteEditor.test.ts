@@ -119,4 +119,32 @@ describe('useNoteEditor', () => {
     expect(setBody.mock.calls.every((c) => c.length === 1 && typeof c[0] === 'string')).toBe(true);
     expect(setBody).toHaveBeenCalled();
   });
+
+  it('toggleCheckboxAt toggles the line at the offset without touching the selection', async () => {
+    const { view, onEdit, setBodySpy, move } = await setup();
+    await move(2);
+    const before = view.result.current.selection;
+    await act(() => view.result.current.toggleCheckboxAt(10)); // inside '- [ ] task'
+    expect(setBodySpy).toHaveBeenCalledWith('plain\n- [x] task\n# Head\n- bullet');
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith(BODY, 'plain\n- [x] task\n# Head\n- bullet', 'format');
+    expect(view.result.current.selection).toEqual(before);
+    expect(view.result.current.inputProps.selection).toBeUndefined();
+  });
+
+  it('toggleCheckboxAt does nothing on a line without a checkbox', async () => {
+    const { view, onEdit, setBodySpy } = await setup();
+    await act(() => view.result.current.toggleCheckboxAt(1)); // 'plain'
+    await act(() => view.result.current.toggleCheckboxAt(BODY.length)); // '- bullet'
+    expect(setBodySpy).not.toHaveBeenCalled();
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it('markBlurred clears focused', async () => {
+    const { view } = await setup();
+    await act(() => view.result.current.inputProps.onFocus?.());
+    expect(view.result.current.focused).toBe(true);
+    await act(() => view.result.current.markBlurred());
+    expect(view.result.current.focused).toBe(false);
+  });
 });

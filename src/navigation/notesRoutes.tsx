@@ -275,7 +275,10 @@ export function EditorRoute() {
     banner,
     leaveEditor,
     deleteOpenNote,
+    followNoteLink,
     togglePin,
+    notes,
+    settings,
     allowLeave,
     resetAllowLeave,
   } = useAppFlow();
@@ -336,6 +339,9 @@ export function EditorRoute() {
         banner={banner}
         locked={locked}
         autoFocus={!session.stored}
+        notes={notes.all}
+        imagesEnabled={settings.loaded && settings.loadImages}
+        onFollowNoteLink={(t) => void followNoteLink(t)}
       />
     </View>
   );

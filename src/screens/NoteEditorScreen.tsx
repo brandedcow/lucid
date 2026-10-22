@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NoteBodyInput } from '../components/NoteBodyInput';
+import { NoteBodyInput, type NoteBodyInputProps } from '../components/NoteBodyInput';
 import { OverflowMenu } from '../components/OverflowMenu';
 import { useCaretFollow } from '../hooks/useCaretFollow';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
@@ -17,6 +17,14 @@ import type { NoteEditor } from '../hooks/useNoteEditor';
 import { colors, iconCircle, spacing } from '../theme';
 
 const BODY_MIN_HEIGHT = 160;
+
+/** The body's empty-state text, shared with the reading view. */
+export const BODY_PLACEHOLDER = 'Start writing...';
+
+/** The editor the page binds to; `inputProps` may also carry NoteBodyInput's `onRemount`. */
+export type ScreenEditor = Omit<NoteEditor, 'inputProps'> & {
+  inputProps: NoteEditor['inputProps'] & Pick<NoteBodyInputProps, 'onRemount'>;
+};
 
 export type NoteEditorBanner = {
   kind: 'saveError' | 'inTrash' | 'unreadable';
@@ -48,6 +56,13 @@ const BANNER_TEXT: Record<NoteEditorBanner['kind'], string> = {
  * - suggestions / toolbar: slots in the bottom dock, lifted above the keyboard (explicit padding on
  *   Android, KeyboardAvoidingView on iOS) and above the bottom inset when the keyboard is closed.
  *
+ * Modes (all optional; the defaults keep the page a plain editing page):
+ * - mode: 'editing' (default) shows the body input; 'reading' shows `readingView` in its place when
+ *   it is set. onToggleMode adds the Edit / Done text button to the top bar (label by mode);
+ *   modeToggleDisabled and locked disable it.
+ * - revealRequest: while editing, once the keyboard height is known, scrolls so the tapped reading
+ *   row (y in the body) sits a third of the way down the viewport. Each new token is handled once.
+ *
  * The page is one ScrollView (keyboardShouldPersistTaps="handled") that follows the caret.
  */
 export type NoteEditorScreenProps = {
@@ -61,13 +76,18 @@ export type NoteEditorScreenProps = {
   onDelete: () => void;
   menuDisabled: boolean;
   banner?: NoteEditorBanner;
-  editor: NoteEditor;
+  editor: ScreenEditor;
   locked: boolean;
   autoFocus: boolean;
   attachment?: ReactNode;
   recordingPanel?: ReactNode;
   suggestions?: ReactNode;
   toolbar?: ReactNode;
+  mode?: 'reading' | 'editing';
+  readingView?: ReactNode;
+  onToggleMode?: () => void;
+  modeToggleDisabled?: boolean;
+  revealRequest?: { y: number; token: number };
 };
 
 export function NoteEditorScreen({
@@ -87,6 +107,11 @@ export function NoteEditorScreen({
   recordingPanel,
   suggestions,
   toolbar,
+  mode = 'editing',
+  readingView,
+  onToggleMode,
+  modeToggleDisabled = false,
+  revealRequest,
 }: NoteEditorScreenProps) {
   const keyboard = useKeyboardInset();
   const { bottom: bottomInset } = useSafeAreaInsets();
@@ -113,6 +138,16 @@ export function NoteEditorScreen({
     keyboardHeight: keyboard.height,
     viewportHeight,
   });
+
+  // A reveal request is handled once its token is new, while editing and the keyboard is up.
+  const revealed = useRef(0);
+  useEffect(() => {
+    if (!revealRequest || revealRequest.token === revealed.current) return;
+    if (mode !== 'editing' || keyboard.height <= 0 || !bodyLayout) return;
+    revealed.current = revealRequest.token;
+    const y = Math.max(0, bodyLayout.y + revealRequest.y - viewportHeight / 3);
+    pageScrollRef.current?.scrollTo({ y, animated: false });
+  }, [revealRequest, mode, keyboard.height, bodyLayout, viewportHeight]);
 
   // A new note focuses the body once, when the screen opens.
   useEffect(() => {
@@ -152,6 +187,21 @@ export function NoteEditorScreen({
           <Text style={styles.date} numberOfLines={1}>
             {date}
           </Text>
+          {onToggleMode && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={mode === 'reading' ? 'Edit note' : 'Done editing'}
+              accessibilityState={{ disabled: locked || modeToggleDisabled }}
+              disabled={locked || modeToggleDisabled}
+              onPress={onToggleMode}
+              hitSlop={8}
+              style={styles.modeButton}
+            >
+              <Text style={[styles.modeButtonText, (locked || modeToggleDisabled) && styles.dim]}>
+                {mode === 'reading' ? 'Edit' : 'Done'}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {banner && (
@@ -195,14 +245,18 @@ export function NoteEditorScreen({
               setBodyLayout({ y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })
             }
           >
-            <NoteBodyInput
-              {...editor.inputProps}
-              editable={!locked}
-              placeholder="Start writing..."
-              placeholderTextColor={colors.faint}
-              testID="note-body"
-              style={styles.bodyInput}
-            />
+            {mode === 'reading' && readingView ? (
+              readingView
+            ) : (
+              <NoteBodyInput
+                {...editor.inputProps}
+                editable={!locked}
+                placeholder={BODY_PLACEHOLDER}
+                placeholderTextColor={colors.faint}
+                testID="note-body"
+                style={styles.bodyInput}
+              />
+            )}
           </View>
         </ScrollView>
         <View testID="note-bottom-dock" style={{ paddingBottom: dockPadding }}>
@@ -253,6 +307,9 @@ const styles = StyleSheet.create({
   },
   iconButton: { minWidth: 44, minHeight: 44, justifyContent: 'center' },
   back: { color: colors.text, fontSize: 24 },
+  modeButton: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
+  modeButtonText: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  dim: { opacity: 0.4 },
   date: { flex: 1, color: colors.muted, fontSize: 13, marginLeft: spacing.sm },
   banner: {
     marginHorizontal: spacing.lg,
