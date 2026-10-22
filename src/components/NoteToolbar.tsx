@@ -16,6 +16,8 @@ type Props = {
   onCheckbox: () => void;
   /** Locks every button (a leave or delete is in flight). */
   disabled?: boolean;
+  /** Disables only the tags and checkbox buttons (reading mode). Undo, redo and mic are unchanged. */
+  formatDisabled?: boolean;
 };
 
 type ButtonProps = {
@@ -63,6 +65,7 @@ export function NoteToolbar({
   checkboxAction,
   onCheckbox,
   disabled = false,
+  formatDisabled = false,
 }: Props) {
   return (
     <View style={styles.bar}>
@@ -78,13 +81,13 @@ export function NoteToolbar({
         <WaveformIcon color={colors.text} size={22} />
       </ToolbarButton>
       <View style={styles.divider} />
-      <ToolbarButton label="Add tags" disabled={disabled} onPress={onTags}>
+      <ToolbarButton label="Add tags" disabled={disabled || formatDisabled} onPress={onTags}>
         <Text style={styles.glyph}>#</Text>
       </ToolbarButton>
       <View style={styles.divider} />
       <ToolbarButton
         label={checkboxLabel(checkboxAction)}
-        disabled={disabled || checkboxAction === 'none'}
+        disabled={disabled || formatDisabled || checkboxAction === 'none'}
         onPress={onCheckbox}
       >
         <Text style={styles.glyph}>☑</Text>

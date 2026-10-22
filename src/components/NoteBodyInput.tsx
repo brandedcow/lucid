@@ -79,6 +79,8 @@ export type NoteBodyInputProps = {
   styleLevel?: StyleLevel;
   editMode?: 'remount' | 'inPlace';
   listContinue?: boolean;
+  /** Called when the input was remounted by a programmatic edit (`epoch` went above 0). */
+  onRemount?: () => void;
 };
 
 const clamp = (sel: Sel, len: number): Sel => ({
@@ -103,12 +105,15 @@ export function NoteBodyInput({
   styleLevel = STYLE_LEVEL,
   editMode = EDIT_MODE,
   listContinue = LIST_CONTINUE,
+  onRemount,
 }: NoteBodyInputProps) {
   const inputRef = useRef<TextInput>(null);
   // The text the input is showing: what it last reported, or what the parent last set.
   const [shown, setShown] = useState(text);
   const [epoch, setEpoch] = useState(0);
-  const [pending, setPending] = useState<Sel | undefined>(undefined);
+  const [pending, setPending] = useState<Sel | undefined>(
+    selection ? clamp(selection, text.length) : undefined,
+  );
   const [chosen, setChosen] = useState<Sel | null>(null);
   const [refocus, setRefocus] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -160,6 +165,11 @@ export function NoteBodyInput({
   useEffect(() => {
     if (pending) lastSelection.current = pending;
   }, [pending]);
+
+  useEffect(() => {
+    if (epoch > 0) onRemount?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch]);
 
   useEffect(() => {
     // 0 is the initial value, not a request.
