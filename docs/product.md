@@ -2,7 +2,7 @@
 
 This document describes what the app is and the decisions made so far. Read it before working on features, UI, or copy. If something you're asked to build conflicts with this doc, raise it instead of guessing.
 
-**Status of this document (2026-10-18).** The concept below (notes organized by tags) was decided on 2026-10-18 and is built on the branch `feat/notes-model`. It is not merged to `main`, and none of it has been verified on a device yet. The older concept (separate title field, containers for writing, an explicit save step; see Retired terms) is gone from the app; only the one-time import of old data remains. Each section carries a status line: **Built** means the code does it and Jest covers it (not verified on a device unless a line says so); **Planned** means decided but not built yet; **Open** means undecided (ask before assuming).
+**Status of this document (2026-10-18).** The concept below (notes organized by tags) was decided on 2026-10-18 and is built on the branch `feat/notes-model`. It is not merged to `main`, and none of it has been verified on a device yet. The older concept (separate title field, containers for writing, an explicit save step; see Retired terms) is gone from the app; only the one-time import of old data remains. The markdown work (styled editing, the reading view, links, images and `[[note]]` links; 2026-10-21) is built on the branch `feat/markdown`, also not merged and not verified on a device. Each section carries a status line: **Built** means the code does it and Jest covers it (not verified on a device unless a line says so); **Planned** means decided but not built yet; **Open** means undecided (ask before assuming).
 
 ## What it is
 
@@ -16,7 +16,7 @@ Capturing something quickly, by voice or by typing, is the core. The first launc
 - **Insight comes from the user.** The app helps the user capture, organize and revisit. It does not interpret, analyze or tell the user what their notes mean.
 - **Open structure that guides.** The only structure is what the user writes: the first line is the title, and `#words` are tags. Nothing is a fixed list, scale or rating, and nothing is required.
 - **Low friction.** Capturing should never feel like data entry. No streaks, no scores, no gamification.
-- **On-device only.** Transcription runs on the device. No audio or text is sent anywhere.
+- **On-device only.** Transcription runs on the device. No audio or note text is sent anywhere. The one thing that contacts another party is an image written in a note, which is fetched from its website only when the user allows it (see Notes and markdown, Privacy).
 - **Plain language.** The app never uses psychological or Jungian terms in UI copy, and never presents anything as psychological interpretation. The older text's Jungian-inspired framing is dropped and stays dropped.
 
 ## Vocabulary
@@ -26,8 +26,8 @@ Use these terms consistently in UI copy, code and data models. Status: **Built**
 | Term             | Meaning                                                                                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Note             | One piece of writing: markdown text (the body) with optional voice notes. Everything the user writes is a note.                                                                                                                 |
-| Title            | The first line of the body. Derived, never stored separately. Shows as "Untitled" when the first line is empty or only a tag.                                                                                                   |
-| Tag              | A label written in the body as `#word`. Flat: no nesting (`#a/b` is not a hierarchy). Derived from the body on read, never stored separately.                                                                                   |
+| Title            | The first line of the body, without its markdown markers. Derived, never stored separately. Shows as "Untitled" when the first line is empty, only a tag, a rule (`---`), a code fence line, or an image with no alt text.      |
+| Tag              | A label written in the body as `#word`. Flat: no nesting (`#a/b` is not a hierarchy). Derived from the body on read, never stored separately. A `#word` inside code or inside a link address is not a tag.                      |
 | Body             | The markdown text of a note, including its first line.                                                                                                                                                                          |
 | Voice note       | An audio recording attached to a note (a note can have several), shown as a card with play, a waveform and a close button; tapping a card opens the expanded view.                                                              |
 | Transcript       | The text of a voice note produced by on-device transcription, added to the body. A new voice note is transcribed automatically after recording, on the device only (not verified on a device).                                  |
@@ -45,13 +45,32 @@ Tags cover anything the user wants to track over time, such as a recurring theme
 
 ### Notes and markdown
 
-Status: **Built** (the body is one markdown text field with styling for headings, bold, italic and tags; no separate title field). Not verified on a device.
+Status: **Built** (the body is one markdown text field with styled editing and a separate reading view; no separate title field). Not verified on a device: every statement in this section is covered by Jest only.
 
-- A note is markdown text. The first line is the title. If the first line is empty or only a tag, the title shows as "Untitled". The title is never stored; it is read from the body each time.
-- Markdown scope in v1: headings, bullets, numbered lists, checkboxes (`- [ ]` and `- [x]`), bold and italic. Nothing else (no links, code, tables or images in v1).
-- Checkboxes are plain markdown text. There are no task features: no due dates, reminders, assignment or completion tracking. The Todo view simply lists notes that contain checkboxes.
-- Open: how markdown is shown while editing (live styling in the text field versus a separate reading view) is a technical choice still to be made and is not decided here.
-- Tags are written in the body as `#word`, one word each, no spaces, no nesting, and are shown highlighted as they are typed. Tags are not stored separately: they are read from the body. Nothing is derived from the content beyond what the user typed.
+- A note is markdown text. The first line is the title. If the first line is empty or only a tag, the title shows as "Untitled". The title is never stored; it is read from the body each time. Markers are not part of the title: `### x` gives the title "x", `[Foo](u)` gives "Foo", `[[Foo]]` gives "Foo", and a first line that is only a rule (`---`), a code fence or an image with no alt text is "Untitled".
+- **Markdown scope:** headings 1 to 3 (`#`, `##`, `###`), bold (`**x**`), italic (`*x*`), bullets (`- ` or `* `), numbered lists (`1. `), checkboxes (`- [ ]` and `- [x]`), a horizontal rule (a line of `---`, `***` or `___`), inline code (`` `x` ``), code blocks (fenced with three backticks), links (`[text](url)`), images (`![alt](url)`) and links to other notes (`[[note]]`). Block quotes (`>`) are styled in the editor and drawn with a bar in the reading view, but are not otherwise supported. Nothing else is rendered.
+- Checkboxes are plain markdown text. There are no task features: no due dates, reminders, assignment or completion tracking. The Todo view simply lists notes that contain checkboxes; a `- [ ]` line inside a fenced code block is code and does not count.
+- Tags are written in the body as `#word`, one word each, no spaces, no nesting, and are shown highlighted as they are typed. Tags are not stored separately: they are read from the body. Nothing is derived from the content beyond what the user typed. A `#word` inside inline code, a fenced code block, the address part of a link or image, or the text of a `[[note]]` link is not a tag.
+- **Two modes.** A note is either being edited or being read.
+  - **Editing** shows the text field with the markdown styled as it is typed (sized headings, bold, italic, dimmed markers, monospace code, underlined links), and the keyboard up.
+  - **Reading** shows the note rendered, with no keyboard: headings, lists, checkboxes the user can tap to check and uncheck, rules, code blocks, tappable links, tappable `[[note]]` links and images. Markers such as `**` and the brackets and address of a link are not shown, and no web address is ever shown in the reading view (a link shows its text only).
+  - A stored note opens in reading; a new note opens in editing. Tapping text in the reading view starts editing with the caret at the end of the tapped line. The **Edit** / **Done** button in the top bar switches by hand (it reads "Edit" while reading and "Done" while editing). Hiding the keyboard also returns to reading. With a hardware keyboard, where no keyboard event arrives, the note stays in editing until the user taps Done. While reading, the "#" and checkbox buttons in the toolbar are off; undo, redo and record still work. The Edit/Done button is off while recording.
+- **Links.** A `[text](url)` link in the reading view opens in the system browser when tapped, and only if the address starts with `http://` or `https://`; any other kind of address (`mailto:`, `javascript:`, a relative path, and so on) is shown as plain text and does nothing. If the system cannot open it, an alert says "Couldn't open this link". Links are inert while a recording is open or a save or delete is running.
+- **Note links (`[[note]]`).** Writing `[[Title]]` links to the note whose title is Title.
+  - A link matches a note's title (its first line) ignoring upper and lower case and extra whitespace. Accents are not folded: "Café" and "Cafe" are different titles. Notes in Recently Deleted are not matched.
+  - When several notes have the same title, the most recently edited one wins.
+  - Tapping a link to an existing note opens it in the same screen (the current note is saved first). Tapping a link to a note that does not exist creates one whose first line is the link text and opens it; the usual empty-note rule applies (a note left empty is not kept, and a stored note that is emptied goes to Recently Deleted). In the reading view a link to an existing note is underlined, a link to a missing one is italic, and both are accent coloured. A link whose text would make an "Untitled" note (empty, or only a tag such as `[[#x]]`) does nothing. Tapping a link to the note you are already in does nothing.
+  - Links are not updated when a note's title changes: the old `[[Title]]` then points at nothing, and tapping it creates a new note.
+  - The text between `[[` and `]]` cannot contain `[` or `]`, and is at most 200 characters. The pipe form `[[a|b]]` is not an alias: the whole `a|b` is the target.
+  - **Picker.** While typing after `[[`, a list of note titles appears above the keyboard (most recently edited first when nothing is typed after `[[`; otherwise titles starting with the typed text, then titles containing it; at most four rows are visible and the list scrolls). Tapping a title writes `[[Title]]` and puts the caret after the `]]`; the keyboard stays up. Titles that contain `[` or `]`, the open note's own title, and titles over 200 characters cannot be written as a link and are not offered (a title over 200 characters is still listed but tapping it does nothing).
+  - **Back.** Following a link keeps a short trail of the notes the user came from, in memory only (the last 50). Back (the arrow or Android back), **Delete note** and **Leave anyway** on the note you arrived at all return to the note you came from instead of the list, and a screen reader hears `Opened "title"`. Following a link announces `Opened "title"` or `Created "title"`. The back arrow's accessibility label reads "Back to previous note" while there is a trail. The trail is forgotten when the app restarts, when the user opens a note from the list or with the "+" button, when a launch note opens, and when the user finally leaves to the list. If the note to return to has since been deleted, Back goes to the one before it, or to the list.
+- **Images and privacy.** An image is written `![alt](url)` on a line of its own and is drawn in the reading view only (in the editor it is styled text). An image on a line with other text, or inside a list item, is not drawn: its alt text shows in a muted colour and does nothing when tapped.
+  - Images are not loaded unless the user allows it. Settings has a switch "Load images from the web", **off by default**. While it is off, the reading view shows a placeholder with the alt text (or "Image") and "Tap to load"; tapping loads that one image. With the switch on, images load when the note is opened in reading.
+  - Loading an image is a request from the phone to the website the address points at. **The website sees the phone's IP address and device information** and learns that the image was requested. The operating system may keep the downloaded file in its own cache; Lucid keeps no copy of it and stores nothing but the text the user wrote. Lucid sends no note text and no other data of its own.
+  - Only `https://` addresses are loaded. An `http://` image shows the placeholder "This image needs https" and is never requested. An address that is not a valid web address shows "Can't show this image". If a load fails (for example offline, or the address is not an image the system can show), the placeholder reads "Couldn't load this image. Tap to try again." and tapping it retries. Which image formats work is up to the system's image loader (SVG is expected to show the failure placeholder; GIF is unverified).
+  - Opening a link in the browser happens only when the user taps it, and the browser then contacts that site as it normally would.
+  - Voice and transcription are unchanged: transcription is on the device, and audio goes to Apple or Google only when the user turns on "Transcribe voice notes online".
+- **Behaviour changes with this feature.** `#words` inside code and inside link addresses are no longer tags (so they no longer appear in the drawer or in suggestions). Todo ignores a `- [ ]` line inside a fenced code block. A first line of `### x` now gives the title "x" (it was "### x"). Lines of `---`, `***` or `___` are rules, not text, so an existing note that used one as a divider now shows a line. A fence that is never closed runs to the end of the note.
 
 ### The editor
 
@@ -62,7 +81,7 @@ Status: **Built** for autosave and the first-line title. Not verified on a devic
 - **Tag suggestions.** While a tag is being typed, a row above the toolbar suggests tags the user has used before and tags already in this note; tapping one completes the word. The "#" button types a `#` at the cursor.
 - **Undo and redo** cover typing in the body (tags included, since they are body text) and closing a voice note (one history, most recent first). They are off while the recording panel is open.
 - **Leaving.** The back arrow (and Android back) leaves the editor and returns to where the note was opened; what is on the note is already saved. While the recording panel is open and idle, back just closes it. While recording, back first asks "Discard this recording?" (Keep recording / Discard), and Discard deletes the unsaved recording and then carries on leaving.
-- Opening a saved note does not open the keyboard by itself.
+- Opening a saved note does not open the keyboard by itself; it opens in the reading view (see Notes and markdown).
 
 ### Voice notes
 
@@ -104,7 +123,7 @@ Status: **Built** for the list, the drawer views and migration lines (since the 
 
 Status: **Built**. Not verified on a device.
 
-- Tapping a note in the list or in Search opens it on the editable editor page, with its body (tags highlighted) and voice notes. There is no separate reading screen. Edits are saved by autosave; back (the arrow or Android back) returns to where the note was opened.
+- Tapping a note in the list or in Search opens it on the editor page in the reading view (the rendered note, with its voice notes); tapping the text, or the Edit button, starts editing. It is the same page and the same route as editing, not a separate screen. Edits are saved by autosave; back (the arrow or Android back) returns to where the note was opened, or to the previous note when a link was followed (see Notes and markdown).
 - A "..." (More options) menu at the top right shows for a saved note only. Its items are **Pin** (or **Unpin**) and, in red, **Delete** (see Deleting notes).
 
 ### Deleting notes
@@ -128,9 +147,9 @@ Status: **Built** (since 7c-3; not verified on a device).
 
 ### Settings
 
-Status: **Built** (since the 7a cutover, with the label "Open a new note on launch").
+Status: **Built** (since the 7a cutover, with the label "Open a new note on launch"; the images switch is new with the markdown work). Not verified on a device.
 
-- Opened from the drawer. One switch controlling whether the app opens a new note on the first launch each day, on by default, labelled "Open a new note on launch", with the line "When off, the app opens to the note list."
+- Opened from the drawer. Switches: "Open a new note on launch", "Transcribe voice notes online" (default off) and "Load images from the web" (default off). The last has the helper line "Off: images in your notes show a placeholder you can tap to load. On: images load when you open a note. Loading an image contacts the website it comes from." It applies at once, with no confirmation, and is stored as `loadImages` in the settings file; a missing, damaged or non-boolean value means off. The launch switch controls whether the app opens a new note on the first launch each day, on by default, labelled "Open a new note on launch", with the line "When off, the app opens to the note list."
 - When off, the app always opens to the note list and resume on a new day changes nothing. Backing out of an empty launch note and the "+" button are unaffected.
 - The choice applies at once and is stored on the device only (one yes/no value in a small file). A damaged or missing file means on.
 
@@ -142,7 +161,7 @@ Status: **Built**. The routes are Notes (the list, root, which also hosts the dr
 - Drawer: opens from the left and closes by tapping outside it, swiping it closed, or Android back. It also closes whenever another screen is pushed over the list. Settings and Recently Deleted open from the drawer and go back to the list.
 - Bottom sheets (the recording panel, the expanded voice note view) close by dragging down, tapping the dimmed backdrop, or Android back.
 - Leaving a recording asks "Discard this recording?" ("Your recording will be deleted." with "Keep recording" and "Discard"). Discard stops the recording, deletes the unsaved recording, then leaves as it would have. If the recording cannot be stopped, the "Could not finish recording" alert shows and the user stays.
-- Back is ignored while a delete started from the editor is in progress.
+- Back is ignored while a delete started from the editor is in progress, and while a `[[note]]` link is being followed (the editor is locked until the next note is open).
 
 ### Where notes are stored
 
@@ -184,7 +203,7 @@ Do not build these unless explicitly asked:
 - Any AI features (classification, suggestions, summaries, pattern-finding)
 - Tasks as a feature (due dates, reminders, completion tracking). The Todo view only lists notes that contain plain-markdown checkboxes.
 - Nested tags
-- Markdown beyond headings, bullets, numbered lists, checkboxes, bold and italic (no links, code, tables or images)
+- Markdown beyond the scope above: tables, block quotes beyond their display, `~~~` fences, indented code blocks, bare-URL autolinks (a URL with no `[text](url)` around it is plain text), `[[a|b]]` aliases, reference-style links, and images inline in a line of text
 - Automatic purge of Recently Deleted
 - Threads or other higher-level grouping beyond tags
 - Periodic roundups or summaries
@@ -196,6 +215,5 @@ Do not build these unless explicitly asked:
 These are undecided. Ask before assuming an answer.
 
 - How "on waking" is detected: for now "first open with nothing done today, or a resume on a new day" stands in for it, with the Settings toggle to turn it off. A time window is not built.
-- How markdown is shown in the editor, and whether there is also a rendered reading view with tap-to-toggle checkboxes (a technical decision for the architect).
 - Whether the drawer shows every tag. (Search is entered from the list header icon, by default; change it if you prefer the drawer.)
 - Whether transcribing a voice note into text after recording works well enough on device (needs a device test).
