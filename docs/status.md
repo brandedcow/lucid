@@ -2,7 +2,7 @@
 
 Where the project stands, so anyone (human or agent) can pick it up. `docs/product.md` says what the app is; this file says what exists, what is unverified, and what to watch out for. Update it when you change the state of the project.
 
-_Last updated: 2026-10-21, branch `feat/markdown` (the markdown work, built on `feat/notes-model`; local only, not pushed, no PR yet). Jest: 116 suites, 2671 tests, all green (`LANG=en_US.UTF-8 npm run check`: typecheck, lint, format check, tests)._
+_Last updated: 2026-10-21, branch `feat/markdown` (the markdown work, built on `feat/notes-model`; local only, not pushed, no PR yet). Jest: 116 suites, 2673 tests, all green (`LANG=en_US.UTF-8 npm run check`: typecheck, lint, format check, tests)._
 
 ## 1. Where it stands
 
@@ -78,7 +78,7 @@ Notes-model decisions only; the earlier dream/journal-app decisions went with th
 - **The 7b rule, `notes.refresh()`.** Every trash, restore or empty action from the list or Recently Deleted must end with `notes.refresh()` before the UI re-renders (the `useNotes` wrappers refresh after every outcome). This keeps the stale-list case in section 5 unreachable.
 - **Voice is an attachment.** Each recording is a card; transcripts live on the recording and are not merged into the body.
 - **Checkbox is a toolbar button**, not a tap on the `[ ]` glyph (a `TextInput` has no per-glyph press target).
-- **Markdown scope** (updated 2026-10-21): headings 1 to 3, bullets, numbered lists, checkboxes, bold, italic, rules, inline code, fenced code blocks, links, images and `[[note]]` links. Out: tables, quotes beyond their display, `~~~` fences, indented code, bare-URL autolinks, `[[a|b]]` aliases, reference links. Two modes (styled editing, reading view); no URL is ever shown in the reading view.
+- **Markdown scope** (updated 2026-10-21): headings 1 to 3, bullets, numbered lists, checkboxes, bold, italic, rules, inline code, fenced code blocks, links, images and `[[note]]` links. Out: tables, nested and multi-line block quotes, `~~~` fences, indented code, bare-URL autolinks, `[[a|b]]` aliases, reference links. Two modes (styled editing, reading view); no URL is ever shown in the reading view.
 - **Images are opt-in** (decided with the user, 2026-10-21): off by default, https only, a tap loads one image, the website sees the phone's IP address and device information; disclosed in `docs/product.md`.
 - **Expo Router is not adopted.** `AGENTS.md` (from the Expo template) says to use it; this app uses React Navigation with the four routes above. Do not change that without asking.
 - **System fonts** for now; matching the mockups would need bundled fonts.
@@ -154,10 +154,8 @@ _`[[` links, the picker and Back_
 - `safeUrl` checks the scheme and the shape of the authority only: ports, host syntax, IP and `localhost` targets are not validated, a fullwidth solidus as the first host character is accepted, and bidi and invisible characters other than the zero-width set (U+202A to U+202E, U+2066 to U+2069, U+00AD, U+180E) are accepted. This matters only if a URL is ever displayed, which Lucid never does; any feature that shows a URL must add that validation first (reviewer 3a, user decision).
 - A `- ![alt](url)` list item or an image with other text on its line is not drawn as a picture (alt text only).
 - `markdownEdit.kindAtLine` and `activeToken` recompute line kinds and excluded ranges per call (O(n)); fine for now, worth a look if typing on very long notes lags (reviewer 1b).
-- `lineExclusions` in `markdownSpans.ts` is unused (reviewer 1b; the optional cleanup is chunk 9).
 - Mode logic: after a quick `done()` then `enterEditing()` in one render the 800 ms focus fallback may fire early; `blur` and `keyboardShow` behaviour and `locked` turning true while editing are untested; a new note whose input does not focus within 800 ms falls back to reading (reviewer 4a, 4b).
-- A new lint warning (`react-hooks/exhaustive-deps` on the `boundEditor` memo in `NoteEditorWithVoice`, reviewer 4b); harmless, `npm run check` still passes.
-- Titles: a note titled `a]b` stays in the title index (only the picker filters it); a title over 200 characters is listed in the picker but tapping it does nothing; with the open note as the winner of a duplicate title, an older note of the same title is hidden from the picker; `[[a|b]]` is a plain target (reviewers 5a, 6).
+- Titles: a note titled `a]b` stays in the title index (only the picker filters it); a title over 200 characters is hidden from the picker, but a typed link to it still resolves when the whitespace-collapsed text matches; with the open note as the winner of a duplicate title, an older note of the same title is hidden from the picker; `[[a|b]]` is a plain target (reviewers 5a, 6).
 - The Back trail: `popEditor`'s own `clearTrail` is defensive and not separately tested; Android hardware Back and the iOS edge swipe through the trail are untested in Jest; the `trashBusyRef` guard and the `leave()` throw branch in `followNoteLink` are untested; on the `open()` failure fallback `locked` stays true until the next open (unreachable with a fresh list) (reviewers 5c, 5d).
 - `notesRoutes.test.tsx` has no test for the new `loadImages` props (reviewer 8).
 - **Legacy import and an unclosed fence** (architect-1b): `legacyImport` does not close a fence, so a transcript with a hand-typed unclosed triple-backtick fence would make that one imported note's tag line count as code (tags not indexed, no text lost). Left on purpose; already-imported notes are not repaired. If wanted later, close the fence where the import appends its tag line.
