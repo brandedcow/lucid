@@ -3,6 +3,7 @@ import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteReadingView } from '../components/NoteReadingView';
 import { NoteToolbar } from '../components/NoteToolbar';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
+import { WikiLinkSuggestionBar } from '../components/WikiLinkSuggestionBar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { VoiceNoteCarousel } from '../components/VoiceNoteCarousel';
 import { VoiceNoteSheet } from '../components/VoiceNoteSheet';
@@ -25,6 +26,7 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import { activeWikiToken, completeWikiToken, matchTitles } from '../utils/noteLinks';
 import { suggestTags } from '../utils/tagSuggestions';
 import { appendTranscript } from '../utils/transcriptAppend';
 import { BODY_PLACEHOLDER, NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
@@ -143,6 +145,8 @@ export function NoteEditorWithVoice({
     recording,
   });
   const reading = noteMode.mode === 'reading';
+  // Stable callbacks (the control object itself is new each render), for the memo below.
+  const { notifyFocus, notifyBlur, notifyRemount } = noteMode;
   const [reveal, setReveal] = useState<{ y: number; token: number } | undefined>(undefined);
   const titleIndex = useTitleIndex(notes, { id: session.id, body }, reading);
 
@@ -195,15 +199,15 @@ export function NoteEditorWithVoice({
         },
         onFocus: () => {
           setKeyboardHidden(false);
-          noteMode.notifyFocus();
+          notifyFocus();
           editor.inputProps.onFocus?.();
         },
         onBlur: () => {
           history.onBodyBlur();
-          noteMode.notifyBlur();
+          notifyBlur();
           editor.inputProps.onBlur?.();
         },
-        onRemount: noteMode.notifyRemount,
+        onRemount: notifyRemount,
       },
       // A format edit is its own undo step, apart from the typing around it.
       toggleCheckbox: () => {
@@ -212,7 +216,7 @@ export function NoteEditorWithVoice({
         history.onBodyBlur();
       },
     }),
-    [editor, history],
+    [editor, history, notifyFocus, notifyBlur, notifyRemount],
   );
 
   /** A tag action or transcript: its own undo step; the caret goes to `cursor`. */
@@ -238,7 +242,11 @@ export function NoteEditorWithVoice({
     return out;
   }, [knownTags]);
   const sel = editor.selection;
-  const token = sel.start === sel.end ? activeToken(body, sel.end) : null;
+  const wikiToken = sel.start === sel.end ? activeWikiToken(body, sel) : null;
+  const wikiIndex = useTitleIndex(notes, { id: session.id, body }, wikiToken !== null);
+  const wikiMatches =
+    wikiToken && wikiIndex ? matchTitles(wikiIndex, wikiToken.query, 20, session.id) : [];
+  const token = sel.start === sel.end && !wikiToken ? activeToken(body, sel.end) : null;
   // Tags elsewhere in this note (the word under the caret left out), from the body on every render.
   const offered = token
     ? suggestTags(
@@ -255,8 +263,25 @@ export function NoteEditorWithVoice({
     !keyboardHidden &&
     token !== null &&
     offered.length > 0;
+  const showWikiBar =
+    !reading &&
+    !locked &&
+    !recording &&
+    editor.focused &&
+    !keyboardHidden &&
+    wikiToken !== null &&
+    wikiMatches.length > 0;
   const suggestions =
-    showBar && token ? (
+    showWikiBar && wikiToken ? (
+      <WikiLinkSuggestionBar
+        matches={wikiMatches}
+        onPick={(entry) => {
+          const r = completeWikiToken(body, wikiToken, entry.title);
+          if (!r.selection) return;
+          applyBodyEdit({ text: r.text, cursor: r.selection.end }, true);
+        }}
+      />
+    ) : showBar && token ? (
       <TagSuggestionBar
         matches={offered}
         onPick={(tag) => applyBodyEdit(completeToken(body, token, tag), true)}
