@@ -268,10 +268,3 @@ export function excludedRanges(text: string): readonly [number, number][] {
   });
   return out.sort((x, y) => x[0] - y[0]);
 }
-
-/** The excluded ranges of one line (line-relative), for the tokenizer. */
-export function lineExclusions(spans: readonly InlineSpan[]): [number, number][] {
-  const out: [number, number][] = [];
-  for (const span of spans) out.push(...spanExclusions(span));
-  return out;
-}

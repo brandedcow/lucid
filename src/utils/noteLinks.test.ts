@@ -312,6 +312,23 @@ describe('matchTitles', () => {
     expect(ids('no match')).toEqual([]);
   });
 
+  it('leaves out titles over the wikilink limit but keeps 200 characters', () => {
+    const long = 'x'.repeat(201);
+    const edge = 'y'.repeat(200);
+    const i = buildTitleIndex([n('l', long, d(2)), n('e', edge, d(1))]);
+    expect(matchTitles(i, '', 10).map((e) => e.id)).toEqual(['e']);
+    expect(matchTitles(i, 'xxx', 10)).toEqual([]);
+    expect(matchTitles(i, 'yyy', 10).map((e) => e.id)).toEqual(['e']);
+  });
+
+  it('a long raw title still resolves by its collapsed key', () => {
+    const raw = 'a' + ' '.repeat(3) + 'b'.repeat(197);
+    expect(raw.length).toBe(201);
+    const i = buildTitleIndex([n('w', raw, d(1))]);
+    expect(matchTitles(i, '', 10)).toEqual([]);
+    expect(resolveWikilink(i, 'a ' + 'b'.repeat(197))).toMatchObject({ kind: 'existing', id: 'w' });
+  });
+
   it('does not fold diacritics', () => {
     const i = buildTitleIndex([n('a', 'Café', d(1))]);
     expect(matchTitles(i, 'cafe', 5)).toEqual([]);
