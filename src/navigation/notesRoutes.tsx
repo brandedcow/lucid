@@ -271,6 +271,7 @@ export function EditorRoute() {
     entryRecordingRef,
     entryLeaveRef,
     locked,
+    backLabel,
     banner,
     leaveEditor,
     deleteOpenNote,
@@ -331,6 +332,7 @@ export function EditorRoute() {
         onTogglePin={() => void togglePin()}
         onDelete={() => void deleteOpenNote()}
         menuDisabled={locked}
+        backLabel={backLabel}
         banner={banner}
         locked={locked}
         autoFocus={!session.stored}

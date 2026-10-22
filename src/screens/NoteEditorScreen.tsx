@@ -53,6 +53,8 @@ const BANNER_TEXT: Record<NoteEditorBanner['kind'], string> = {
 export type NoteEditorScreenProps = {
   date: string;
   onBack: () => void;
+  /** Accessibility label of the back arrow; defaults to "Back to notes". */
+  backLabel?: string;
   stored: boolean;
   pinned: boolean;
   onTogglePin: () => void;
@@ -71,6 +73,7 @@ export type NoteEditorScreenProps = {
 export function NoteEditorScreen({
   date,
   onBack,
+  backLabel = 'Back to notes',
   stored,
   pinned,
   onTogglePin,
@@ -137,7 +140,7 @@ export function NoteEditorScreen({
         <View style={styles.topBar}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to notes"
+            accessibilityLabel={backLabel}
             accessibilityState={{ disabled: locked }}
             disabled={locked}
             onPress={onBack}
