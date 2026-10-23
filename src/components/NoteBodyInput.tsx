@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   NativeSyntheticEvent,
   Platform,
-  Pressable,
   StyleProp,
   StyleSheet,
   Text,
@@ -10,7 +9,6 @@ import {
   TextInputKeyPressEventData,
   TextInputSelectionChangeEventData,
   TextStyle,
-  View,
 } from 'react-native';
 import { continueList, type Sel } from '../utils/markdownEdit';
 import {
