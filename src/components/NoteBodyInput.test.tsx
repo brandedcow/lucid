@@ -9,6 +9,7 @@ import {
   clearEnterLog,
   cursorAfterEdit,
   getEnterLog,
+  refreshEnterLogFlag,
   resetNoteBodyInputOrder,
 } from './NoteBodyInput';
 
@@ -482,10 +483,16 @@ describe('NoteBodyInput', () => {
     afterEach(() => {
       if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
       else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+      refreshEnterLogFlag();
     });
+    const setFlag = (on: boolean) => {
+      if (on) process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      else delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      refreshEnterLogFlag();
+    };
 
     it('logs nothing and renders no strip unless EXPO_PUBLIC_ENTER_LOG is 1', async () => {
-      delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      setFlag(false);
       await render(<Harness initial={'- a\ntext'} />);
       await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
       expect(getEnterLog()).toEqual([]);
@@ -493,7 +500,7 @@ describe('NoteBodyInput', () => {
     });
 
     it('logs BUILD, KEY, SEL, CHG, RES and POSTSEL for one Enter and shows the strip', async () => {
-      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      setFlag(true);
       await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
       await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
       await caretAt(4);
@@ -510,8 +517,45 @@ describe('NoteBodyInput', () => {
       expect(changes.at(-1)).toEqual(['- a\n- \ntext', 'format']);
     });
 
+    it('logs only Enter or other for keys, never typed characters or note text', async () => {
+      setFlag(true);
+      await render(<Harness initial="zebrafish note" selection={{ start: 3, end: 3 }} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'q' } });
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await caretAt(4);
+      await fireEvent.changeText(input(), 'zebrafish notq');
+      const log = getEnterLog().join('\n');
+      expect(log).toMatch(/KEY key=other /);
+      expect(log).toMatch(/KEY key=Enter /);
+      expect(log).not.toMatch(/key=q/);
+      expect(log).not.toContain('zebrafish');
+      expect(log.replace(/BUILD.*|platform=\w+/g, '')).not.toMatch(/[qz]/);
+    });
+
+    it('logs and renders nothing through a full Enter when the flag is off', async () => {
+      // Observable part only: that the call sites build no strings is by code structure (every
+      // enterLog call and commonHead sit inside `if (enterLogOn())`), not something jest can see.
+      setFlag(false);
+      await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(getEnterLog()).toEqual([]);
+      expect(screen.queryByTestId('enter-log-strip')).toBeNull();
+    });
+
+    it('Clear log empties the log', async () => {
+      setFlag(true);
+      await render(<Harness initial="abc" />);
+      await caretAt(1);
+      expect(getEnterLog().length).toBeGreaterThan(0);
+      await fireEvent.press(screen.getByText('Clear log'));
+      expect(getEnterLog()).toEqual([]);
+      expect(screen.getByText('Enter log (0) +')).toBeTruthy();
+    });
+
     it('keeps at most 40 entries with rising sequence numbers', async () => {
-      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      setFlag(true);
       await render(<Harness initial="abc" />);
       for (let i = 0; i < 60; i += 1) await caretAt(i % 3);
       const log = getEnterLog();

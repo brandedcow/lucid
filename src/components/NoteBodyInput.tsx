@@ -130,7 +130,15 @@ export function resetNoteBodyInputOrder(): void {
 // started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
 const ENTER_LOG_BUILD = 'enter-1b';
 const ENTER_LOG_CAP = 40;
-const enterLogOn = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
+const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
+// Read once at load. Every log call site and the work only the log needs sit behind this flag, so
+// with the log off no string is built and no O(n) work is done.
+let enterLogEnabled = readEnterLogFlag();
+const enterLogOn = () => enterLogEnabled;
+/** Re-reads the log flag from the environment (for tests; the app reads it once at load). */
+export function refreshEnterLogFlag(): void {
+  enterLogEnabled = readEnterLogFlag();
+}
 let enterLogLines: string[] = [];
 let enterLogSeq = 0;
 let enterLogBuildDone = false;
@@ -184,6 +192,9 @@ function EnterLogStrip() {
           }}
         >
           <Text style={logStyles.head}>Copy log</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={clearEnterLog}>
+          <Text style={logStyles.head}>Clear log</Text>
         </Pressable>
       </View>
       {open && (
@@ -356,16 +367,19 @@ export function NoteBodyInput({
       key === 'Enter' && latest && caret !== undefined
         ? { caret, len: shown.length, latest, previous }
         : undefined;
-    enterLog(
-      `KEY key=${key} latestSel=${fmtSel(latest)} prevSel=${fmtSel(previous)} shownLen=${shown.length}`,
-    );
+    if (enterLogOn()) {
+      // Never the typed character: only whether it was Enter.
+      enterLog(
+        `KEY key=${key === 'Enter' ? 'Enter' : 'other'} latestSel=${fmtSel(latest)} prevSel=${fmtSel(previous)} shownLen=${shown.length}`,
+      );
+    }
   };
 
   const handleSelection = (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
-    enterLog(`SEL ${fmtSel(e.nativeEvent.selection)} shownLen=${shown.length}`);
+    if (enterLogOn()) enterLog(`SEL ${fmtSel(e.nativeEvent.selection)} shownLen=${shown.length}`);
     if (afterChange.current) {
       afterChange.current = false;
-      enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
+      if (enterLogOn()) enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
     }
     setPending(undefined);
     selections.current = { latest: e.nativeEvent.selection, previous: selections.current.latest };
@@ -398,20 +412,24 @@ export function NoteBodyInput({
       }
       pick = caret;
       const result = continueList(shown, t, caret);
-      enterLog(
-        `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=${pick ?? 'undefined'} snapshot=${snap ? snap.caret : 'undefined'}${usedSnap ? '' : ' (snapshot unused)'} platform=${Platform.OS}`,
-      );
-      enterLog(`RES ${result ? 'continued' : 'plain'}`);
+      if (enterLogOn()) {
+        enterLog(
+          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=${pick ?? 'undefined'} snapshot=${snap ? snap.caret : 'undefined'}${usedSnap ? '' : ' (snapshot unused)'} platform=${Platform.OS}`,
+        );
+        enterLog(`RES ${result ? 'continued' : 'plain'}`);
+      }
       if (result) {
         programmatic(result.text, result.selection);
         onChangeText(result.text, 'format');
         return;
       }
     } else {
-      enterLog(
-        `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=undefined snapshot=${snap ? snap.caret : 'undefined'} platform=${Platform.OS}`,
-      );
-      enterLog('RES plain');
+      if (enterLogOn()) {
+        enterLog(
+          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=undefined snapshot=${snap ? snap.caret : 'undefined'} platform=${Platform.OS}`,
+        );
+        enterLog('RES plain');
+      }
     }
     setShown(t);
     onChangeText(t, 'typing');
