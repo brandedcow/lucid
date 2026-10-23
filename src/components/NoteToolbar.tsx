@@ -101,7 +101,11 @@ export function NoteToolbar({
       <View style={styles.divider} />
       <ToolbarButton
         label="List controls"
-        hint="Shows list buttons in place of the keyboard."
+        hint={
+          listPanelOpen
+            ? 'Shows the keyboard again.'
+            : 'Shows list buttons in place of the keyboard.'
+        }
         selected={listPanelOpen}
         disabled={disabled}
         onPress={onListPanel}

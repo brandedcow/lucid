@@ -67,11 +67,17 @@ describe('NoteToolbar', () => {
 
   it('is selected only while the list panel is open, and a press calls onListPanel', async () => {
     const view = await renderBar();
+    expect(screen.getByLabelText('List controls').props.accessibilityHint).toBe(
+      'Shows list buttons in place of the keyboard.',
+    );
     expect(screen.getByLabelText('List controls').props.accessibilityState.selected).toBe(false);
     await view.rerender(
       <NoteToolbar canUndo canRedo micDisabled={false} listPanelOpen {...handlers} />,
     );
     expect(screen.getByLabelText('List controls').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('List controls').props.accessibilityHint).toBe(
+      'Shows the keyboard again.',
+    );
     await fireEvent.press(screen.getByLabelText('List controls'));
     expect(handlers.onListPanel).toHaveBeenCalledTimes(1);
   });

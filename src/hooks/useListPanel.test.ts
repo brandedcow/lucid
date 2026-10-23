@@ -14,7 +14,7 @@ describe('useListPanel', () => {
   let removeBack: jest.Mock;
   const mk = async (
     panelOpen = false,
-    extra: { blurBeforeFocus?: boolean; isEditing?: boolean } = {},
+    extra: { blurBeforeFocus?: boolean; isEditing?: boolean; locked?: boolean } = {},
   ) => {
     const noteMode = {
       panelOpen,
@@ -127,6 +127,20 @@ describe('useListPanel', () => {
     expect(noteMode.closePanel).toHaveBeenCalledTimes(1);
     await v.rerender({ open: false });
     expect(removeBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('Back while locked only closes the panel: no focus, blur or keyboard', async () => {
+    const { v, noteMode, focus, blur } = await mk(true, { blurBeforeFocus: true, locked: true });
+    let handled: boolean | undefined;
+    await act(() => {
+      handled = handler?.();
+    });
+    await advance(PANEL_REFOCUS_DELAY_MS * 4);
+    expect(handled).toBe(true);
+    expect(noteMode.closePanel).toHaveBeenCalledTimes(1);
+    expect(focus).not.toHaveBeenCalled();
+    expect(blur).not.toHaveBeenCalled();
+    expect(v.result.current.caretHidden).toBe(false);
   });
 
   it('unmount clears timers and unregisters Back', async () => {

@@ -159,6 +159,7 @@ export function NoteEditorWithVoice({
     focus: editor.focus,
     blur: () => setBlurSignal((n) => n + 1),
     isEditing: !reading,
+    locked,
   });
   const panelOpen = panel.panelOpen;
   // Stable callbacks (the control object itself is new each render), for the memo below.

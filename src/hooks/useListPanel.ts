@@ -45,6 +45,8 @@ export function useListPanel(args: {
   blur: () => void;
   /** When false, showPanel does nothing. Defaults to true. */
   isEditing?: boolean;
+  /** While true (a leave or delete in flight) Back only closes the panel; it never refocuses. */
+  locked?: boolean;
   blurBeforeFocus?: boolean;
   timers?: Timers;
   keyboard?: { dismiss: () => void };
@@ -105,11 +107,17 @@ export function useListPanel(args: {
   useEffect(() => {
     if (!panelOpen || !isEditing) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (argsRef.current.locked) {
+        cancel();
+        setCaretHidden(false);
+        argsRef.current.noteMode.closePanel();
+        return true;
+      }
       showKeyboard();
       return true;
     });
     return () => sub.remove();
-  }, [panelOpen, isEditing, showKeyboard]);
+  }, [panelOpen, isEditing, showKeyboard, cancel]);
 
   return { panelOpen, caretHidden, showPanel, showKeyboard, togglePanel };
 }
