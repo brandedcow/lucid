@@ -169,9 +169,16 @@ afterEach(() => {
 });
 
 describe('undo and redo', () => {
-  it('starts with undo and redo disabled and shows the five buttons', async () => {
+  it('starts with undo and redo disabled and shows the six buttons', async () => {
     await renderPage();
-    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox'])
+    for (const label of [
+      'Undo',
+      'Redo',
+      'Hide keyboard',
+      'Record voice note',
+      'Add tags',
+      'Add checkbox',
+    ])
       expect(screen.getByLabelText(label)).toBeTruthy();
     expect(disabled('Undo')).toBe(true);
     expect(disabled('Redo')).toBe(true);
@@ -255,6 +262,9 @@ describe('undo and redo', () => {
     await renderPage({ initial: { stored: true, recordings: [storedVoice] } });
     await press('Remove recording');
     expect(state?.recordings[0]?.removed).toBe(true);
+    // The toolbar (and Undo) only exists while editing: tap into the note first.
+    await press('Edit note');
+    await fireEvent(body(), 'focus');
     await press('Undo');
     expect(state?.recordings[0]?.removed).toBe(false);
     await press('Redo');
@@ -540,6 +550,9 @@ describe('transcription', () => {
     expect(screen.queryByTestId('voice-note-sheet')).toBeNull();
     expect(state?.body).toBe('Last night\n\nI was flying #water');
     expect(focus).not.toHaveBeenCalled();
+    // The toolbar (and Undo) only exists while editing: tap into the note first.
+    await press('Edit note');
+    await fireEvent(body(), 'focus');
     await press('Undo');
     expect(state?.body).toBe('Last night');
     await press('Redo');
@@ -548,7 +561,7 @@ describe('transcription', () => {
 
   it('flushes pending typing first, so it is its own step', async () => {
     await renderPage({ initial: { stored: true, recordings: [storedVoice] } });
-    // A stored note opens in the reading view; Edit brings the input back.
+    // A stored note opens in the reading view; a tap on the note brings the input back.
     await press('Edit note');
     await fireEvent.changeText(body(), 'typed words');
     await press('Open recording');

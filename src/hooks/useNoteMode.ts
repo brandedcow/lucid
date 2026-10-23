@@ -5,7 +5,7 @@ import { Keyboard } from 'react-native';
  * PROVISIONAL timings, to be confirmed or changed by the device spike (6c-2). Do not treat them as
  * tuned values.
  * - HIDE_DEBOUNCE_MS: a keyboard hide ends editing only if no show or focus follows within this.
- * - FOCUS_GRACE_MS: after entering by tap, button or initially, editing falls back to reading if
+ * - FOCUS_GRACE_MS: after entering by tap or initially, editing falls back to reading if
  *   the input has not received focus within this.
  * - REMOUNT_GRACE_MS: after the input remounts (an undo or toolbar edit), hide events are ignored
  *   for this long, because the remount briefly drops the keyboard.
@@ -85,9 +85,9 @@ export function noteModeReducer(state: NoteModeState, action: NoteModeAction): N
 
 export type NoteModeControl = {
   mode: NoteMode;
-  /** A reading-view tap or the Edit button. Ignored when locked, or while the recording panel is open. */
+  /** A reading-view tap. Ignored when locked, or while the recording panel is open. */
   enterEditing(): void;
-  /** The Done button. */
+  /** The Hide keyboard button. */
   done(): void;
   notifyFocus(): void;
   notifyBlur(): void;

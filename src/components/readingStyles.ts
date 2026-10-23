@@ -77,7 +77,8 @@ export function readingRunStyle(run: MarkdownRun, ctx: RunStyleContext): TextSty
 }
 
 export const readingStyles = StyleSheet.create({
-  container: { paddingVertical: spacing.sm },
+  container: { flexGrow: 1, paddingVertical: spacing.sm },
+  fill: { flexGrow: 1, minHeight: 48 },
   placeholder: { fontSize: BODY_SIZE, lineHeight: BODY_LINE_HEIGHT, color: colors.faint },
   text: { fontSize: BODY_SIZE, lineHeight: BODY_LINE_HEIGHT, color: colors.text },
   listRow: { flexDirection: 'row', alignItems: 'flex-start' },

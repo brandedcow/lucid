@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
-import { ScrollView, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { useNoteEditor } from '../hooks/useNoteEditor';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
@@ -57,26 +57,34 @@ describe('NoteEditorScreen modes', () => {
     expect(screen.getByTestId('note-body')).toBeTruthy();
   });
 
-  it('labels the button by mode and calls onToggleMode', async () => {
-    const onToggleMode = jest.fn();
-    const view = await render(<Harness mode="reading" onToggleMode={onToggleMode} />);
-    expect(screen.getByText('Edit')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Edit note'));
-    expect(onToggleMode).toHaveBeenCalledTimes(1);
-    await view.rerender(<Harness mode="editing" onToggleMode={onToggleMode} />);
-    expect(screen.getByText('Done')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Done editing'));
-    expect(onToggleMode).toHaveBeenCalledTimes(2);
-  });
+  describe('fab', () => {
+    const fab = jest.fn((inset: number) => <Text>{`fab ${inset}`}</Text>);
+    beforeEach(() => fab.mockClear());
+    // Bottom padding in effect: the explicit paddingBottom, else the base `padding`.
+    const padding = () => {
+      const st = StyleSheet.flatten(screen.getByTestId('note-page').props.contentContainerStyle);
+      return st.paddingBottom ?? st.padding;
+    };
 
-  it('disables the button when locked or modeToggleDisabled', async () => {
-    const onToggleMode = jest.fn();
-    const view = await render(<Harness locked onToggleMode={onToggleMode} />);
-    expect(screen.getByLabelText('Done editing').props.accessibilityState.disabled).toBe(true);
-    await view.rerender(<Harness modeToggleDisabled onToggleMode={onToggleMode} />);
-    expect(screen.getByLabelText('Done editing').props.accessibilityState.disabled).toBe(true);
-    await fireEvent.press(screen.getByLabelText('Done editing'));
-    expect(onToggleMode).not.toHaveBeenCalled();
+    it('renders in reading mode and receives the safe-area bottom inset', async () => {
+      await render(<Harness mode="reading" readingView={<Text>r</Text>} fab={fab} />);
+      expect(screen.getByText('fab 34')).toBeTruthy();
+    });
+
+    it('is not rendered in editing mode even when passed', async () => {
+      await render(<Harness mode="editing" fab={fab} />);
+      expect(screen.queryByText('fab 34')).toBeNull();
+      expect(fab).not.toHaveBeenCalled();
+    });
+
+    it('pads the reading content by 96 only with a fab', async () => {
+      const view = await render(<Harness mode="reading" readingView={<Text>r</Text>} fab={fab} />);
+      expect(padding()).toBe(96);
+      await view.rerender(<Harness mode="reading" readingView={<Text>r</Text>} />);
+      expect(padding()).toBe(24);
+      await view.rerender(<Harness mode="editing" fab={fab} />);
+      expect(padding()).toBe(24);
+    });
   });
 
   describe('revealRequest', () => {

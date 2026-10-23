@@ -56,6 +56,7 @@ export function NoteReadingView(props: NoteReadingViewProps) {
     latest.current = props;
   });
   const ys = useRef(new Map<string, number>());
+  const fillY = useRef(0);
 
   const blocks = useMemo(() => markdownBlocks(body), [body]);
   const items = useMemo(() => buildItems(blocks), [blocks]);
@@ -71,12 +72,31 @@ export function NoteReadingView(props: NoteReadingViewProps) {
     ys.current.set(key, e.nativeEvent.layout.y);
   };
 
+  // The empty space below the last line: a sibling of the rows (not an ancestor), so row presses
+  // keep their own handling. A tap puts the caret at the end of the body.
+  const fill = (
+    <Pressable
+      testID="reading-fill"
+      accessibilityRole="button"
+      accessibilityLabel="Edit note"
+      accessibilityHint="Double tap to start editing."
+      accessibilityState={{ disabled: linksDisabled }}
+      disabled={linksDisabled}
+      onLayout={(e) => {
+        fillY.current = e.nativeEvent.layout.y;
+      }}
+      onPress={() => latest.current.onEdit(latest.current.body.length, fillY.current)}
+      style={s.fill}
+    />
+  );
+
   if (body.trim() === '') {
     return (
       <View style={s.container}>
         <Pressable onPress={() => props.onEdit(0, 0)} accessibilityHint="Double tap to edit.">
           <Text style={s.placeholder}>{placeholder}</Text>
         </Pressable>
+        {fill}
       </View>
     );
   }
@@ -117,6 +137,7 @@ export function NoteReadingView(props: NoteReadingViewProps) {
           </View>
         ),
       )}
+      {fill}
     </View>
   );
 }

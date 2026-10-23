@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
 import type { NoteEditor } from '../hooks/useNoteEditor';
+import { KeyboardHideIcon } from './KeyboardHideIcon';
 import { WaveformIcon } from './WaveformIcon';
 
 type Props = {
@@ -8,6 +9,8 @@ type Props = {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Stops editing: hides the keyboard and shows the note. */
+  onDismissKeyboard: () => void;
   micDisabled: boolean;
   onMic: () => void;
   onTags: () => void;
@@ -16,22 +19,22 @@ type Props = {
   onCheckbox: () => void;
   /** Locks every button (a leave or delete is in flight). */
   disabled?: boolean;
-  /** Disables only the tags and checkbox buttons (reading mode). Undo, redo and mic are unchanged. */
-  formatDisabled?: boolean;
 };
 
 type ButtonProps = {
   label: string;
+  hint?: string;
   disabled: boolean;
   onPress: () => void;
   children: React.ReactNode;
 };
 
-function ToolbarButton({ label, disabled, onPress, children }: ButtonProps) {
+function ToolbarButton({ label, hint, disabled, onPress, children }: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={hint}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
@@ -51,21 +54,21 @@ export function checkboxLabel(action: NoteEditor['checkboxAction']): string {
 }
 
 /**
- * The bar under the note: undo, redo, record a voice note, tags, checkbox. Five equal cells with
- * dividers. Indent and outdent exist in the editor hook but are not on the bar.
+ * The bar under the note, shown only while editing: undo, redo, hide keyboard, record a voice note,
+ * tags, checkbox. Six equal cells with dividers. Indent and outdent exist in the editor hook but are not on the bar.
  */
 export function NoteToolbar({
   canUndo,
   canRedo,
   onUndo,
   onRedo,
+  onDismissKeyboard,
   micDisabled,
   onMic,
   onTags,
   checkboxAction,
   onCheckbox,
   disabled = false,
-  formatDisabled = false,
 }: Props) {
   return (
     <View style={styles.bar}>
@@ -77,17 +80,26 @@ export function NoteToolbar({
         <Text style={styles.glyph}>↷</Text>
       </ToolbarButton>
       <View style={styles.divider} />
+      <ToolbarButton
+        label="Hide keyboard"
+        hint="Stops editing and shows the note."
+        disabled={disabled}
+        onPress={onDismissKeyboard}
+      >
+        <KeyboardHideIcon color={colors.text} size={26} />
+      </ToolbarButton>
+      <View style={styles.divider} />
       <ToolbarButton label="Record voice note" disabled={disabled || micDisabled} onPress={onMic}>
         <WaveformIcon color={colors.text} size={22} />
       </ToolbarButton>
       <View style={styles.divider} />
-      <ToolbarButton label="Add tags" disabled={disabled || formatDisabled} onPress={onTags}>
+      <ToolbarButton label="Add tags" disabled={disabled} onPress={onTags}>
         <Text style={styles.glyph}>#</Text>
       </ToolbarButton>
       <View style={styles.divider} />
       <ToolbarButton
         label={checkboxLabel(checkboxAction)}
-        disabled={disabled || formatDisabled || checkboxAction === 'none'}
+        disabled={disabled || checkboxAction === 'none'}
         onPress={onCheckbox}
       >
         <Text style={styles.glyph}>☑</Text>
