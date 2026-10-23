@@ -47,10 +47,24 @@ describe('indentItem', () => {
     expect(indentItem('- first', at(0))).not.toBeNull();
   });
 
-  it('indents and outdents plain lines too, and headings', () => {
+  it('indents and outdents paragraphs and blank lines (caret only)', () => {
     expect(run((t, s) => indentItem(t, s), 'plain|')).toBe('  plain|');
     expect(run((t, s) => indentItem(t, s, true), '  plain|')).toBe('plain|');
-    expect(run((t, s) => indentItem(t, s), '> quote|')).toBe('  > quote|');
+    expect(run((t, s) => indentItem(t, s), 'a\n|\nb')).toBe('a\n  |\nb');
+    expect(indentItem('a\n\nb', range(0, 4))!.text).toBe('  a\n\n  b'); // blank skipped in a range
+  });
+
+  it('skips headings, quotes and rules (both directions, null when nothing applies)', () => {
+    for (const line of ['# h', '## h', '### h', '> q', '---']) {
+      expect(indentItem(line, at(0))).toBeNull();
+      expect(indentItem(line, at(0), true)).toBeNull();
+      const a = listActions(line, at(0));
+      expect(a.canIndent).toBe(false);
+      expect(a.canOutdent).toBe(false);
+    }
+    const t = '# h\n- a\n> q\nplain\n---';
+    expect(indentItem(t, range(0, t.length))!.text).toBe('# h\n  - a\n> q\n  plain\n---');
+    expect(indentItem('# h\n> q', range(0, 7))).toBeNull();
   });
 
   it('skips fence lines and fenced code', () => {
@@ -96,8 +110,12 @@ describe('indentItem', () => {
   });
 
   it('renumbers the old and the new run', () => {
-    // The nested item keeps its own number; the old siblings close up.
-    expect(run((t, s) => indentItem(t, s), '1. a\n2. b|\n3. c')).toBe('1. a\n  2. b|\n2. c');
+    // The new nested run restarts at 1; the outer run (a, c) closes up and is renumbered 1, 2.
+    expect(run((t, s) => indentItem(t, s), '1. a\n2. b|\n3. c')).toBe('1. a\n  1. b|\n2. c');
+    // A hand-numbered outer run keeps its start when its head slot is unchanged.
+    expect(run((t, s) => indentItem(t, s), '5. a\n6. b|\n7. c')).toBe('5. a\n  1. b|\n6. c');
+    // Indenting the head: the nested run restarts at 1 and the next item becomes the new head.
+    expect(run((t, s) => indentItem(t, s), '|3. a\n4. b')).toBe('  |1. a\n1. b');
     expect(run((t, s) => indentItem(t, s, true), '1. a\n  2. b|\n2. c')).toBe('1. a\n2. b|\n3. c');
   });
 
@@ -161,6 +179,34 @@ describe('moveItem', () => {
 
   it('maps a range inside one line', () => {
     expect(show(moveItem('- ab\n- c', range(2, 4), 'down'))).toBe('- c\n- [ab]');
+  });
+
+  it('maps ranges through the line ending without inverting (LF, CRLF, CR)', () => {
+    expect(show(moveItem('- ab\n- c', range(2, 5), 'down'))).toBe('- c\n- [ab]'); // through the \n
+    expect(show(moveItem('- ab\r\n- c', range(2, 6), 'down'))).toBe('- c\r\n- [ab]');
+    expect(show(moveItem('- ab\r- c', range(2, 5), 'down'))).toBe('- c\r- [ab]');
+    expect(show(moveItem('- ab\r\n- c', range(2, 5), 'down'))).toBe('- c\r\n- [ab]'); // between \r and \n
+    expect(show(moveItem('- c\n- ab\n- d', range(6, 9), 'up'))).toBe('- [ab]\n- c\n- d');
+    expect(show(moveItem('- c\r\n- ab\r\n- d', range(7, 11), 'up'))).toBe('- [ab]\r\n- c\r\n- d');
+    expect(show(moveItem('- c\r- ab\r- d', range(6, 9), 'up'))).toBe('- [ab]\r- c\r- d');
+    // The reviewer's examples.
+    const a = moveItem('1. b\n1. b\r', range(3, 5), 'down')!;
+    expect(a.selection.start).toBeLessThanOrEqual(a.selection.end);
+    expect(a.selection.end).toBeLessThanOrEqual(a.text.length);
+    const b = moveItem('2. c\r\n  - d\r> q', range(3, 6), 'down')!;
+    expect(b.selection.start).toBeLessThanOrEqual(b.selection.end);
+  });
+
+  it('listActions move flags agree with moveItem for ranges', () => {
+    for (const t of ['- a\n- b\n- c', '- a\r\n- b\r- c\n', '- a\n- b\n\n- c', '- a\n- b\n> q']) {
+      for (let x = 0; x <= t.length; x += 1) {
+        for (let y = x; y <= t.length; y += 1) {
+          const a = listActions(t, range(x, y));
+          expect(a.canMoveUp).toBe(moveItem(t, range(x, y), 'up') !== null);
+          expect(a.canMoveDown).toBe(moveItem(t, range(x, y), 'down') !== null);
+        }
+      }
+    }
   });
 
   it('handles emoji lines', () => {
@@ -241,9 +287,16 @@ describe('setListType', () => {
     );
   });
 
-  it('renumbers the remainder after a toggle-off in the middle; later part keeps its numbers', () => {
+  it('toggle-off in the middle: the tail after it is a new run and restarts at 1', () => {
     expect(run((t, s) => setListType(t, s, 'numbered'), '1. a\n2. b|\n3. c')).toBe(
-      '1. a\nb|\n3. c',
+      '1. a\nb|\n1. c',
+    );
+    expect(run((t, s) => setListType(t, s, 'bullet'), '1. a\n2. b|\n3. c\n4. d')).toBe(
+      '1. a\n- b|\n1. c\n2. d',
+    );
+    // A hand-numbered run keeps its start while its head slot is unchanged.
+    expect(run((t, s) => setListType(t, s, 'numbered'), '5. a\n6. b\n7. c|')).toBe(
+      '5. a\n6. b\nc|',
     );
   });
 
@@ -401,6 +454,30 @@ describe('properties', () => {
           expect(one.text).toHaveLength(t.length);
           const back = moveItem(one.text, one.selection, second);
           expect(back).toEqual({ text: t, selection: at(p) });
+        }
+      }
+    }
+  });
+
+  it('range selections: always in bounds with start <= end, and move up/down round-trips', () => {
+    for (const t of docs) {
+      for (let x = 0; x <= t.length; x += 1) {
+        for (let y = x; y <= t.length; y += 1) {
+          for (const [first, second] of [
+            ['up', 'down'],
+            ['down', 'up'],
+          ] as const) {
+            const one = moveItem(t, range(x, y), first);
+            if (!one) continue;
+            const { start, end } = one.selection;
+            expect(start).toBeLessThanOrEqual(end);
+            expect(end).toBeLessThanOrEqual(one.text.length);
+            expect(one.text).toHaveLength(t.length);
+            const back = moveItem(one.text, one.selection, second);
+            expect(back).not.toBeNull();
+            expect(back!.text).toBe(t);
+            expect(back!.selection.start).toBeLessThanOrEqual(back!.selection.end);
+          }
         }
       }
     }

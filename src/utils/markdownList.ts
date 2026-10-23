@@ -84,6 +84,15 @@ function touchedLines(doc: Doc, sel: Sel): number[] {
 }
 
 const isFenced = (k: LineKind) => k === 'fence' || k === 'code';
+
+/** Lines the type and indent controls leave alone: headings, quotes, rules and fenced lines. */
+const SKIP_TYPE = (k: LineKind) =>
+  k === 'heading1' ||
+  k === 'heading2' ||
+  k === 'heading3' ||
+  k === 'quote' ||
+  k === 'rule' ||
+  isFenced(k);
 const isBlank = (l: LineInfo) => l.text.trim() === '';
 
 /**
@@ -193,24 +202,35 @@ export function renumber(text: string, sel: Sel, touched: readonly number[]): Ed
  * Renumbers after a transform that kept the line count. Touched runs are those of the changed
  * lines in the old text and in the new one. A run whose first line is the same line slot as before
  * keeps its old start number (so moving an item to the top of a run does not change where it
- * starts); a run with a new first line starts at that line's own number.
+ * starts). A run with a new first line starts at that line's own number after a move
+ * (`freshHead: 'own'`), and at 1 after indent / type changes (`'one'`: a nested list created by
+ * indent, or the tail after an item toggled off, restarts; there the old head must also have the
+ * same indent width to count as unchanged).
  */
-function withRenumber(before: Doc, after: EditResult, changed: readonly number[]): EditResult {
+function withRenumber(
+  before: Doc,
+  after: EditResult,
+  changed: readonly number[],
+  freshHead: 'own' | 'one',
+): EditResult {
   const next = analyze(after.text);
   if (next.lines.length !== before.lines.length) return after;
   const oldRuns = numberedRuns(before);
   const touched = new Set(changed);
-  const oldStart = new Map<number, number>();
+  const oldStart = new Map<number, { start: number; width: number }>();
   for (const run of oldRuns) {
-    oldStart.set(run.head, run.start);
+    oldStart.set(run.head, {
+      start: run.start,
+      width: indentWidth(before.prefixes[run.head]!.indent),
+    });
     if (run.members.some((m) => touched.has(m))) for (const m of run.members) touched.add(m);
   }
-  const edits = renumberEdits(
-    next,
-    numberedRuns(next),
-    touched,
-    (r) => oldStart.get(r.head) ?? r.start,
-  );
+  const edits = renumberEdits(next, numberedRuns(next), touched, (r) => {
+    const old = oldStart.get(r.head);
+    if (freshHead === 'own') return old ? old.start : r.start;
+    const width = indentWidth(next.prefixes[r.head]!.indent);
+    return old && old.width === width ? old.start : 1;
+  });
   return edits.length === 0 ? after : applyEdits(after.text, after.selection, edits);
 }
 
@@ -231,7 +251,7 @@ function planIndent(
 ): { edits: Edit[]; changed: number[] } | null {
   const edits: Edit[] = [];
   const changed: number[] = [];
-  for (const i of eligibleLines(doc, sel, isFenced)) {
+  for (const i of eligibleLines(doc, sel, SKIP_TYPE)) {
     const l = doc.lines[i];
     if (!outdent) {
       edits.push({ at: l.start, removed: 0, text: INDENT_UNIT });
@@ -247,8 +267,9 @@ function planIndent(
 
 /**
  * Indents (or outdents) the line(s) touched by the selection by one level, without their
- * sub-items. Works on any line outside a fenced block (blank lines only for a caret); no depth
- * limit. Null at indent 0 for outdent, or when no line applies. Renumbers the numbered runs it
+ * sub-items. Works on list items, paragraphs and (for a caret only) blank lines; headings, quotes,
+ * rules and fenced lines are skipped; no depth limit. Null at indent 0 for outdent, or when no
+ * line applies. Renumbers the numbered runs it
  * touches.
  */
 export function indentItem(text: string, sel: Sel, outdent = false): EditResult | null {
@@ -257,19 +278,23 @@ export function indentItem(text: string, sel: Sel, outdent = false): EditResult 
   const doc = analyze(text);
   const plan = planIndent(doc, s, outdent);
   if (!plan) return null;
-  return withRenumber(doc, applyEdits(text, s, plan.edits), plan.changed);
+  return withRenumber(doc, applyEdits(text, s, plan.edits), plan.changed, 'one');
 }
 
 /* ---------------------------------------------------------------- move */
 
-function planMove(doc: Doc, sel: Sel, dir: 'up' | 'down'): { a: number; b: number } | null {
+function planMove(
+  doc: Doc,
+  sel: Sel,
+  dir: 'up' | 'down',
+): { item: number; a: number; b: number } | null {
   const touched = touchedLines(doc, sel);
   if (touched.length !== 1) return null;
   const i = touched[0];
   const j = dir === 'up' ? i - 1 : i + 1;
   if (j < 0 || j >= doc.lines.length) return null;
   if (!doc.prefixes[i] || !doc.prefixes[j]) return null;
-  return { a: Math.min(i, j), b: Math.max(i, j) };
+  return { item: i, a: Math.min(i, j), b: Math.max(i, j) };
 }
 
 /**
@@ -287,35 +312,28 @@ export function moveItem(text: string, sel: Sel, dir: 'up' | 'down'): EditResult
   if (!plan) return null;
   const upper = doc.lines[plan.a];
   const lower = doc.lines[plan.b];
-  const newUpperAt = upper.start + lower.text.length + upper.eol.length; // where the old upper text lands
-  const map = (pos: number) => {
-    if (pos >= upper.start && pos < lower.start) {
-      return newUpperAt + Math.min(pos - upper.start, upper.text.length);
-    }
-    if (pos >= lower.start && pos <= lower.end) return upper.start + (pos - lower.start);
-    return pos;
-  };
+  const item = doc.lines[plan.item];
+  // Where the item's text lands. The selection touches only the item, so only it is mapped; an
+  // endpoint past the end of the item's text (in its line ending, or at the start of the next
+  // line when a range ends the touched line) goes to the end of the moved text.
+  const newStart =
+    plan.item === plan.a ? upper.start + lower.text.length + upper.eol.length : upper.start;
+  const map = (pos: number) => newStart + Math.min(Math.max(pos - item.start, 0), item.text.length);
   const moved =
     text.slice(0, upper.start) +
     lower.text +
     upper.eol +
     upper.text +
     text.slice(upper.end + upper.eol.length + lower.text.length);
-  return withRenumber(doc, { text: moved, selection: { start: map(s.start), end: map(s.end) } }, [
-    plan.a,
-    plan.b,
-  ]);
+  return withRenumber(
+    doc,
+    { text: moved, selection: { start: map(s.start), end: map(s.end) } },
+    [plan.a, plan.b],
+    'own',
+  );
 }
 
 /* ---------------------------------------------------------------- list type */
-
-const SKIP_TYPE = (k: LineKind) =>
-  k === 'heading1' ||
-  k === 'heading2' ||
-  k === 'heading3' ||
-  k === 'quote' ||
-  k === 'rule' ||
-  isFenced(k);
 
 function newMarker(kind: ListKind, p: ListPrefix | null): string {
   const bullet = p?.bullet ?? '-';
@@ -363,7 +381,7 @@ export function setListType(text: string, sel: Sel, kind: ListKind): EditResult 
   const doc = analyze(text);
   const plan = planType(doc, s, kind);
   if (!plan) return null;
-  return withRenumber(doc, applyEdits(text, s, plan.edits), plan.changed);
+  return withRenumber(doc, applyEdits(text, s, plan.edits), plan.changed, 'one');
 }
 
 /* ---------------------------------------------------------------- button states */
