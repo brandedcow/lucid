@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { useState } from 'react';
 import { Platform, Text, TextInput, View } from 'react-native';
 import { resetKeyboardHeightMemory } from '../hooks/useKeyboardInset';
 import { useNoteEditor } from '../hooks/useNoteEditor';
 import { fakeKeyboard } from '../test/fakeKeyboard';
+import { refreshEnterLogFlag } from '../components/NoteBodyInput';
 import { NoteToolbar } from '../components/NoteToolbar';
 import { NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
 
@@ -96,6 +97,31 @@ describe('NoteEditorScreen', () => {
     expect(screen.queryByLabelText('Back to notes')).toBeNull();
     await fireEvent.press(screen.getByLabelText('Back to previous note'));
     expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  describe('dev Enter log bar', () => {
+    const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
+    afterEach(() => {
+      if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+      refreshEnterLogFlag();
+    });
+
+    it('is absent from the dock when the flag is off', async () => {
+      delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      refreshEnterLogFlag();
+      await render(<Harness />);
+      expect(screen.queryByTestId('enter-log-bar')).toBeNull();
+    });
+
+    it('sits in the bottom dock, outside the scroll content, when the flag is on', async () => {
+      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      refreshEnterLogFlag();
+      await render(<Harness />);
+      const bar = screen.getByTestId('enter-log-bar');
+      expect(within(screen.getByTestId('note-bottom-dock')).getByTestId('enter-log-bar')).toBe(bar);
+      expect(within(screen.getByTestId('note-page')).queryByTestId('enter-log-bar')).toBeNull();
+    });
   });
 
   describe('menu', () => {

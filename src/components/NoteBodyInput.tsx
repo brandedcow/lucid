@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   NativeSyntheticEvent,
   Platform,
@@ -159,6 +159,15 @@ export function clearEnterLog(): void {
   enterLogBuildDone = false;
   enterLogListeners.forEach((l) => l());
 }
+/** True when the dev Enter log is on (the bar renders only then). */
+export const isEnterLogOn = (): boolean => enterLogOn();
+/** Subscribes to log changes; returns the unsubscribe function. */
+export function subscribeEnterLog(listener: () => void): () => void {
+  enterLogListeners.add(listener);
+  return () => {
+    enterLogListeners.delete(listener);
+  };
+}
 const fmtSel = (s?: Sel) => (s ? `${s.start}-${s.end}` : 'none');
 const commonHead = (a: string, b: string) => {
   const max = Math.min(a.length, b.length);
@@ -166,52 +175,6 @@ const commonHead = (a: string, b: string) => {
   while (i < max && a[i] === b[i]) i += 1;
   return i;
 };
-
-function EnterLogStrip() {
-  const [, bump] = useReducer((n: number) => n + 1, 0);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    enterLogListeners.add(bump);
-    return () => {
-      enterLogListeners.delete(bump);
-    };
-  }, []);
-  const lines = getEnterLog();
-  return (
-    <View testID="enter-log-strip" style={logStyles.strip}>
-      <View style={logStyles.row}>
-        <Pressable accessibilityRole="button" onPress={() => setOpen(!open)}>
-          <Text style={logStyles.head}>{`Enter log (${lines.length}) ${open ? '-' : '+'}`}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const Clipboard = require('expo-clipboard') as typeof import('expo-clipboard');
-            void Clipboard.setStringAsync(getEnterLog().join('\n'));
-          }}
-        >
-          <Text style={logStyles.head}>Copy log</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" onPress={clearEnterLog}>
-          <Text style={logStyles.head}>Clear log</Text>
-        </Pressable>
-      </View>
-      {open && (
-        <Text selectable style={logStyles.body}>
-          {lines.join('\n')}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-const logStyles = StyleSheet.create({
-  strip: { borderTopWidth: 1, borderColor: '#888', marginTop: 8, paddingVertical: 4 },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  head: { fontSize: 12, fontWeight: '600', padding: 4 },
-  body: { fontSize: 10, fontFamily: 'Courier' },
-});
 
 /**
  * The caret the typed character went in at. Candidates are the last two selection events (latest,
@@ -476,11 +439,5 @@ export function NoteBodyInput({
       {kids}
     </TextInput>
   );
-  if (!enterLogOn()) return input;
-  return (
-    <Fragment>
-      {input}
-      <EnterLogStrip />
-    </Fragment>
-  );
+  return input;
 }

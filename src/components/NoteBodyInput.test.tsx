@@ -491,12 +491,11 @@ describe('NoteBodyInput', () => {
       refreshEnterLogFlag();
     };
 
-    it('logs nothing and renders no strip unless EXPO_PUBLIC_ENTER_LOG is 1', async () => {
+    it('logs nothing and renders no bar unless EXPO_PUBLIC_ENTER_LOG is 1', async () => {
       setFlag(false);
       await render(<Harness initial={'- a\ntext'} />);
       await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
       expect(getEnterLog()).toEqual([]);
-      expect(screen.queryByTestId('enter-log-strip')).toBeNull();
     });
 
     it('logs BUILD, KEY, SEL, CHG, RES and POSTSEL for one Enter and shows the strip', async () => {
@@ -513,7 +512,6 @@ describe('NoteBodyInput', () => {
       expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
       expect(log).toMatch(/RES continued/);
       expect(log).toMatch(/POSTSEL 6-6/);
-      expect(screen.getByTestId('enter-log-strip')).toBeTruthy();
       expect(changes.at(-1)).toEqual(['- a\n- \ntext', 'format']);
     });
 
@@ -541,17 +539,6 @@ describe('NoteBodyInput', () => {
       await caretAt(4);
       await fireEvent.changeText(input(), '- a\n\ntext');
       expect(getEnterLog()).toEqual([]);
-      expect(screen.queryByTestId('enter-log-strip')).toBeNull();
-    });
-
-    it('Clear log empties the log', async () => {
-      setFlag(true);
-      await render(<Harness initial="abc" />);
-      await caretAt(1);
-      expect(getEnterLog().length).toBeGreaterThan(0);
-      await fireEvent.press(screen.getByText('Clear log'));
-      expect(getEnterLog()).toEqual([]);
-      expect(screen.getByText('Enter log (0) +')).toBeTruthy();
     });
 
     it('keeps at most 40 entries with rising sequence numbers', async () => {
