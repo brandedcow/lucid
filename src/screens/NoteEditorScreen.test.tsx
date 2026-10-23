@@ -38,6 +38,7 @@ function Harness({ initial = '', ...rest }: Overrides) {
           micDisabled={false}
           onUndo={() => {}}
           onRedo={() => {}}
+          onDismissKeyboard={() => {}}
           onMic={() => {}}
           onTags={() => {}}
           checkboxAction={editor.checkboxAction}

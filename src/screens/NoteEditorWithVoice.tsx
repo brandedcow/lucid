@@ -55,8 +55,9 @@ type SessionActions = Pick<
  * - locked (NoteEditorScreen's): the parent releases it after a failed leave or delete.
  *
  * Modes: a stored note opens in the reading view (rendered markdown, no input), a new note in
- * editing. A tap in the reading view, or the Edit button, enters editing with the caret placed; Done
- * or the keyboard hiding returns to reading (`useNoteMode`). notes / imagesEnabled / onFollowNoteLink
+ * editing. A tap in the reading view (a line, or the empty space below it) enters editing with the
+ * caret placed; the toolbar's Hide keyboard button or the keyboard hiding returns to reading
+ * (`useNoteMode`). The toolbar is shown only while editing. notes / imagesEnabled / onFollowNoteLink
  * feed the reading view: wiki link state, the load-images setting, and following a `[[note]]` link.
  *
  * Undo / redo (one stack: body text and closing a voice note card): typing is grouped, a checkbox
@@ -76,8 +77,6 @@ export type NoteEditorWithVoiceProps = Omit<
   | 'pinned'
   | 'mode'
   | 'readingView'
-  | 'onToggleMode'
-  | 'modeToggleDisabled'
   | 'revealRequest'
 > & {
   session: NoteSession;
@@ -150,7 +149,7 @@ export function NoteEditorWithVoice({
   const [reveal, setReveal] = useState<{ y: number; token: number } | undefined>(undefined);
   const titleIndex = useTitleIndex(notes, { id: session.id, body }, reading);
 
-  // Leaving editing (Done, or the keyboard hiding) ends the typing step and the body's focus.
+  // Leaving editing (Hide keyboard, or the keyboard hiding) ends the typing step and the body's focus.
   const wasReading = useRef(reading);
   useEffect(() => {
     if (reading && !wasReading.current) {
@@ -355,20 +354,28 @@ export function NoteEditorWithVoice({
     />
   ) : undefined;
 
-  const toolbar = (
+  // Leaves editing: the typing step ends, the body is blurred and the note shows again.
+  const finishEditing = () => {
+    noteMode.done();
+    history.onBodyBlur();
+    editor.markBlurred();
+    Keyboard.dismiss();
+  };
+
+  const toolbar = reading ? undefined : (
     <NoteToolbar
       canUndo={history.canUndo && !recording}
       canRedo={history.canRedo && !recording}
       onUndo={history.undo}
       onRedo={history.redo}
       micDisabled={locked}
+      onDismissKeyboard={finishEditing}
       onMic={() => {
         // Recording must not overlap playback.
         stopAllPlayback();
         Keyboard.dismiss();
         setRecording(true);
       }}
-      formatDisabled={reading}
       onTags={insertTagStart}
       checkboxAction={editor.checkboxAction}
       onCheckbox={boundEditor.toggleCheckbox}
@@ -377,23 +384,11 @@ export function NoteEditorWithVoice({
   );
 
   const startEditing = (offset: number, y?: number) => {
-    if (locked) return;
+    if (locked || recording) return;
     editor.select({ start: offset, end: offset });
     noteMode.enterEditing();
     editor.focus();
     if (y !== undefined) setReveal((r) => ({ y, token: (r?.token ?? 0) + 1 }));
-  };
-
-  const toggleMode = () => {
-    if (reading) {
-      const at = selectionKnown.current ? Math.min(editor.selection.end, body.length) : body.length;
-      startEditing(at);
-      return;
-    }
-    noteMode.done();
-    history.onBodyBlur();
-    editor.markBlurred();
-    Keyboard.dismiss();
   };
 
   const readingView = (
@@ -436,8 +431,6 @@ export function NoteEditorWithVoice({
           autoFocus={autoFocus}
           mode={noteMode.mode}
           readingView={readingView}
-          onToggleMode={toggleMode}
-          modeToggleDisabled={recording}
           revealRequest={reveal}
           editor={boundEditor}
           attachment={attachment}

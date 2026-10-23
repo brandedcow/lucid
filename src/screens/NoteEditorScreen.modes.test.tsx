@@ -57,28 +57,6 @@ describe('NoteEditorScreen modes', () => {
     expect(screen.getByTestId('note-body')).toBeTruthy();
   });
 
-  it('labels the button by mode and calls onToggleMode', async () => {
-    const onToggleMode = jest.fn();
-    const view = await render(<Harness mode="reading" onToggleMode={onToggleMode} />);
-    expect(screen.getByText('Edit')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Edit note'));
-    expect(onToggleMode).toHaveBeenCalledTimes(1);
-    await view.rerender(<Harness mode="editing" onToggleMode={onToggleMode} />);
-    expect(screen.getByText('Done')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Done editing'));
-    expect(onToggleMode).toHaveBeenCalledTimes(2);
-  });
-
-  it('disables the button when locked or modeToggleDisabled', async () => {
-    const onToggleMode = jest.fn();
-    const view = await render(<Harness locked onToggleMode={onToggleMode} />);
-    expect(screen.getByLabelText('Done editing').props.accessibilityState.disabled).toBe(true);
-    await view.rerender(<Harness modeToggleDisabled onToggleMode={onToggleMode} />);
-    expect(screen.getByLabelText('Done editing').props.accessibilityState.disabled).toBe(true);
-    await fireEvent.press(screen.getByLabelText('Done editing'));
-    expect(onToggleMode).not.toHaveBeenCalled();
-  });
-
   describe('revealRequest', () => {
     const layout = async () => {
       await fireEvent(screen.getByTestId('note-page'), 'layout', {

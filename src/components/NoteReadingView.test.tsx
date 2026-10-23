@@ -208,4 +208,71 @@ describe('NoteReadingView', () => {
     await rerender(<NoteReadingView {...p} imagesEnabled />);
     expect(screen.getByTestId('reading-image', { hidden: true })).toBeTruthy();
   });
+
+  describe('blank space below the note', () => {
+    const fill = () => screen.getByTestId('reading-fill');
+
+    it('has role button, the label and the hint', async () => {
+      await render(<NoteReadingView {...props({ body: 'abc' })} />);
+      expect(fill().props.accessibilityRole).toBe('button');
+      expect(fill().props.accessibilityLabel).toBe('Edit note');
+      expect(fill().props.accessibilityHint).toBe('Double tap to start editing.');
+      expect(fill().props.accessibilityState.disabled).toBe(false);
+    });
+
+    it('is the last child, after the rows', async () => {
+      await render(<NoteReadingView {...props({ body: 'one\ntwo' })} />);
+      const rows = screen.getAllByTestId('reading-row');
+      const container = fill().parent!;
+      const children = container.children as unknown[];
+      expect(children[children.length - 1]).toBe(fill());
+      expect(rows.length).toBe(2);
+      for (const row of rows) expect(row.parent).toBe(container);
+    });
+
+    it.each([
+      ['LF', 'one\ntwo words'],
+      ['CRLF', 'one\r\ntwo words'],
+      ['emoji', 'a 😀\nb'],
+    ])('calls onEdit with the end of the body and its own y (%s)', async (_n, body) => {
+      const p = props({ body });
+      await render(<NoteReadingView {...p} />);
+      await fireEvent(fill(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 123, width: 300, height: 200 } },
+      });
+      await fireEvent.press(fill());
+      expect(p.onEdit).toHaveBeenCalledTimes(1);
+      expect(p.onEdit).toHaveBeenCalledWith(body.length, 123);
+    });
+
+    it('on an empty body the placeholder and the blank space both edit at 0', async () => {
+      const p = props({ body: '' });
+      await render(<NoteReadingView {...p} />);
+      await fireEvent.press(screen.getByText('Start writing...'));
+      expect(p.onEdit).toHaveBeenLastCalledWith(0, 0);
+      await fireEvent.press(fill());
+      expect(p.onEdit).toHaveBeenLastCalledWith(0, 0);
+      expect(p.onEdit).toHaveBeenCalledTimes(2);
+    });
+
+    it('is not touched by a web link press, a checkbox toggle or a checkbox label press', async () => {
+      const p = props({ body: '[site](https://example.com/a)\n- [ ] milk' });
+      await render(<NoteReadingView {...p} />);
+      await fireEvent.press(screen.getByRole('link'));
+      expect(p.onOpenWeb).toHaveBeenCalledWith('https://example.com/a');
+      await fireEvent.press(screen.getByRole('checkbox'));
+      expect(p.onToggleCheckbox).toHaveBeenCalledTimes(1);
+      expect(p.onEdit).not.toHaveBeenCalled();
+      await fireEvent.press(screen.getByText('milk'));
+      expect(p.onEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled while links are disabled', async () => {
+      const p = props({ body: 'abc', linksDisabled: true });
+      await render(<NoteReadingView {...p} />);
+      expect(fill().props.accessibilityState.disabled).toBe(true);
+      await fireEvent.press(fill());
+      expect(p.onEdit).not.toHaveBeenCalled();
+    });
+  });
 });

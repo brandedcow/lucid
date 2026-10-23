@@ -85,9 +85,9 @@ export function noteModeReducer(state: NoteModeState, action: NoteModeAction): N
 
 export type NoteModeControl = {
   mode: NoteMode;
-  /** A reading-view tap or the Edit button. Ignored when locked, or while the recording panel is open. */
+  /** A reading-view tap. Ignored when locked, or while the recording panel is open. */
   enterEditing(): void;
-  /** The Done button. */
+  /** The Hide keyboard button. */
   done(): void;
   notifyFocus(): void;
   notifyBlur(): void;

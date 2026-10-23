@@ -58,8 +58,8 @@ const BANNER_TEXT: Record<NoteEditorBanner['kind'], string> = {
  *
  * Modes (all optional; the defaults keep the page a plain editing page):
  * - mode: 'editing' (default) shows the body input; 'reading' shows `readingView` in its place when
- *   it is set. onToggleMode adds the Edit / Done text button to the top bar (label by mode);
- *   modeToggleDisabled and locked disable it.
+ *   it is set. There is no Edit / Done button: the parent enters editing from a tap in the reading
+ *   view and returns to reading from the toolbar's Hide keyboard button or a keyboard hide.
  * - revealRequest: while editing, once the keyboard height is known, scrolls so the tapped reading
  *   row (y in the body) sits a third of the way down the viewport. Each new token is handled once.
  *
@@ -85,8 +85,6 @@ export type NoteEditorScreenProps = {
   toolbar?: ReactNode;
   mode?: 'reading' | 'editing';
   readingView?: ReactNode;
-  onToggleMode?: () => void;
-  modeToggleDisabled?: boolean;
   revealRequest?: { y: number; token: number };
 };
 
@@ -109,8 +107,6 @@ export function NoteEditorScreen({
   toolbar,
   mode = 'editing',
   readingView,
-  onToggleMode,
-  modeToggleDisabled = false,
   revealRequest,
 }: NoteEditorScreenProps) {
   const keyboard = useKeyboardInset();
@@ -187,21 +183,6 @@ export function NoteEditorScreen({
           <Text style={styles.date} numberOfLines={1}>
             {date}
           </Text>
-          {onToggleMode && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={mode === 'reading' ? 'Edit note' : 'Done editing'}
-              accessibilityState={{ disabled: locked || modeToggleDisabled }}
-              disabled={locked || modeToggleDisabled}
-              onPress={onToggleMode}
-              hitSlop={8}
-              style={styles.modeButton}
-            >
-              <Text style={[styles.modeButtonText, (locked || modeToggleDisabled) && styles.dim]}>
-                {mode === 'reading' ? 'Edit' : 'Done'}
-              </Text>
-            </Pressable>
-          )}
         </View>
 
         {banner && (
@@ -241,6 +222,7 @@ export function NoteEditorScreen({
           {hasAttachment && <View testID="note-attachment">{attachment}</View>}
           <View
             testID="note-body-wrap"
+            style={mode === 'reading' && readingView ? styles.flexGrow : undefined}
             onLayout={(e) =>
               setBodyLayout({ y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })
             }
@@ -296,6 +278,7 @@ export function NoteEditorScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
+  flexGrow: { flexGrow: 1 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -307,9 +290,6 @@ const styles = StyleSheet.create({
   },
   iconButton: { minWidth: 44, minHeight: 44, justifyContent: 'center' },
   back: { color: colors.text, fontSize: 24 },
-  modeButton: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
-  modeButtonText: { color: colors.accent, fontSize: 16, fontWeight: '600' },
-  dim: { opacity: 0.4 },
   date: { flex: 1, color: colors.muted, fontSize: 13, marginLeft: spacing.sm },
   banner: {
     marginHorizontal: spacing.lg,
@@ -324,7 +304,7 @@ const styles = StyleSheet.create({
   bannerText: { color: colors.text, fontSize: 14, lineHeight: 20 },
   bannerButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   bannerButtonText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { padding: spacing.lg, gap: spacing.md },
+  content: { flexGrow: 1, padding: spacing.lg, gap: spacing.md },
   recordingSlot: { paddingHorizontal: spacing.lg },
   bodyInput: {
     color: colors.text,

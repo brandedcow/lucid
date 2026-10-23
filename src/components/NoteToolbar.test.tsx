@@ -4,6 +4,7 @@ import { NoteToolbar } from './NoteToolbar';
 const handlers = {
   onUndo: jest.fn(),
   onRedo: jest.fn(),
+  onDismissKeyboard: jest.fn(),
   onMic: jest.fn(),
   onTags: jest.fn(),
   onCheckbox: jest.fn(),
@@ -24,10 +25,17 @@ const disabled = (label: string) => screen.getByLabelText(label).props.accessibi
 beforeEach(() => jest.clearAllMocks());
 
 describe('NoteToolbar', () => {
-  it('renders five labeled buttons in order', async () => {
+  it('renders six labeled buttons in order', async () => {
     await renderBar();
     const labels = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
-    expect(labels).toEqual(['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox']);
+    expect(labels).toEqual([
+      'Undo',
+      'Redo',
+      'Hide keyboard',
+      'Record voice note',
+      'Add tags',
+      'Add checkbox',
+    ]);
   });
 
   it('shows the waveform icon on the voice note button', async () => {
@@ -37,7 +45,14 @@ describe('NoteToolbar', () => {
 
   it('calls the handlers', async () => {
     await renderBar();
-    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox'])
+    for (const label of [
+      'Undo',
+      'Redo',
+      'Hide keyboard',
+      'Record voice note',
+      'Add tags',
+      'Add checkbox',
+    ])
       await fireEvent.press(screen.getByLabelText(label));
     for (const fn of Object.values(handlers)) expect(fn).toHaveBeenCalledTimes(1);
   });
@@ -79,20 +94,24 @@ describe('NoteToolbar', () => {
     expect(screen.queryByLabelText('Outdent')).toBeNull();
   });
 
-  it('formatDisabled disables only the tags and checkbox buttons', async () => {
-    await renderBar({ formatDisabled: true, checkboxAction: 'check' });
-    expect(disabled('Add tags')).toBe(true);
-    expect(disabled('Check item')).toBe(true);
-    expect(disabled('Undo')).toBe(false);
-    expect(disabled('Redo')).toBe(false);
-    expect(disabled('Record voice note')).toBe(false);
-    await fireEvent.press(screen.getByLabelText('Add tags'));
-    expect(handlers.onTags).not.toHaveBeenCalled();
+  it('gives the hide-keyboard button its hint and keeps it enabled on the other flags', async () => {
+    await renderBar({ canUndo: false, canRedo: false, micDisabled: true, checkboxAction: 'none' });
+    const button = screen.getByLabelText('Hide keyboard');
+    expect(button.props.accessibilityHint).toBe('Stops editing and shows the note.');
+    expect(disabled('Hide keyboard')).toBe(false);
+    await fireEvent.press(button);
+    expect(handlers.onDismissKeyboard).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves the format buttons enabled by default', async () => {
-    await renderBar({ checkboxAction: 'check' });
-    expect(disabled('Add tags')).toBe(false);
-    expect(disabled('Check item')).toBe(false);
+  it('disables the hide-keyboard button when locked and does not call the handler', async () => {
+    await renderBar({ disabled: true });
+    expect(disabled('Hide keyboard')).toBe(true);
+    await fireEvent.press(screen.getByLabelText('Hide keyboard'));
+    expect(handlers.onDismissKeyboard).not.toHaveBeenCalled();
+  });
+
+  it('shows the keyboard icon on the hide-keyboard button', async () => {
+    await renderBar();
+    expect(screen.getByTestId('keyboard-hide-icon', { includeHiddenElements: true })).toBeTruthy();
   });
 });
