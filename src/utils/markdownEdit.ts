@@ -10,9 +10,9 @@ export type Sel = { start: number; end: number };
 export type EditResult = { text: string; selection: Sel };
 export type LineInfo = { start: number; end: number; text: string; eol: string };
 
-const INDENT_UNIT = '  ';
+export const INDENT_UNIT = '  ';
 
-function splitLines(text: string): LineInfo[] {
+export function splitLines(text: string): LineInfo[] {
   const out: LineInfo[] = [];
   const re = /\r\n|\n|\r/g;
   let last = 0;
@@ -44,7 +44,7 @@ function kindAtLine(text: string, line: LineInfo): LineKind {
 const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff;
 const isHigh = (c: number) => c >= 0xd800 && c <= 0xdbff;
 
-function removeIndentUnit(indent: string): string {
+export function removeIndentUnit(indent: string): string {
   if (indent.startsWith('\t')) return indent.slice(1);
   let n = 0;
   while (n < 2 && indent[n] === ' ') n += 1;
