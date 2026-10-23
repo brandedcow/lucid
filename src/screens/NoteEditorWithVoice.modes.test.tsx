@@ -549,6 +549,54 @@ describe('list panel', () => {
     expect(add).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['Bulleted list', 'a', '- a'],
+    ['Numbered list', 'a', '1. a'],
+    ['To-do list', 'a', '- [ ] a'],
+    ['Bulleted list', '- a', 'a'],
+  ])('type button %s on "%s" applies it and returns to the keyboard', async (label, from, to) => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await editAt({ body: from }, from.replace(/^- /, ''), from.length);
+    await pressCell();
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+    focus.mockClear();
+    await fireEvent.press(screen.getByLabelText(label));
+    await act(async () => {});
+    expect(state?.body).toBe(to);
+    expect(panelShown()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    await advance(60);
+    expect(focus).toHaveBeenCalled();
+    await advance(1000);
+    expect(screen.getByTestId('note-body')).toBeTruthy();
+    expect(panelShown()).toBe(false);
+    expect(input().props.caretHidden).toBe(false);
+  });
+
+  it('a type change that changes nothing (heading) leaves the panel open', async () => {
+    await editAt({ body: '# head' }, 'head', 2);
+    await pressCell();
+    await fireEvent.press(screen.getByLabelText('Bulleted list'));
+    await act(async () => {});
+    await advance(1000);
+    expect(state?.body).toBe('# head');
+    expect(panelShown()).toBe(true);
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+  });
+
+  it('movement buttons keep the panel open', async () => {
+    await editAt({ body: '- a\n- b' }, 'b', 7);
+    await pressCell();
+    for (const l of ['Move up', 'Indent', 'Outdent', 'Move down']) {
+      await fireEvent.press(screen.getByLabelText(l));
+      await act(async () => {});
+      await advance(1000);
+      expect(panelShown()).toBe(true);
+      expect(input().props.showSoftInputOnFocus).toBe(false);
+      if (l === 'Move up') expect(state?.body).toBe('- b\n- a');
+    }
+  });
+
   it('while locked the panel is disabled including the abc key, and the list cell too', async () => {
     const view = await renderPage({ body: 'abc', stored: false, autoFocus: true });
     await fireEvent(input(), 'focus');

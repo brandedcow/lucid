@@ -29,7 +29,7 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
-import type { ListKind } from '../utils/markdownList';
+import { setListType as planListType, type ListKind } from '../utils/markdownList';
 import { activeWikiToken, completeWikiToken, matchTitles } from '../utils/noteLinks';
 import { suggestTags } from '../utils/tagSuggestions';
 import { appendTranscript } from '../utils/transcriptAppend';
@@ -441,6 +441,15 @@ export function NoteEditorWithVoice({
     />
   );
 
+  // A type change hands the keyboard back so typing can go on. Only when the edit changed the text
+  // (a no-op, e.g. on a heading, leaves the panel as it is). The edit and the closePanel run in one
+  // event, so the remount sees showSoftInputOnFocus already true.
+  const changeListType = (kind: ListKind) => {
+    const changed = planListType(editor.inputProps.text, editor.selection, kind);
+    boundEditor.setListType(kind);
+    if (changed && changed.text !== editor.inputProps.text) panel.showKeyboard();
+  };
+
   const listPanel = (height: number) => (
     <ListControlsPanel
       actions={editor.listActions}
@@ -450,7 +459,7 @@ export function NoteEditorWithVoice({
       onOutdent={boundEditor.outdentItem}
       onMoveUp={() => boundEditor.moveItem('up')}
       onMoveDown={() => boundEditor.moveItem('down')}
-      onType={boundEditor.setListType}
+      onType={changeListType}
       onKeyboard={panel.showKeyboard}
     />
   );

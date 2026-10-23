@@ -126,6 +126,7 @@ Only chunk 9 (drawer with parallax, left-edge swipe, Today default, inline searc
 iOS first:
 
 - Open the panel from the toolbar with the caret in the middle of a list: no flicker or jump, the caret and selection are kept, the note stays in editing, the list cell shows selected.
+- Type buttons return to the keyboard (list type change, chunk 5f, branch `feat/list-5f`): after pressing Bulleted, Numbered or To-do (or the active type, to remove the marker) the system keyboard comes back without flicker and the caret stays on the line; the note never falls back to reading. The press applies the edit (the input remounts) and closes the panel in the same event, so the remount already has `showSoftInputOnFocus` true; the 50 ms refocus of `showKeyboard` is then probably redundant (harmless) and the `SWAP_GRACE_MS` of the close covers the remount's hide events. A press that changes nothing (heading) leaves the panel open. Indent, Outdent, Move up and Move down keep the panel. All unverified on a device.
 - Press each button repeatedly (indent, outdent, move up three times, bullet / numbered / to-do on and off): the caret stays on the item each time. This is the untested path where the input remounts while the panel is open (selection, focus and no keyboard popping up are all unverified).
 - Undo and redo: one step per button press.
 - The abc key and the list cell both bring the keyboard back; no spurious reading-view flash on the way.
