@@ -12,12 +12,25 @@ import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
 import type { Note } from '../services/notesStorage';
 import * as noteLinks from '../utils/noteLinks';
+import type { NoteEditor } from '../hooks/useNoteEditor';
 import { NoteEditorWithVoice } from './NoteEditorWithVoice';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
+
+const mockScreen: { editor: NoteEditor | null } = { editor: null };
+jest.mock('./NoteEditorScreen', () => {
+  const actual = jest.requireActual('./NoteEditorScreen');
+  return {
+    ...actual,
+    NoteEditorScreen: (props: { editor: NoteEditor }) => {
+      mockScreen.editor = props.editor;
+      return <actual.NoteEditorScreen {...props} />;
+    },
+  };
+});
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
 jest.mock('../hooks/useVoiceRecorder', () => ({
@@ -210,26 +223,54 @@ describe('undo and redo', () => {
     expect(disabled('Redo')).toBe(true);
   });
 
-  it('a checkbox toggle is its own step, apart from the typing before and after', async () => {
+  it('the checkbox cell is its own step, apart from the typing before and after', async () => {
     await renderPage();
     await fireEvent(body(), 'focus');
-    // No pause between typing and the toggle: they must still be separate steps.
-    await fireEvent.changeText(body(), '- [ ] milk');
-    await select(10);
-    expect(screen.getByLabelText('Check item')).toBeTruthy();
-    await press('Check item');
-    expect(state?.body).toBe('- [x] milk');
-    await fireEvent.changeText(body(), '- [x] milk!');
+    // No pause between typing and the cell: they must still be separate steps.
+    await fireEvent.changeText(body(), 'milk');
+    await select(4);
+    await press('Add checkbox');
+    expect(state?.body).toBe('- [ ] milk');
+    expect(screen.getByLabelText('Remove checkbox')).toBeTruthy();
+    await fireEvent.changeText(body(), '- [ ] milk!');
     await advance(600);
     await press('Undo');
-    expect(state?.body).toBe('- [x] milk');
-    await press('Undo');
     expect(state?.body).toBe('- [ ] milk');
+    await press('Undo');
+    expect(state?.body).toBe('milk');
     await press('Undo');
     expect(state?.body).toBe('');
     await press('Redo');
     await press('Redo');
-    expect(state?.body).toBe('- [x] milk');
+    expect(state?.body).toBe('- [ ] milk');
+  });
+
+  it.each([
+    ['indentItem', (e: NoteEditor) => e.indentItem(), '- a\n- b', 7, '- a\n  - b'],
+    ['outdentItem', (e: NoteEditor) => e.outdentItem(), '- a\n  - b', 9, '- a\n- b'],
+    ['moveItem', (e: NoteEditor) => e.moveItem('up'), '- a\n- b', 7, '- b\n- a'],
+    ['setListType', (e: NoteEditor) => e.setListType('numbered'), '- a', 3, '1. a'],
+  ])(
+    '%s is one undo step that restores the exact prior text',
+    async (_n, run, text, caret, out) => {
+      await renderPage();
+      await type(text, caret);
+      await act(async () => run(mockScreen.editor!));
+      expect(state?.body).toBe(out);
+      await press('Undo');
+      expect(state?.body).toBe(text);
+      await press('Redo');
+      expect(state?.body).toBe(out);
+    },
+  );
+
+  it('a list method with a null result changes nothing and adds no undo step', async () => {
+    await renderPage();
+    await type('# head', 2);
+    await act(async () => mockScreen.editor!.indentItem());
+    expect(state?.body).toBe('# head');
+    await press('Undo');
+    expect(state?.body).toBe('');
   });
 
   it('undo and redo put the caret at the end of the changed region', async () => {

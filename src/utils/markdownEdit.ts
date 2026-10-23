@@ -194,22 +194,6 @@ function planToggle(text: string, sel: Sel): TogglePlan | null {
   return { action: 'add', line, oldLen: indent.length, newPrefix: `${indent}- [ ] ` };
 }
 
-/** What the checkbox toggle would do to the line at `sel.start`. */
-export function checkboxAction(text: string, sel: Sel): 'check' | 'uncheck' | 'add' | 'none' {
-  return planToggle(text, sel)?.action ?? 'none';
-}
-
-/**
- * Toggles the checkbox on the line at `sel.start`: unchecked -> checked -> unchecked; a bullet,
- * numbered or plain line gains an unchecked box. Never removes a checkbox. Null for headings,
- * quotes, rules and fenced code.
- */
-export function toggleCheckbox(text: string, sel: Sel): EditResult | null {
-  const plan = planToggle(text, sel);
-  if (!plan) return null;
-  return applyToggle(text, sel, plan);
-}
-
 /**
  * Toggles the checkbox on the line containing `offset` (for tapping a box in the reading view).
  * Only an existing checkbox is toggled: null for any other line, including code lines.
@@ -235,44 +219,4 @@ function applyToggle(text: string, sel: Sel, plan: TogglePlan): EditResult {
     text: text.slice(0, line.start) + newPrefix + text.slice(oldEnd),
     selection: { start: map(sel.start), end: map(sel.end) },
   };
-}
-
-/** Indents (or outdents) the list lines touched by the selection by one level (two spaces). */
-export function indentLines(text: string, sel: Sel, outdent = false): EditResult | null {
-  const lines = splitLines(text);
-  const kinds = markdownLineKinds(text);
-  const edits: { at: number; removed: number; inserted: number }[] = [];
-  for (const [index, l] of lines.entries()) {
-    const lineEnd = l.end + l.eol.length;
-    const touches =
-      sel.start === sel.end
-        ? sel.start >= l.start && (sel.start < lineEnd || lineEnd === text.length)
-        : sel.start < lineEnd && sel.end > l.start;
-    if (!touches || !parseListPrefix(l.text, kinds[index])) continue;
-    if (!outdent) {
-      edits.push({ at: l.start, removed: 0, inserted: INDENT_UNIT.length });
-    } else {
-      const removed = l.text.length - removeIndentUnit(l.text).length;
-      if (removed > 0) edits.push({ at: l.start, removed, inserted: 0 });
-    }
-  }
-  if (edits.length === 0) return null;
-
-  let out = '';
-  let last = 0;
-  for (const e of edits) {
-    out += text.slice(last, e.at) + (e.inserted ? INDENT_UNIT : '');
-    last = e.at + e.removed;
-  }
-  out += text.slice(last);
-
-  const map = (pos: number) => {
-    let shift = 0;
-    for (const e of edits) {
-      if (pos >= e.at + e.removed) shift += e.inserted - e.removed;
-      else if (pos > e.at) shift += e.at + e.inserted - pos;
-    }
-    return pos + shift;
-  };
-  return { text: out, selection: { start: map(sel.start), end: map(sel.end) } };
 }

@@ -41,8 +41,8 @@ function Harness({ initial = '', ...rest }: Overrides) {
           onDismissKeyboard={() => {}}
           onMic={() => {}}
           onTags={() => {}}
-          checkboxAction={editor.checkboxAction}
-          onCheckbox={editor.toggleCheckbox}
+          listKind={editor.listActions.kind}
+          onCheckbox={() => editor.setListType('checkbox')}
           disabled={rest.locked}
         />
       }
@@ -231,9 +231,9 @@ describe('NoteEditorScreen', () => {
       }
     });
 
-    it('uses the checkbox button labels from the editor', async () => {
+    it('uses the checkbox button label from the editor list kind', async () => {
       await render(<Harness initial="- [ ] a" />);
-      expect(screen.getByLabelText('Check item')).toBeTruthy();
+      expect(screen.getByLabelText('Remove checkbox')).toBeTruthy();
     });
   });
 });

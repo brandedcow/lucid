@@ -11,14 +11,7 @@ const handlers = {
 };
 const renderBar = (props: Partial<Parameters<typeof NoteToolbar>[0]> = {}) =>
   render(
-    <NoteToolbar
-      canUndo
-      canRedo
-      micDisabled={false}
-      checkboxAction="add"
-      {...handlers}
-      {...props}
-    />,
+    <NoteToolbar canUndo canRedo micDisabled={false} listKind={null} {...handlers} {...props} />,
   );
 const disabled = (label: string) => screen.getByLabelText(label).props.accessibilityState.disabled;
 
@@ -58,20 +51,21 @@ describe('NoteToolbar', () => {
   });
 
   it.each([
-    ['check', 'Check item'],
-    ['uncheck', 'Uncheck item'],
-    ['add', 'Add checkbox'],
-  ] as const)('labels the checkbox button for %s', async (action, label) => {
-    await renderBar({ checkboxAction: action });
+    [null, 'Add checkbox'],
+    ['bullet', 'Add checkbox'],
+    ['numbered', 'Add checkbox'],
+    ['mixed', 'Add checkbox'],
+    ['checkbox', 'Remove checkbox'],
+  ] as const)('labels the checkbox button for list kind %s', async (kind, label) => {
+    await renderBar({ listKind: kind });
     expect(screen.getByLabelText(label)).toBeTruthy();
     expect(disabled(label)).toBe(false);
   });
 
-  it('disables the checkbox button for none and does not call the handler', async () => {
-    await renderBar({ checkboxAction: 'none' });
-    expect(disabled('Add checkbox')).toBe(true);
-    await fireEvent.press(screen.getByLabelText('Add checkbox'));
-    expect(handlers.onCheckbox).not.toHaveBeenCalled();
+  it('calls onCheckbox when pressed', async () => {
+    await renderBar({ listKind: 'checkbox' });
+    await fireEvent.press(screen.getByLabelText('Remove checkbox'));
+    expect(handlers.onCheckbox).toHaveBeenCalledTimes(1);
   });
 
   it('disables undo, redo and the mic on their own flags', async () => {
@@ -83,7 +77,7 @@ describe('NoteToolbar', () => {
   });
 
   it('locks every button when disabled', async () => {
-    await renderBar({ disabled: true, checkboxAction: 'check' });
+    await renderBar({ disabled: true, listKind: 'checkbox' });
     for (const b of screen.getAllByRole('button'))
       expect(b.props.accessibilityState.disabled).toBe(true);
   });
@@ -95,7 +89,7 @@ describe('NoteToolbar', () => {
   });
 
   it('gives the hide-keyboard button its hint and keeps it enabled on the other flags', async () => {
-    await renderBar({ canUndo: false, canRedo: false, micDisabled: true, checkboxAction: 'none' });
+    await renderBar({ canUndo: false, canRedo: false, micDisabled: true });
     const button = screen.getByLabelText('Hide keyboard');
     expect(button.props.accessibilityHint).toBe('Stops editing and shows the note.');
     expect(disabled('Hide keyboard')).toBe(false);
