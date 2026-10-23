@@ -126,7 +126,7 @@ export function resetNoteBodyInputOrder(): void {
 
 // DEV-ONLY diagnostic for the Enter-in-list bug (chunk 1b). Off unless __DEV__ and the bundle was
 // started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
-const ENTER_LOG_BUILD = 'enter-1b';
+const ENTER_LOG_BUILD = 'enter-1e';
 const ENTER_LOG_CAP = 40;
 const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
 // Read once at load. Every log call site and the work only the log needs sit behind this flag, so
@@ -248,6 +248,13 @@ export function NoteBodyInput({
   // change.
   const enterSnap = useRef<{ caret: number; len: number; latest: Sel; previous?: Sel }>(undefined);
   const afterChange = useRef(false); // dev log: the next selection event is POSTSEL
+  // Commit-scoped guards (chunk 1e). iOS can deliver a SECOND onChangeText for one native edit
+  // (and a stale selection event) before React commits. `handled` is the native text of the edit
+  // already processed: a later change with the same text, before the next commit, is that duplicate.
+  // `awaitCommit` is set by a continued (programmatic) edit: until it commits, selection events come
+  // from the old native view and must not wipe the pinned caret. Both are cleared after every commit.
+  const handled = useRef<{ to: string }>(undefined);
+  const awaitCommit = useRef(false);
   const knowSelection = (sel: Sel) => {
     selections.current = { latest: sel, previous: sel };
   };
@@ -313,6 +320,15 @@ export function NoteBodyInput({
     if (focusSignal > 0) inputRef.current?.focus();
   }, [focusSignal]);
 
+  // No deps: runs after every commit, which ends the window the two guards above cover.
+  useEffect(() => {
+    if (enterLogOn() && (handled.current || awaitCommit.current)) {
+      enterLog(`COMMIT shownLen=${shown.length}`);
+    }
+    handled.current = undefined;
+    awaitCommit.current = false;
+  });
+
   useEffect(() => {
     if (enterLogOn() && !enterLogBuildDone) {
       enterLogBuildDone = true;
@@ -337,6 +353,12 @@ export function NoteBodyInput({
   };
 
   const handleSelection = (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+    if (awaitCommit.current) {
+      if (enterLogOn()) {
+        enterLog(`SEL stale ignored ${fmtSel(e.nativeEvent.selection)} shownLen=${shown.length}`);
+      }
+      return;
+    }
     if (enterLogOn()) enterLog(`SEL ${fmtSel(e.nativeEvent.selection)} shownLen=${shown.length}`);
     if (afterChange.current) {
       afterChange.current = false;
@@ -348,6 +370,11 @@ export function NoteBodyInput({
   };
 
   const handleChange = (t: string) => {
+    if (handled.current && handled.current.to === t) {
+      if (enterLogOn()) enterLog(`DUP ignored nextLen=${t.length} shownLen=${shown.length}`);
+      return;
+    }
+    handled.current = { to: t };
     const snap = enterSnap.current;
     enterSnap.current = undefined;
     afterChange.current = true;
@@ -380,6 +407,7 @@ export function NoteBodyInput({
         enterLog(`RES ${result ? 'continued' : 'plain'}`);
       }
       if (result) {
+        awaitCommit.current = true;
         programmatic(result.text, result.selection);
         onChangeText(result.text, 'format');
         return;

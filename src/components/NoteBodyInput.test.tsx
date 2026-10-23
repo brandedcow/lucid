@@ -478,6 +478,178 @@ describe('NoteBodyInput', () => {
     });
   });
 
+  // Chunk 1e: the real iPhone sequence. On iOS one native Enter edit produced KEY, CHG (continued),
+  // a stale SEL, then a SECOND CHG with the same text, all before React committed. The tests above
+  // `await` every fireEvent, which commits between steps and so masked the duplicate. Here the whole
+  // sequence runs inside ONE act() so nothing commits until it ends.
+  describe('one native edit, duplicate change before commit (device log, chunk 1e)', () => {
+    let restore: { restore: () => void } | undefined;
+    afterEach(() => restore?.restore());
+    const key = (k: string) => fireEvent(input(), 'keyPress', { nativeEvent: { key: k } });
+    const change = (t: string) => fireEvent.changeText(input(), t);
+    const bodies: [string, string, number, string][] = [
+      ['numbered', '1. new item\n\n\n\n\ntest', 11, '1. new item\n2. \n\n\n\n\ntest'],
+      ['bullet', '- new item!\n\n\n\n\ntest', 11, '- new item!\n- \n\n\n\n\ntest'],
+    ];
+    const nl = (b: string, at: number) => b.slice(0, at) + '\n' + b.slice(at);
+    const pinned = (c: number) => ({ start: c, end: c });
+
+    describe.each(['ios', 'android'] as const)('platform %s', (os) => {
+      beforeEach(() => {
+        restore = jest.replaceProperty(Platform, 'OS', os);
+      });
+      describe.each(bodies)('%s', (_n, body, c, out) => {
+        const plain = nl(body, c);
+        const mount = () => render(<Harness initial={body} selection={{ start: c, end: c }} />);
+
+        it('A: key, change, stale selection, identical change keeps the continued edit and pin', async () => {
+          await mount();
+          selections.length = 0;
+          await act(async () => {
+            key('Enter');
+            change(plain);
+            caretAt(c + 1); // stale: from the old native view
+            change(plain); // the duplicate
+          });
+          expect(changes).toEqual([[out, 'format']]);
+          expect(input().props.selection).toEqual(pinned(out.indexOf('\n', c + 1)));
+          expect(selections).toEqual([pinned(out.indexOf('\n', c + 1))]);
+        });
+
+        it('B: selection first, then change, stale selection, identical change', async () => {
+          await mount();
+          selections.length = 0;
+          await act(async () => {
+            key('Enter');
+            caretAt(c + 1);
+            change(plain);
+            caretAt(c + 1); // stale
+            change(plain);
+          });
+          expect(changes).toEqual([[out, 'format']]);
+          expect(input().props.selection).toEqual(pinned(out.indexOf('\n', c + 1)));
+          expect(selections.at(-1)).toEqual(pinned(out.indexOf('\n', c + 1)));
+        });
+
+        it('C: after the continued edit commits, a typed x is a normal insert', async () => {
+          await mount();
+          await act(async () => {
+            key('Enter');
+            change(plain);
+            caretAt(c + 1);
+            change(plain);
+          });
+          const shown = out;
+          await key('x');
+          await change(
+            shown.slice(0, out.indexOf('\n', c + 1)) + 'x' + shown.slice(out.indexOf('\n', c + 1)),
+          );
+          expect(changes).toEqual([
+            [out, 'format'],
+            [
+              shown.slice(0, out.indexOf('\n', c + 1)) +
+                'x' +
+                shown.slice(out.indexOf('\n', c + 1)),
+              'typing',
+            ],
+          ]);
+        });
+      });
+    });
+
+    describe('D: no over-blocking', () => {
+      it('two different fast chars are both applied', async () => {
+        await render(<Harness initial="ab" />);
+        await act(async () => {
+          change('abx');
+          change('abxy');
+        });
+        expect(changes).toEqual([
+          ['abx', 'typing'],
+          ['abxy', 'typing'],
+        ]);
+      });
+
+      it('the same text typed again after a commit is applied', async () => {
+        await render(<Harness initial="ab" />);
+        await act(async () => {
+          change('abx');
+        });
+        await act(async () => {
+          change('ab');
+        });
+        await act(async () => {
+          change('abx');
+        });
+        expect(changes.map((c) => c[0])).toEqual(['abx', 'ab', 'abx']);
+      });
+
+      it('a selection event after a plain edit is still processed', async () => {
+        await render(<Harness initial="ab" />);
+        selections.length = 0;
+        await act(async () => {
+          change('abx');
+          caretAt(3);
+        });
+        expect(selections).toEqual([{ start: 3, end: 3 }]);
+      });
+
+      it('a selection event after the continued edit has committed is processed', async () => {
+        await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
+        await act(async () => {
+          key('Enter');
+          change('- a\n\ntext');
+        });
+        selections.length = 0;
+        await caretAt(1);
+        expect(selections).toEqual([{ start: 1, end: 1 }]);
+      });
+    });
+
+    it('E: inPlace variant also ignores the duplicate', async () => {
+      const body = '1. new item\n\n\n\n\ntest';
+      await render(
+        <Harness initial={body} editMode="inPlace" selection={{ start: 11, end: 11 }} />,
+      );
+      await act(async () => {
+        key('Enter');
+        change(nl(body, 11));
+        caretAt(12);
+        change(nl(body, 11));
+      });
+      expect(changes).toEqual([['1. new item\n2. \n\n\n\n\ntest', 'format']]);
+    });
+
+    it('F: the dev log shows DUP, SEL stale and COMMIT and never note text', async () => {
+      const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
+      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      refreshEnterLogFlag();
+      try {
+        const body = '1. zebrafish\n\n\n\n\ntest';
+        await render(<Harness initial={body} selection={{ start: 12, end: 12 }} />);
+        await act(async () => {
+          key('Enter');
+          change(nl(body, 12));
+          caretAt(13);
+          change(nl(body, 12));
+        });
+        const log = getEnterLog().join('\n');
+        expect(log).toMatch(/BUILD enter-1e /);
+        expect(log).toMatch(/CHG .*pick=12 snapshot=12/);
+        expect(log).toMatch(/RES continued/);
+        expect(log).toMatch(/DUP ignored nextLen=\d+ shownLen=\d+/);
+        expect(log).toMatch(/SEL stale ignored 13-13 shownLen=\d+/);
+        expect(log).toMatch(/COMMIT shownLen=\d+/);
+        expect(log).not.toContain('zebrafish');
+        expect(log).not.toContain('test\n');
+      } finally {
+        if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
+        else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+        refreshEnterLogFlag();
+      }
+    });
+  });
+
   describe('dev Enter log', () => {
     const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
     afterEach(() => {
@@ -506,7 +678,7 @@ describe('NoteBodyInput', () => {
       await fireEvent.changeText(input(), '- a\n\ntext');
       await caretAt(6);
       const log = getEnterLog().join('\n');
-      expect(log).toMatch(/BUILD enter-1b mount=\d+/);
+      expect(log).toMatch(/BUILD enter-1e mount=\d+/);
       expect(log).toMatch(/KEY key=Enter latestSel=3-3 prevSel=3-3 shownLen=8/);
       expect(log).toMatch(/SEL 4-4 shownLen=8/);
       expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
