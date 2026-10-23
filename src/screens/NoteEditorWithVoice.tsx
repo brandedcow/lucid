@@ -2,6 +2,7 @@ import { Alert, Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteReadingView } from '../components/NoteReadingView';
 import { NoteToolbar } from '../components/NoteToolbar';
+import { RecordFab } from '../components/RecordFab';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
 import { WikiLinkSuggestionBar } from '../components/WikiLinkSuggestionBar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
@@ -362,6 +363,18 @@ export function NoteEditorWithVoice({
     Keyboard.dismiss();
   };
 
+  // Recording must not overlap playback. Shared by the toolbar mic and the reading-mode button.
+  const startRecording = () => {
+    stopAllPlayback();
+    Keyboard.dismiss();
+    setRecording(true);
+  };
+
+  const fab =
+    reading && !locked && !recording && !sheetOpen
+      ? (inset: number) => <RecordFab bottomInset={inset} onPress={startRecording} />
+      : undefined;
+
   const toolbar = reading ? undefined : (
     <NoteToolbar
       canUndo={history.canUndo && !recording}
@@ -370,12 +383,7 @@ export function NoteEditorWithVoice({
       onRedo={history.redo}
       micDisabled={locked}
       onDismissKeyboard={finishEditing}
-      onMic={() => {
-        // Recording must not overlap playback.
-        stopAllPlayback();
-        Keyboard.dismiss();
-        setRecording(true);
-      }}
+      onMic={startRecording}
       onTags={insertTagStart}
       checkboxAction={editor.checkboxAction}
       onCheckbox={boundEditor.toggleCheckbox}
@@ -437,6 +445,7 @@ export function NoteEditorWithVoice({
           recordingPanel={recordingPanel}
           suggestions={suggestions}
           toolbar={toolbar}
+          fab={fab}
         />
       </View>
       {sheetOpen && openIndex >= 0 && (

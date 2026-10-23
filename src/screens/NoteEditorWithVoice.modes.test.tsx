@@ -3,6 +3,7 @@ import { useEffect, useReducer } from 'react';
 import { Alert, Keyboard, Linking, ScrollView } from 'react-native';
 import { NoteSession, newSession, noteSessionReducer } from '../hooks/noteSessionState';
 import type { Note } from '../services/notesStorage';
+import * as playbackModule from '../hooks/useRecordingPlayback';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
 import { LINK_COPY, NoteEditorWithVoice } from './NoteEditorWithVoice';
@@ -11,10 +12,10 @@ jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
+const mockRec = { start: jest.fn(), stop: jest.fn() };
 jest.mock('../hooks/useVoiceRecorder', () => ({
   useVoiceRecorder: () => ({
-    start: jest.fn(),
-    stop: jest.fn(),
+    ...mockRec,
     pause: jest.fn(),
     resume: jest.fn(),
     level: 0,
@@ -90,7 +91,10 @@ function Harness({
       session={session}
       actions={{
         setBody: (text) => dispatch({ type: 'setBody', text }),
-        attachRecording: () => 'x',
+        attachRecording: (recording) => {
+          dispatch({ type: 'attach', id: 'r1', recording });
+          return 'r1';
+        },
         closeRecording: (id) => dispatch({ type: 'close', id }),
         restoreRecording: (id) => dispatch({ type: 'restore', id }),
       }}
@@ -122,6 +126,8 @@ const caret = () => input().props.selection;
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockRec.start.mockReset();
+  mockRec.stop.mockReset();
   state = null;
   keyboard = fakeKeyboard();
 });
@@ -356,16 +362,14 @@ describe('entering and leaving editing', () => {
 
   it('shows the toolbar only while editing', async () => {
     await renderPage({ body: 'abc' });
-    for (const label of [
-      'Add tags',
-      'Add checkbox',
-      'Check item',
-      'Undo',
-      'Redo',
-      'Record voice note',
-    ])
+    for (const label of ['Add tags', 'Add checkbox', 'Check item', 'Undo', 'Redo'])
       expect(present(label)).toBe(false);
+    // The reading-mode button carries the same label as the toolbar mic; it is the only one.
+    expect(screen.getAllByLabelText('Record voice note')).toHaveLength(1);
+    expect(screen.getByTestId('record-fab')).toBeTruthy();
     await tap('abc');
+    expect(screen.queryByTestId('record-fab')).toBeNull();
+    expect(screen.getAllByLabelText('Record voice note')).toHaveLength(1);
     expect(present('Undo')).toBe(true);
     expect(present('Record voice note')).toBe(true);
     expect(present('Add tags')).toBe(true);
@@ -462,5 +466,98 @@ describe('links and images', () => {
     await act(async () => {});
     expect(alert).toHaveBeenCalledWith(LINK_COPY.openFailedTitle, undefined, [{ text: 'OK' }]);
     expect(LINK_COPY.openFailedTitle).toBe("Couldn't open this link");
+  });
+});
+
+describe('record button in reading', () => {
+  const fab = () => screen.queryByTestId('record-fab');
+  const oneMic = () => expect(screen.queryAllByLabelText('Record voice note').length).toBe(1);
+
+  it('is shown in reading only, never together with the toolbar', async () => {
+    await renderPage({ body: 'abc' });
+    expect(fab()).toBeTruthy();
+    expect(present('Hide keyboard')).toBe(false);
+    oneMic();
+    await tap('abc');
+    expect(fab()).toBeNull();
+    expect(present('Hide keyboard')).toBe(true);
+    oneMic();
+    await press('Hide keyboard');
+    expect(fab()).toBeTruthy();
+    expect(present('Hide keyboard')).toBe(false);
+    oneMic();
+  });
+
+  it('is shown on an empty stored note and absent on a new note', async () => {
+    await renderPage({ body: '' });
+    expect(fab()).toBeTruthy();
+  });
+
+  it('a press opens the recording panel like the toolbar mic, and changes nothing else', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    const playback = jest.spyOn(playbackModule, 'stopAllPlayback');
+    await renderPage({ body: 'abc' });
+    await press('Record voice note');
+    expect(dismiss).toHaveBeenCalled();
+    expect(playback).toHaveBeenCalled();
+    expect(screen.getByTestId('note-recording-panel')).toBeTruthy();
+    expect(fab()).toBeNull();
+    expect(screen.queryByTestId('note-body')).toBeNull();
+    expect(state?.body).toBe('abc');
+    expect(present('Hide keyboard')).toBe(false);
+    expect(present('Undo')).toBe(false);
+  });
+
+  it('returns after the panel closes, still in reading', async () => {
+    await renderPage({ body: 'abc' });
+    await press('Record voice note');
+    await press('Close recording panel');
+    expect(screen.queryByTestId('note-recording-panel')).toBeNull();
+    expect(fab()).toBeTruthy();
+    expect(screen.queryByTestId('note-body')).toBeNull();
+  });
+
+  it('returns after a recording is made and the voice note is attached', async () => {
+    mockRec.start.mockResolvedValue(true);
+    mockRec.stop.mockResolvedValue({ uri: 'file:///cache/r.m4a', durationMs: 3000 });
+    await renderPage({ body: 'abc' });
+    await press('Record voice note');
+    await press('Start recording');
+    await press('Stop recording');
+    expect(screen.queryByTestId('note-recording-panel')).toBeNull();
+    expect(fab()).toBeTruthy();
+    expect(screen.getByLabelText('Play recording')).toBeTruthy();
+    expect(state?.recordings).toHaveLength(1);
+    expect(state?.body).toBe('abc');
+    expect(screen.queryByTestId('note-body')).toBeNull();
+  });
+
+  it('is absent while locked', async () => {
+    await renderPage({ body: 'abc', locked: true });
+    expect(fab()).toBeNull();
+    expect(present('Record voice note')).toBe(false);
+  });
+
+  it('is absent while the voice note view is open and back after it closes', async () => {
+    await renderPage({ body: 'abc', recordings: [voice] });
+    expect(fab()).toBeTruthy();
+    await press('Open recording');
+    expect(screen.queryByTestId('record-fab', { includeHiddenElements: true })).toBeNull();
+    await press('Close voice note');
+    expect(fab()).toBeTruthy();
+  });
+
+  it('on an Android-style keyboard hide the toolbar goes first, then the button; never both', async () => {
+    await renderPage({ body: 'abc' });
+    await tap('abc');
+    await fireEvent(input(), 'focus');
+    await keyboard.emit('keyboardDidShow', 300);
+    await keyboard.emit('keyboardDidHide');
+    expect(present('Hide keyboard')).toBe(true);
+    expect(fab()).toBeNull();
+    await advance(200);
+    expect(present('Hide keyboard')).toBe(false);
+    expect(fab()).toBeTruthy();
+    oneMic();
   });
 });

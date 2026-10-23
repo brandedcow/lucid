@@ -11,6 +11,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoteBodyInput, type NoteBodyInputProps } from '../components/NoteBodyInput';
 import { OverflowMenu } from '../components/OverflowMenu';
+import { recordFabClearance } from '../components/RecordFab';
 import { useCaretFollow } from '../hooks/useCaretFollow';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import type { NoteEditor } from '../hooks/useNoteEditor';
@@ -60,6 +61,9 @@ const BANNER_TEXT: Record<NoteEditorBanner['kind'], string> = {
  * - mode: 'editing' (default) shows the body input; 'reading' shows `readingView` in its place when
  *   it is set. There is no Edit / Done button: the parent enters editing from a tap in the reading
  *   view and returns to reading from the toolbar's Hide keyboard button or a keyboard hide.
+ * - fab: a floating button, given the bottom inset; rendered only in reading mode (the parent also
+ *   gates it). With one, the reading content gets bottom padding so the last line scrolls clear of
+ *   it. The 24pt gap above the button is padding, so it is not tappable to edit.
  * - revealRequest: while editing, once the keyboard height is known, scrolls so the tapped reading
  *   row (y in the body) sits a third of the way down the viewport. Each new token is handled once.
  *
@@ -85,6 +89,7 @@ export type NoteEditorScreenProps = {
   toolbar?: ReactNode;
   mode?: 'reading' | 'editing';
   readingView?: ReactNode;
+  fab?: (bottomInset: number) => ReactNode;
   revealRequest?: { y: number; token: number };
 };
 
@@ -107,6 +112,7 @@ export function NoteEditorScreen({
   toolbar,
   mode = 'editing',
   readingView,
+  fab,
   revealRequest,
 }: NoteEditorScreenProps) {
   const keyboard = useKeyboardInset();
@@ -153,6 +159,7 @@ export function NoteEditorScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const showFab = mode === 'reading' && fab != null;
   const hasPanel = recordingPanel != null && recordingPanel !== false;
   const hasAttachment = attachment != null && attachment !== false;
   const bannerAction =
@@ -213,7 +220,7 @@ export function NoteEditorScreen({
           ref={pageScrollRef}
           testID="note-page"
           style={styles.flex}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={showFab ? [styles.content, styles.contentWithFab] : styles.content}
           keyboardShouldPersistTaps="handled"
           onLayout={(e) => setViewportHeight(e.nativeEvent.layout.height)}
           onScroll={onScroll}
@@ -253,6 +260,7 @@ export function NoteEditorScreen({
             </>
           )}
         </View>
+        {showFab && fab(bottomInset)}
         {stored && (
           <OverflowMenu
             items={[
@@ -305,6 +313,7 @@ const styles = StyleSheet.create({
   bannerButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   bannerButtonText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
   content: { flexGrow: 1, padding: spacing.lg, gap: spacing.md },
+  contentWithFab: { paddingBottom: recordFabClearance + spacing.lg },
   recordingSlot: { paddingHorizontal: spacing.lg },
   bodyInput: {
     color: colors.text,

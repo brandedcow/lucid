@@ -5,7 +5,7 @@ import { Keyboard } from 'react-native';
  * PROVISIONAL timings, to be confirmed or changed by the device spike (6c-2). Do not treat them as
  * tuned values.
  * - HIDE_DEBOUNCE_MS: a keyboard hide ends editing only if no show or focus follows within this.
- * - FOCUS_GRACE_MS: after entering by tap, button or initially, editing falls back to reading if
+ * - FOCUS_GRACE_MS: after entering by tap or initially, editing falls back to reading if
  *   the input has not received focus within this.
  * - REMOUNT_GRACE_MS: after the input remounts (an undo or toolbar edit), hide events are ignored
  *   for this long, because the remount briefly drops the keyboard.
