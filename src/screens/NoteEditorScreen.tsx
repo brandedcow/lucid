@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { EnterLogBar } from '../components/EnterLogBar';
 import { NoteBodyInput, type NoteBodyInputProps } from '../components/NoteBodyInput';
 import { OverflowMenu } from '../components/OverflowMenu';
 import { recordFabClearance } from '../components/RecordFab';
@@ -272,6 +273,7 @@ export function NoteEditorScreen({
           </View>
         </ScrollView>
         <View testID="note-bottom-dock" style={{ paddingBottom: dockPadding }}>
+          <EnterLogBar />
           {hasPanel ? (
             <View testID="note-recording-panel" style={styles.recordingSlot}>
               {recordingPanel}
