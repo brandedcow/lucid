@@ -341,6 +341,55 @@ describe('NoteBodyInput', () => {
     focus.mockRestore();
   });
 
+  it('passes showSoftInputOnFocus and caretHidden to the input, by default and when set', async () => {
+    const view = await render(<Harness initial="abc" />);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    expect(input().props.caretHidden).toBe(false);
+    await view.unmount();
+    await render(<Harness initial="abc" showSoftInputOnFocus={false} caretHidden />);
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+    expect(input().props.caretHidden).toBe(true);
+  });
+
+  it('keeps showSoftInputOnFocus and caretHidden after a programmatic edit remount', async () => {
+    await render(<Harness initial="abc" showSoftInputOnFocus={false} caretHidden />);
+    const before = input();
+    await outside('abcd');
+    expect(input()).not.toBe(before);
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+    expect(input().props.caretHidden).toBe(true);
+  });
+
+  it('ignores a blur signal of 0 and blurs when it changes', async () => {
+    const blur = jest.spyOn(TextInput.prototype, 'blur');
+    const view = await render(<NoteBodyInput text="a" onChangeText={() => {}} blurSignal={0} />);
+    expect(blur).not.toHaveBeenCalled();
+    await view.rerender(<NoteBodyInput text="a" onChangeText={() => {}} blurSignal={1} />);
+    expect(blur).toHaveBeenCalledTimes(1);
+    await view.rerender(<NoteBodyInput text="a" onChangeText={() => {}} blurSignal={2} />);
+    expect(blur).toHaveBeenCalledTimes(2);
+    blur.mockRestore();
+  });
+
+  it('blurs before it focuses when both signals change in one render', async () => {
+    const calls: string[] = [];
+    const blur = jest.spyOn(TextInput.prototype, 'blur').mockImplementation(() => {
+      calls.push('blur');
+    });
+    const focus = jest.spyOn(TextInput.prototype, 'focus').mockImplementation(() => {
+      calls.push('focus');
+    });
+    const view = await render(
+      <NoteBodyInput text="a" onChangeText={() => {}} focusSignal={0} blurSignal={0} />,
+    );
+    await view.rerender(
+      <NoteBodyInput text="a" onChangeText={() => {}} focusSignal={1} blurSignal={1} />,
+    );
+    expect(calls).toEqual(['blur', 'focus']);
+    blur.mockRestore();
+    focus.mockRestore();
+  });
+
   it('sizes headings from the style font size', async () => {
     await render(<Harness initial="# Big" style={{ fontSize: 20 }} />);
     expect(screen.getByText('Big').props.style).toMatchObject({ fontSize: 30 });
