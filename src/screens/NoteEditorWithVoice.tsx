@@ -27,6 +27,7 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import type { ListKind } from '../utils/markdownList';
 import { activeWikiToken, completeWikiToken, matchTitles } from '../utils/noteLinks';
 import { suggestTags } from '../utils/tagSuggestions';
 import { appendTranscript } from '../utils/transcriptAppend';
@@ -210,9 +211,24 @@ export function NoteEditorWithVoice({
         onRemount: notifyRemount,
       },
       // A format edit is its own undo step, apart from the typing around it.
-      toggleCheckbox: () => {
+      indentItem: () => {
         history.onBodyBlur();
-        editor.toggleCheckbox();
+        editor.indentItem();
+        history.onBodyBlur();
+      },
+      outdentItem: () => {
+        history.onBodyBlur();
+        editor.outdentItem();
+        history.onBodyBlur();
+      },
+      moveItem: (dir: 'up' | 'down') => {
+        history.onBodyBlur();
+        editor.moveItem(dir);
+        history.onBodyBlur();
+      },
+      setListType: (kind: ListKind) => {
+        history.onBodyBlur();
+        editor.setListType(kind);
         history.onBodyBlur();
       },
     }),
@@ -385,8 +401,8 @@ export function NoteEditorWithVoice({
       onDismissKeyboard={finishEditing}
       onMic={startRecording}
       onTags={insertTagStart}
-      checkboxAction={editor.checkboxAction}
-      onCheckbox={boundEditor.toggleCheckbox}
+      listKind={editor.listActions.kind}
+      onCheckbox={() => boundEditor.setListType('checkbox')}
       disabled={locked}
     />
   );

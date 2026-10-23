@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
-import type { NoteEditor } from '../hooks/useNoteEditor';
+import type { ListActions } from '../utils/markdownList';
 import { KeyboardHideIcon } from './KeyboardHideIcon';
 import { WaveformIcon } from './WaveformIcon';
 
@@ -14,8 +14,8 @@ type Props = {
   micDisabled: boolean;
   onMic: () => void;
   onTags: () => void;
-  /** From `useNoteEditor().checkboxAction`: sets the checkbox button's label and disabled state. */
-  checkboxAction: NoteEditor['checkboxAction'];
+  /** From `useNoteEditor().listActions.kind`: sets the checkbox button's label. */
+  listKind: ListActions['kind'];
   onCheckbox: () => void;
   /** Locks every button (a leave or delete is in flight). */
   disabled?: boolean;
@@ -46,16 +46,14 @@ function ToolbarButton({ label, hint, disabled, onPress, children }: ButtonProps
   );
 }
 
-/** Label of the checkbox button for an editor's `checkboxAction`. */
-export function checkboxLabel(action: NoteEditor['checkboxAction']): string {
-  if (action === 'check') return 'Check item';
-  if (action === 'uncheck') return 'Uncheck item';
-  return 'Add checkbox';
+/** Label of the checkbox button: pressing it again on a to-do list removes the checkboxes. */
+export function checkboxLabel(kind: ListActions['kind']): string {
+  return kind === 'checkbox' ? 'Remove checkbox' : 'Add checkbox';
 }
 
 /**
  * The bar under the note, shown only while editing: undo, redo, hide keyboard, record a voice note,
- * tags, checkbox. Six equal cells with dividers. Indent and outdent exist in the editor hook but are not on the bar.
+ * tags, to-do list (interim cell; the list panel replaces it). Six equal cells with dividers.
  */
 export function NoteToolbar({
   canUndo,
@@ -66,7 +64,7 @@ export function NoteToolbar({
   micDisabled,
   onMic,
   onTags,
-  checkboxAction,
+  listKind,
   onCheckbox,
   disabled = false,
 }: Props) {
@@ -97,11 +95,7 @@ export function NoteToolbar({
         <Text style={styles.glyph}>#</Text>
       </ToolbarButton>
       <View style={styles.divider} />
-      <ToolbarButton
-        label={checkboxLabel(checkboxAction)}
-        disabled={disabled || checkboxAction === 'none'}
-        onPress={onCheckbox}
-      >
+      <ToolbarButton label={checkboxLabel(listKind)} disabled={disabled} onPress={onCheckbox}>
         <Text style={styles.glyph}>☑</Text>
       </ToolbarButton>
     </View>
