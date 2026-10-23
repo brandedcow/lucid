@@ -220,3 +220,38 @@ function applyToggle(text: string, sel: Sel, plan: TogglePlan): EditResult {
     selection: { start: map(sel.start), end: map(sel.end) },
   };
 }
+
+/**
+ * Where a caret at `caret` in `prev` belongs after `prev` became `next` (an edit by something other
+ * than the user's own caret, e.g. an autocorrect). Unlike cursorAfterEdit it keeps a caret that was
+ * after the changed region after it: `next` minus `prev` is the span [head, regionEnd) of `prev`
+ * (common head, then common suffix limited so they cannot overlap). A caret at or before the head
+ * is unchanged, one at or after regionEnd shifts by the length change, one inside the span goes to
+ * the end of the new span. Always within `next`, never inside a surrogate pair.
+ */
+export function mapCaretThroughEdit(prev: string, next: string, caret: number): number {
+  const max = Math.min(prev.length, next.length);
+  let head = 0;
+  while (head < max && prev[head] === next[head]) head += 1;
+  let tail = 0;
+  while (tail < max - head && prev[prev.length - 1 - tail] === next[next.length - 1 - tail]) {
+    tail += 1;
+  }
+  const regionEnd = prev.length - tail;
+  let mapped: number;
+  if (caret <= head) mapped = caret;
+  else if (caret >= regionEnd) mapped = caret + (next.length - prev.length);
+  else mapped = next.length - tail;
+  mapped = Math.max(0, Math.min(mapped, next.length));
+  if (
+    mapped > 0 &&
+    mapped < next.length &&
+    next.charCodeAt(mapped) >= 0xdc00 &&
+    next.charCodeAt(mapped) <= 0xdfff &&
+    next.charCodeAt(mapped - 1) >= 0xd800 &&
+    next.charCodeAt(mapped - 1) <= 0xdbff
+  ) {
+    mapped -= 1;
+  }
+  return mapped;
+}

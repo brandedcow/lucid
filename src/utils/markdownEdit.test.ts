@@ -1,4 +1,4 @@
-import { continueList, lineAt, toggleCheckboxAtLine } from './markdownEdit';
+import { continueList, lineAt, mapCaretThroughEdit, toggleCheckboxAtLine } from './markdownEdit';
 import { parseListPrefix } from './markdownLines';
 
 /** Simulates typing Enter at `c` in `prev`. */
@@ -251,5 +251,43 @@ describe('toggleCheckboxAtLine', () => {
   it('keeps CRLF and clamps odd offsets', () => {
     expect(toggleCheckboxAtLine('- [ ] a\r\nz', 3)!.text).toBe('- [x] a\r\nz');
     expect(toggleCheckboxAtLine('- [ ] a', 99)!.text).toBe('- [x] a');
+  });
+});
+
+describe('mapCaretThroughEdit', () => {
+  it('leaves the caret when nothing changed', () => {
+    expect(mapCaretThroughEdit('- abc', '- abc', 3)).toBe(3);
+  });
+  it('keeps a caret at the end after a same-length swap with a coincident tail', () => {
+    expect(mapCaretThroughEdit('recieve', 'receive', 7)).toBe(7);
+  });
+  it('shifts a caret after a longer correction', () => {
+    expect(mapCaretThroughEdit('- im', "- I'm", 4)).toBe(5);
+  });
+  it('shifts a caret back after a shorter correction', () => {
+    expect(mapCaretThroughEdit('- hte', '- he', 5)).toBe(4);
+  });
+  it('keeps a caret before the changed span', () => {
+    expect(mapCaretThroughEdit('- hte', '- he', 2)).toBe(2);
+    expect(mapCaretThroughEdit('- hte', '- he', 3)).toBe(3);
+  });
+  it('puts a caret inside the span at the end of the new span', () => {
+    expect(mapCaretThroughEdit('xx teh yy', 'xx the yy', 5)).toBe(6);
+    expect(mapCaretThroughEdit('xx im yy', "xx I'm yy", 4)).toBe(5);
+  });
+  it('shifts a caret after the span in the middle of the text', () => {
+    expect(mapCaretThroughEdit('a im b', "a I'm b", 6)).toBe(7);
+  });
+  it('never lands inside a surrogate pair', () => {
+    // Replacing "ab" by an emoji: a caret inside the span maps to next.length - tail = 0 + 2 = 2,
+    // which is after the pair; a position between the halves moves back to before it.
+    expect(mapCaretThroughEdit('x\u{1F600}y', 'x\u{1F601}y', 2)).toBe(1);
+    expect(mapCaretThroughEdit('xy', 'x\u{1F600}y', 2)).toBe(4);
+  });
+  it('handles empty strings', () => {
+    expect(mapCaretThroughEdit('', '', 0)).toBe(0);
+    expect(mapCaretThroughEdit('', 'ab', 0)).toBe(0);
+    expect(mapCaretThroughEdit('ab', '', 2)).toBe(0);
+    expect(mapCaretThroughEdit('ab', 'abc', 99)).toBe(3);
   });
 });

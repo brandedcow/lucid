@@ -634,10 +634,10 @@ describe('NoteBodyInput', () => {
           change(nl(body, 12));
         });
         const log = getEnterLog().join('\n');
-        expect(log).toMatch(/BUILD enter-1e /);
+        expect(log).toMatch(/BUILD enter-1f /);
         expect(log).toMatch(/CHG .*pick=12 snapshot=12/);
         expect(log).toMatch(/RES continued/);
-        expect(log).toMatch(/DUP ignored nextLen=\d+ shownLen=\d+/);
+        expect(log).toMatch(/DUP ignored which=\d+ nextLen=\d+ shownLen=\d+/);
         expect(log).toMatch(/SEL stale ignored 13-13 shownLen=\d+/);
         expect(log).toMatch(/COMMIT shownLen=\d+/);
         expect(log).not.toContain('zebrafish');
@@ -647,6 +647,247 @@ describe('NoteBodyInput', () => {
         else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
         refreshEnterLogFlag();
       }
+    });
+  });
+
+  describe('autocorrect then Enter: two native edits in one tick (device log 2, chunk 1f)', () => {
+    let restore: { restore: () => void } | undefined;
+    afterEach(() => restore?.restore());
+    const key = (k: string) => fireEvent(input(), 'keyPress', { nativeEvent: { key: k } });
+    const change = (t: string) => fireEvent.changeText(input(), t);
+    const pinned = (c: number) => ({ start: c, end: c });
+    const withLog = async (fn: () => Promise<void>) => {
+      const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
+      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      refreshEnterLogFlag();
+      try {
+        await fn();
+      } finally {
+        if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
+        else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+        refreshEnterLogFlag();
+      }
+    };
+
+    // [name, marker before the item, marker of the new item]
+    const kinds: [string, string, string][] = [
+      ['bullet', '- ', '- '],
+      ['numbered', '1. ', '2. '],
+    ];
+
+    describe.each(['ios', 'android'] as const)('platform %s', (os) => {
+      beforeEach(() => {
+        restore = jest.replaceProperty(Platform, 'OS', os);
+      });
+      describe.each(kinds)('%s', (_n, m, m2) => {
+        const below = 'below';
+        // wrong -> right word; the cursor is at the end of the item
+        const setup = (wrong: string, right: string) => {
+          const before = `${m}a ${wrong}\n${below}`;
+          const c0 = `${m}a ${wrong}`.length;
+          const fixedLine = `${m}a ${right}`;
+          const fixed = `${fixedLine}\n${below}`;
+          const enterText = `${fixedLine}\n\n${below}`;
+          const out = `${fixedLine}\n${m2}\n${below}`;
+          const pin = fixedLine.length + 1 + m2.length;
+          return { before, c0, fixed, enterText, out, pin, endOfFixed: fixedLine.length };
+        };
+        const mount = (s: ReturnType<typeof setup>) =>
+          render(<Harness initial={s.before} selection={pinned(s.c0)} />);
+
+        it('1: the logged sequence continues the list and pins the caret', async () => {
+          const s = setup('teh', 'the');
+          await mount(s);
+          selections.length = 0;
+          await act(async () => {
+            key('the');
+            change(s.fixed);
+            key('Enter');
+            change(s.enterText);
+            caretAt(s.endOfFixed + 1); // stale, from the old native view
+            change(s.enterText); // duplicate of the Enter edit
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+          ]);
+          expect(input().props.selection).toEqual(pinned(s.pin));
+          expect(selections).toEqual([pinned(s.pin)]);
+        });
+
+        it("2a: a correction that makes the word longer (im -> I'm)", async () => {
+          const s = setup('im', "I'm");
+          await mount(s);
+          await act(async () => {
+            key("I'm");
+            change(s.fixed);
+            key('Enter');
+            change(s.enterText);
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+          ]);
+          expect(input().props.selection).toEqual(pinned(s.pin));
+        });
+
+        it('2b: a correction that makes the word shorter (hte -> he)', async () => {
+          const s = setup('hte', 'he');
+          await mount(s);
+          await act(async () => {
+            key('he');
+            change(s.fixed);
+            key('Enter');
+            change(s.enterText);
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+          ]);
+          expect(input().props.selection).toEqual(pinned(s.pin));
+        });
+
+        it('4a: a duplicate of the correction arriving after the Enter edit is ignored', async () => {
+          const s = setup('teh', 'the');
+          await mount(s);
+          await act(async () => {
+            key('the');
+            change(s.fixed);
+            key('Enter');
+            change(s.enterText);
+            change(s.fixed); // duplicate of event 1
+            change(s.enterText); // duplicate of event 2
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+          ]);
+          expect(input().props.selection).toEqual(pinned(s.pin));
+        });
+
+        it('8: a letter typed after the continuation lands at the pinned caret', async () => {
+          const s = setup('teh', 'the');
+          await mount(s);
+          await act(async () => {
+            key('the');
+            change(s.fixed);
+            key('Enter');
+            change(s.enterText);
+            caretAt(s.endOfFixed + 1);
+            change(s.enterText);
+          });
+          const typed = s.out.slice(0, s.pin) + 'x' + s.out.slice(s.pin);
+          await key('x');
+          await change(typed);
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+            [typed, 'typing'],
+          ]);
+        });
+
+        it('9: a selection event between the two changes still continues', async () => {
+          const s = setup('teh', 'the');
+          await mount(s);
+          await act(async () => {
+            key('the');
+            change(s.fixed);
+            caretAt(s.endOfFixed);
+            key('Enter');
+            change(s.enterText);
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [s.out, 'format'],
+          ]);
+          expect(input().props.selection).toEqual(pinned(s.pin));
+        });
+
+        it('6: a multi-line change without a key press is plain', async () => {
+          const s = setup('teh', 'the');
+          await mount(s);
+          const pasted = `${m}a the\n\n\n${below}`;
+          await act(async () => {
+            change(s.fixed);
+            change(pasted);
+          });
+          expect(changes).toEqual([
+            [s.fixed, 'typing'],
+            [pasted, 'typing'],
+          ]);
+        });
+      });
+
+      it('3: numbered items below are renumbered', async () => {
+        const before = '1. a teh\n2. b\n3. c';
+        await render(<Harness initial={before} selection={pinned(8)} />);
+        await act(async () => {
+          key('the');
+          change('1. a the\n2. b\n3. c');
+          key('Enter');
+          change('1. a the\n\n2. b\n3. c');
+        });
+        expect(changes).toEqual([
+          ['1. a the\n2. b\n3. c', 'typing'],
+          ['1. a the\n2. \n3. b\n4. c', 'format'],
+        ]);
+        expect(input().props.selection).toEqual(pinned(12));
+      });
+
+      it('5: a correction inside the marker area then Enter is a plain newline', async () => {
+        const before = '1. a\nbelow';
+        await render(<Harness initial={before} selection={pinned(4)} />);
+        await act(async () => {
+          key('1,');
+          change('1, a\nbelow');
+          key('Enter');
+          change('1, a\n\nbelow');
+        });
+        expect(changes).toEqual([
+          ['1, a\nbelow', 'typing'],
+          ['1, a\n\nbelow', 'typing'],
+        ]);
+      });
+
+      it('7: a normal Enter with a key press snapshot still continues', async () => {
+        const before = '- a\nbelow';
+        await render(<Harness initial={before} selection={pinned(3)} />);
+        await act(async () => {
+          key('Enter');
+          change('- a\n\nbelow');
+        });
+        expect(changes).toEqual([['- a\n- \nbelow', 'format']]);
+      });
+    });
+
+    it('10: the dev log has the new fields and never note text or key text', async () => {
+      await withLog(async () => {
+        const before = '- zebrafish teh\nquokka';
+        await render(<Harness initial={before} selection={pinned(15)} />);
+        await act(async () => {
+          key('xylophone');
+          change('- zebrafish the\nquokka');
+          key('Enter');
+          change('- zebrafish the\n\nquokka');
+          caretAt(17);
+          change('- zebrafish the\n\nquokka');
+          change('- zebrafish the\nquokka');
+        });
+        const log = getEnterLog().join('\n');
+        expect(log).toMatch(/BUILD enter-1f /);
+        expect(log).toMatch(/KEY key=Enter .*keyKind=enter keyLen=5 liveLen=22 trackedCaret=15/);
+        expect(log).toMatch(
+          /CHG .*liveLen=22 shownLen=22 delta=0 region=\d+\.\.\d+ .*mapped=undefined->15 path=fallback/,
+        );
+        expect(log).toMatch(/CHG .*delta=1 .*trackedCaret=15 mapped=15->15 path=snapshot/);
+        expect(log).toMatch(/RES continued/);
+        expect(log).toMatch(/DUP ignored which=1 /);
+        expect(log).toMatch(/DUP ignored which=0 /);
+        expect(log).toMatch(/COMMIT /);
+        expect(log).not.toContain('zebrafish');
+        expect(log).not.toContain('quokka');
+        expect(log).not.toContain('xylophone');
+      });
     });
   });
 
@@ -678,7 +919,7 @@ describe('NoteBodyInput', () => {
       await fireEvent.changeText(input(), '- a\n\ntext');
       await caretAt(6);
       const log = getEnterLog().join('\n');
-      expect(log).toMatch(/BUILD enter-1e mount=\d+/);
+      expect(log).toMatch(/BUILD enter-1f mount=\d+/);
       expect(log).toMatch(/KEY key=Enter latestSel=3-3 prevSel=3-3 shownLen=8/);
       expect(log).toMatch(/SEL 4-4 shownLen=8/);
       expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
@@ -690,7 +931,7 @@ describe('NoteBodyInput', () => {
     it('logs only Enter or other for keys, never typed characters or note text', async () => {
       setFlag(true);
       await render(<Harness initial="zebrafish note" selection={{ start: 3, end: 3 }} />);
-      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'q' } });
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'qxqx' } });
       await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
       await caretAt(4);
       await fireEvent.changeText(input(), 'zebrafish notq');
@@ -698,6 +939,7 @@ describe('NoteBodyInput', () => {
       expect(log).toMatch(/KEY key=other /);
       expect(log).toMatch(/KEY key=Enter /);
       expect(log).not.toMatch(/key=q/);
+      expect(log).toMatch(/keyLen=4/);
       expect(log).not.toContain('zebrafish');
       expect(log.replace(/BUILD.*|platform=\w+/g, '')).not.toMatch(/[qz]/);
     });
