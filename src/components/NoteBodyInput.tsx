@@ -10,7 +10,7 @@ import {
   TextInputSelectionChangeEventData,
   TextStyle,
 } from 'react-native';
-import { continueList, type Sel } from '../utils/markdownEdit';
+import { continueList, mapCaretThroughEdit, type Sel } from '../utils/markdownEdit';
 import {
   DEFAULT_BODY_FONT_SIZE,
   EDIT_MODE,
@@ -126,7 +126,7 @@ export function resetNoteBodyInputOrder(): void {
 
 // DEV-ONLY diagnostic for the Enter-in-list bug (chunk 1b). Off unless __DEV__ and the bundle was
 // started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
-const ENTER_LOG_BUILD = 'enter-1e';
+const ENTER_LOG_BUILD = 'enter-1f';
 const ENTER_LOG_CAP = 40;
 const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
 // Read once at load. Every log call site and the work only the log needs sit behind this flag, so
@@ -246,14 +246,26 @@ export function NoteBodyInput({
   // The caret known when Enter was pressed (onKeyPress fires before the edit), with the shown
   // length and the two remembered selections at that moment; cleared by any other key and by every
   // change.
-  const enterSnap = useRef<{ caret: number; len: number; latest: Sel; previous?: Sel }>(undefined);
+  const enterSnap = useRef<{
+    caret: number;
+    len: number;
+    latest: Sel;
+    previous?: Sel;
+    tracked: boolean;
+  }>(undefined);
   const afterChange = useRef(false); // dev log: the next selection event is POSTSEL
-  // Commit-scoped guards (chunk 1e). iOS can deliver a SECOND onChangeText for one native edit
-  // (and a stale selection event) before React commits. `handled` is the native text of the edit
-  // already processed: a later change with the same text, before the next commit, is that duplicate.
-  // `awaitCommit` is set by a continued (programmatic) edit: until it commits, selection events come
-  // from the old native view and must not wipe the pinned caret. Both are cleared after every commit.
-  const handled = useRef<{ to: string }>(undefined);
+  // Commit-scoped guards (chunks 1e, 1f). iOS can deliver several onChangeText calls (and stale
+  // selection events) for what the user did before React commits: an autocorrect, then the Enter
+  // whose native text already contains the corrected word. `shown` is stale until the commit, so
+  // `liveText` is the text as of the last change processed (changes are diffed against it) and
+  // `trackedCaret` is the caret carried through those changes (the native caret before the Enter
+  // is not reported yet). `handled` holds the native texts processed since the last commit: a later
+  // change with one of them is a duplicate. `awaitCommit` is set by a continued (programmatic) edit:
+  // until it commits, selection events come from the old native view and must not wipe the pinned
+  // caret. A real selection event clears `trackedCaret`; every commit clears all of them.
+  const liveText = useRef(text);
+  const trackedCaret = useRef<number | undefined>(undefined);
+  const handled = useRef<string[]>([]);
   const awaitCommit = useRef(false);
   const knowSelection = (sel: Sel) => {
     selections.current = { latest: sel, previous: sel };
@@ -261,6 +273,7 @@ export function NoteBodyInput({
 
   const programmatic = (next: string, sel: Sel) => {
     setShown(next);
+    liveText.current = next;
     if (editMode === 'remount') {
       setEpoch(epoch + 1);
       setRefocus(focused);
@@ -320,13 +333,15 @@ export function NoteBodyInput({
     if (focusSignal > 0) inputRef.current?.focus();
   }, [focusSignal]);
 
-  // No deps: runs after every commit, which ends the window the two guards above cover.
+  // No deps: runs after every commit, which ends the window the guards above cover.
   useEffect(() => {
-    if (enterLogOn() && (handled.current || awaitCommit.current)) {
+    if (enterLogOn() && (handled.current.length > 0 || awaitCommit.current)) {
       enterLog(`COMMIT shownLen=${shown.length}`);
     }
-    handled.current = undefined;
+    handled.current = [];
     awaitCommit.current = false;
+    trackedCaret.current = undefined;
+    liveText.current = shown;
   });
 
   useEffect(() => {
@@ -339,15 +354,23 @@ export function NoteBodyInput({
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
     const key = e.nativeEvent.key;
     const { latest, previous } = selections.current;
-    const caret = collapsedAt(latest);
+    const tracked = trackedCaret.current;
+    const caret = tracked ?? collapsedAt(latest);
     enterSnap.current =
       key === 'Enter' && latest && caret !== undefined
-        ? { caret, len: shown.length, latest, previous }
+        ? {
+            caret,
+            len: liveText.current.length,
+            latest,
+            previous,
+            tracked: tracked !== undefined,
+          }
         : undefined;
-    if (enterLogOn()) {
-      // Never the typed character: only whether it was Enter.
+    // Plain single-character keys are not logged (the cap is nearly filled by them). Never the
+    // typed text: only whether it was Enter and how long the key was.
+    if (enterLogOn() && (key === 'Enter' || key.length !== 1)) {
       enterLog(
-        `KEY key=${key === 'Enter' ? 'Enter' : 'other'} latestSel=${fmtSel(latest)} prevSel=${fmtSel(previous)} shownLen=${shown.length}`,
+        `KEY key=${key === 'Enter' ? 'Enter' : 'other'} latestSel=${fmtSel(latest)} prevSel=${fmtSel(previous)} shownLen=${shown.length} keyKind=${key === 'Enter' ? 'enter' : 'other'} keyLen=${key.length} liveLen=${liveText.current.length} trackedCaret=${tracked ?? 'undefined'}`,
       );
     }
   };
@@ -364,17 +387,23 @@ export function NoteBodyInput({
       afterChange.current = false;
       if (enterLogOn()) enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
     }
+    trackedCaret.current = undefined;
     setPending(undefined);
     selections.current = { latest: e.nativeEvent.selection, previous: selections.current.latest };
     onSelectionChange?.(e.nativeEvent.selection);
   };
 
   const handleChange = (t: string) => {
-    if (handled.current && handled.current.to === t) {
-      if (enterLogOn()) enterLog(`DUP ignored nextLen=${t.length} shownLen=${shown.length}`);
+    const dup = handled.current.indexOf(t);
+    if (dup >= 0) {
+      if (enterLogOn()) {
+        enterLog(`DUP ignored which=${dup} nextLen=${t.length} shownLen=${shown.length}`);
+      }
       return;
     }
-    handled.current = { to: t };
+    handled.current.push(t);
+    // The text this change is a change of: the previous change in this tick, else what is shown.
+    const prev = liveText.current;
     const snap = enterSnap.current;
     enterSnap.current = undefined;
     afterChange.current = true;
@@ -383,26 +412,44 @@ export function NoteBodyInput({
     let usedSnap = false;
     if (listContinue) {
       let caret: number | undefined;
-      if (snap && snap.len === shown.length && fitsInsert(shown, t, snap.caret)) {
+      if (snap && snap.len === prev.length && fitsInsert(prev, t, snap.caret)) {
         caret = snap.caret;
         usedSnap = true;
         // Learn the event order: the snapshot is the caret before the Enter. If it is the
-        // second-latest selection (and not the latest) the selection event came first.
-        const { latest, previous } = selections.current;
-        const isPrev = collapsedAt(previous) === snap.caret;
-        const isLatest = collapsedAt(latest) === snap.caret;
-        if (isPrev && !isLatest) learnedSelectionFirst = true;
-        else if (isLatest && !isPrev) learnedSelectionFirst = false;
+        // second-latest selection (and not the latest) the selection event came first. Not when
+        // the snapshot came from the tracked caret: that says nothing about the native order.
+        if (!snap.tracked) {
+          const { latest, previous } = selections.current;
+          const isPrev = collapsedAt(previous) === snap.caret;
+          const isLatest = collapsedAt(latest) === snap.caret;
+          if (isPrev && !isLatest) learnedSelectionFirst = true;
+          else if (isLatest && !isPrev) learnedSelectionFirst = false;
+        }
       } else {
-        const picked = pickCaretBefore(shown, t, selections.current, currentSelectionFirst());
+        const picked = pickCaretBefore(prev, t, selections.current, currentSelectionFirst());
         caret = picked.caret;
-        if (picked.learned !== undefined) learnedSelectionFirst = picked.learned;
+        if (picked.learned !== undefined && trackedCaret.current === undefined) {
+          learnedSelectionFirst = picked.learned;
+        }
       }
       pick = caret;
-      const result = continueList(shown, t, caret);
+      const result = continueList(prev, t, caret);
+      // Carry the caret through this change for the next one of the tick (not after a
+      // continuation: that pins its own caret).
+      const oldTracked = trackedCaret.current;
+      if (!result) {
+        const base = oldTracked ?? collapsedAt(selections.current.latest) ?? t.length;
+        trackedCaret.current = mapCaretThroughEdit(prev, t, base);
+      }
       if (enterLogOn()) {
+        const head = commonHead(prev, t);
+        const max = Math.min(prev.length, t.length);
+        let tail = 0;
+        while (tail < max - head && prev[prev.length - 1 - tail] === t[t.length - 1 - tail]) {
+          tail += 1;
+        }
         enterLog(
-          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=${pick ?? 'undefined'} snapshot=${snap ? snap.caret : 'undefined'}${usedSnap ? '' : ' (snapshot unused)'} platform=${Platform.OS}`,
+          `CHG prevLen=${prev.length} nextLen=${t.length} head=${head} liveLen=${prev.length} shownLen=${shown.length} delta=${t.length - prev.length} region=${head}..${prev.length - tail} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=${pick ?? 'undefined'} snapshot=${snap ? snap.caret : 'undefined'}${usedSnap ? '' : ' (snapshot unused)'} trackedCaret=${oldTracked ?? 'undefined'} mapped=${oldTracked ?? 'undefined'}->${trackedCaret.current ?? 'undefined'} path=${usedSnap ? 'snapshot' : 'fallback'} platform=${Platform.OS}`,
         );
         enterLog(`RES ${result ? 'continued' : 'plain'}`);
       }
@@ -415,11 +462,12 @@ export function NoteBodyInput({
     } else {
       if (enterLogOn()) {
         enterLog(
-          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=undefined snapshot=${snap ? snap.caret : 'undefined'} platform=${Platform.OS}`,
+          `CHG prevLen=${prev.length} nextLen=${t.length} head=${commonHead(prev, t)} liveLen=${prev.length} shownLen=${shown.length} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=undefined snapshot=${snap ? snap.caret : 'undefined'} path=fallback platform=${Platform.OS}`,
         );
         enterLog('RES plain');
       }
     }
+    liveText.current = t;
     setShown(t);
     onChangeText(t, 'typing');
   };
