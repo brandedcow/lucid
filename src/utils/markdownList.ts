@@ -67,7 +67,7 @@ function normalize(text: string, sel: Sel): Sel | null {
   return { start: Math.min(a, b), end: Math.max(a, b) };
 }
 
-/** Indexes of the lines the selection touches (same rule as `indentLines`). */
+/** Indexes of the lines the selection touches (a collapsed caret: its own line; a range: each line it overlaps). */
 function touchedLines(doc: Doc, sel: Sel): number[] {
   const out: number[] = [];
   const collapsed = sel.start === sel.end;

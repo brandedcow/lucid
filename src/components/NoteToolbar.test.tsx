@@ -7,11 +7,18 @@ const handlers = {
   onDismissKeyboard: jest.fn(),
   onMic: jest.fn(),
   onTags: jest.fn(),
-  onCheckbox: jest.fn(),
+  onListPanel: jest.fn(),
 };
 const renderBar = (props: Partial<Parameters<typeof NoteToolbar>[0]> = {}) =>
   render(
-    <NoteToolbar canUndo canRedo micDisabled={false} listKind={null} {...handlers} {...props} />,
+    <NoteToolbar
+      canUndo
+      canRedo
+      micDisabled={false}
+      listPanelOpen={false}
+      {...handlers}
+      {...props}
+    />,
   );
 const disabled = (label: string) => screen.getByLabelText(label).props.accessibilityState.disabled;
 
@@ -27,7 +34,7 @@ describe('NoteToolbar', () => {
       'Hide keyboard',
       'Record voice note',
       'Add tags',
-      'Add checkbox',
+      'List controls',
     ]);
   });
 
@@ -44,28 +51,35 @@ describe('NoteToolbar', () => {
       'Hide keyboard',
       'Record voice note',
       'Add tags',
-      'Add checkbox',
+      'List controls',
     ])
       await fireEvent.press(screen.getByLabelText(label));
     for (const fn of Object.values(handlers)) expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    [null, 'Add checkbox'],
-    ['bullet', 'Add checkbox'],
-    ['numbered', 'Add checkbox'],
-    ['mixed', 'Add checkbox'],
-    ['checkbox', 'Remove checkbox'],
-  ] as const)('labels the checkbox button for list kind %s', async (kind, label) => {
-    await renderBar({ listKind: kind });
-    expect(screen.getByLabelText(label)).toBeTruthy();
-    expect(disabled(label)).toBe(false);
+  it('labels the list button and gives it its hint', async () => {
+    await renderBar();
+    const button = screen.getByLabelText('List controls');
+    expect(button.props.accessibilityHint).toBe('Shows list buttons in place of the keyboard.');
+    expect(disabled('List controls')).toBe(false);
+    expect(screen.getByTestId('list-icon', { includeHiddenElements: true })).toBeTruthy();
   });
 
-  it('calls onCheckbox when pressed', async () => {
-    await renderBar({ listKind: 'checkbox' });
-    await fireEvent.press(screen.getByLabelText('Remove checkbox'));
-    expect(handlers.onCheckbox).toHaveBeenCalledTimes(1);
+  it('is selected only while the list panel is open, and a press calls onListPanel', async () => {
+    const view = await renderBar();
+    expect(screen.getByLabelText('List controls').props.accessibilityState.selected).toBe(false);
+    await view.rerender(
+      <NoteToolbar canUndo canRedo micDisabled={false} listPanelOpen {...handlers} />,
+    );
+    expect(screen.getByLabelText('List controls').props.accessibilityState.selected).toBe(true);
+    await fireEvent.press(screen.getByLabelText('List controls'));
+    expect(handlers.onListPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no checkbox button any more', async () => {
+    await renderBar();
+    expect(screen.queryByLabelText('Add checkbox')).toBeNull();
+    expect(screen.queryByLabelText('Remove checkbox')).toBeNull();
   });
 
   it('disables undo, redo and the mic on their own flags', async () => {
@@ -77,7 +91,7 @@ describe('NoteToolbar', () => {
   });
 
   it('locks every button when disabled', async () => {
-    await renderBar({ disabled: true, listKind: 'checkbox' });
+    await renderBar({ disabled: true, listPanelOpen: true });
     for (const b of screen.getAllByRole('button'))
       expect(b.props.accessibilityState.disabled).toBe(true);
   });

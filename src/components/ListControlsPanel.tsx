@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
 import type { ListActions, ListKind } from '../utils/markdownList';
@@ -20,17 +21,111 @@ type Props = {
 type KeyProps = {
   label: string;
   hint: string;
-  glyph: string;
+  /** Text glyph, or `icon` for a drawn one. */
+  glyph?: string;
+  icon?: ReactNode;
   disabled?: boolean;
   selected?: boolean;
   onPress: () => void;
 };
 
+type IconProps = { color: string; size?: number };
+
+/**
+ * Indent / outdent glyph: an arrow running into a bar, drawn with Views on a 24pt grid so it uses
+ * the theme colour and renders the same on iOS and Android (font arrows may be missing).
+ * `flip` mirrors it (outdent).
+ */
+function IndentIcon({ color, size = 24, flip = false }: IconProps & { flip?: boolean }) {
+  const s = size / 24;
+  return (
+    <View
+      testID={flip ? 'outdent-icon' : 'indent-icon'}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: size, height: size, transform: flip ? [{ scaleX: -1 }] : [] }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          left: 3 * s,
+          top: 11 * s,
+          width: 13 * s,
+          height: 2 * s,
+          backgroundColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 9.3 * s,
+          top: 8 * s,
+          width: 8 * s,
+          height: 8 * s,
+          borderTopWidth: 2 * s,
+          borderRightWidth: 2 * s,
+          borderColor: color,
+          transform: [{ rotate: '45deg' }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 20 * s,
+          top: 5 * s,
+          width: 2 * s,
+          height: 14 * s,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+/** To-do glyph: a box with a tick, drawn with Views (the font check mark can render as an emoji). */
+function CheckBoxIcon({ color, size = 24 }: IconProps) {
+  const s = size / 24;
+  return (
+    <View
+      testID="todo-icon"
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: size, height: size }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          left: 3 * s,
+          top: 3 * s,
+          width: 18 * s,
+          height: 18 * s,
+          borderRadius: 3 * s,
+          borderWidth: 1.5 * s,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 9.5 * s,
+          top: 6 * s,
+          width: 5 * s,
+          height: 10 * s,
+          borderRightWidth: 2 * s,
+          borderBottomWidth: 2 * s,
+          borderColor: color,
+          transform: [{ rotate: '45deg' }],
+        }}
+      />
+    </View>
+  );
+}
+
 /**
  * One key. A plain Pressable does not take focus, so tapping it leaves the note input focused and
  * its selection intact.
  */
-function Key({ label, hint, glyph, disabled = false, selected = false, onPress }: KeyProps) {
+function Key({ label, hint, glyph, icon, disabled = false, selected = false, onPress }: KeyProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -42,7 +137,7 @@ function Key({ label, hint, glyph, disabled = false, selected = false, onPress }
       focusable={false}
       style={[styles.key, selected && styles.selected, disabled && styles.disabled]}
     >
-      <Text style={[styles.glyph, selected && styles.glyphSelected]}>{glyph}</Text>
+      {icon ?? <Text style={[styles.glyph, selected && styles.glyphSelected]}>{glyph}</Text>}
     </Pressable>
   );
 }
@@ -63,6 +158,7 @@ export function ListControlsPanel({
   onType,
   onKeyboard,
 }: Props) {
+  const selected = (kind: ListKind) => actions.kind === kind;
   const moveHint = 'Moves the line above or below its neighbour.';
   return (
     <View
@@ -74,14 +170,14 @@ export function ListControlsPanel({
         <Key
           label="Outdent"
           hint="Moves the line one level out."
-          glyph="⇤"
+          icon={<IndentIcon color={colors.text} flip />}
           disabled={disabled || !actions.canOutdent}
           onPress={onOutdent}
         />
         <Key
           label="Indent"
           hint="Moves the line one level in."
-          glyph="⇥"
+          icon={<IndentIcon color={colors.text} />}
           disabled={disabled || !actions.canIndent}
           onPress={onIndent}
         />
@@ -120,7 +216,7 @@ export function ListControlsPanel({
         <Key
           label="To-do list"
           hint="Turns the line into a to-do, or removes the checkbox."
-          glyph="☑"
+          icon={<CheckBoxIcon color={selected('checkbox') ? colors.accent : colors.text} />}
           disabled={disabled}
           selected={actions.kind === 'checkbox'}
           onPress={() => onType('checkbox')}
@@ -128,7 +224,13 @@ export function ListControlsPanel({
       </View>
       <View style={[styles.row, styles.lastRow]}>
         <View style={styles.abc}>
-          <Key label="Keyboard" hint="Shows the keyboard again." glyph="abc" onPress={onKeyboard} />
+          <Key
+            label="Keyboard"
+            hint="Shows the keyboard again."
+            glyph="abc"
+            disabled={disabled}
+            onPress={onKeyboard}
+          />
         </View>
         <View style={styles.spacer} />
       </View>

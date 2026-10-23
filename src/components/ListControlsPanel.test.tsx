@@ -103,10 +103,11 @@ describe('ListControlsPanel', () => {
     expect(isDisabled('Move up')).toBe(false);
   });
 
-  it('disables the moves and types when disabled, and the Keyboard key too is left usable', async () => {
-    await setup(all, true);
-    for (const l of LABELS.filter((x) => x !== 'Keyboard')) expect(isDisabled(l)).toBe(true);
-    expect(isDisabled('Keyboard')).toBe(false);
+  it('locks every control when disabled, the Keyboard key too', async () => {
+    const h = await setup(all, true);
+    for (const l of LABELS) expect(isDisabled(l)).toBe(true);
+    await fireEvent.press(btn('Keyboard'));
+    expect(h.onKeyboard).not.toHaveBeenCalled();
   });
 
   it('fires each handler once, with the right kind', async () => {
@@ -133,5 +134,15 @@ describe('ListControlsPanel', () => {
   it('gives every control a hint', async () => {
     await setup(all);
     for (const l of LABELS) expect(btn(l).props.accessibilityHint).toBeTruthy();
+  });
+
+  it('draws the indent, outdent and to-do keys as icons, not font glyphs', async () => {
+    await setup(all);
+    expect(screen.getByTestId('indent-icon', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('outdent-icon', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('todo-icon', { includeHiddenElements: true })).toBeTruthy();
+    for (const g of ['⇤', '⇥', '☑']) expect(screen.queryByText(g)).toBeNull();
+    // The labels and presses are unchanged.
+    expect(btn('Outdent')).toBeTruthy();
   });
 });
