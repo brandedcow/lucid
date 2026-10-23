@@ -104,10 +104,53 @@ export function continueList(prev: string, next: string, caretBefore?: number): 
   else nextMarker = `${p.bullet} `;
   const insert = eol + p.indent + nextMarker;
   const caret = c + insert.length;
+  let base = prev;
+  if (p.kind === 'numbered') {
+    const renumbered = renumberFollowing(prev, line, p.indent, p.number! + 1);
+    if (renumbered === null) return null;
+    base = renumbered;
+  }
   return {
-    text: prev.slice(0, c) + insert + prev.slice(c),
+    text: base.slice(0, c) + insert + base.slice(c),
     selection: { start: caret, end: caret },
   };
+}
+
+/**
+ * After a new numbered item (number `newNumber - 1`) was added below `line`, renumbers the items
+ * that follow it in the same run, one after another from `newNumber + 1`. The run is the following
+ * numbered lines with the same indent; deeper lines are skipped untouched, and it ends at a blank
+ * line, a non-list line, a bullet or checkbox at the same indent, or a line with a smaller indent.
+ * Only digits after `line.end` change, so offsets up to the insertion point stay valid. Null if a
+ * number would not be a safe integer.
+ */
+function renumberFollowing(
+  prev: string,
+  line: LineInfo,
+  indent: string,
+  newNumber: number,
+): string | null {
+  const lines = splitLines(prev);
+  const kinds = markdownLineKinds(prev);
+  const edits: { at: number; len: number; value: string }[] = [];
+  let n = newNumber;
+  for (let i = lines.findIndex((l) => l.start === line.start) + 1; i < lines.length; i += 1) {
+    const l = lines[i];
+    if (l.text.trim() === '') break;
+    const q = parseListPrefix(l.text, kinds[i]);
+    if (!q || q.indent.length < indent.length) break;
+    if (q.indent.length > indent.length) continue;
+    if (q.kind !== 'numbered' || q.indent !== indent) break;
+    n += 1;
+    if (!Number.isSafeInteger(n)) return null;
+    edits.push({ at: l.start + q.indent.length, len: q.marker.indexOf('.'), value: String(n) });
+  }
+  let out = prev;
+  for (let k = edits.length - 1; k >= 0; k -= 1) {
+    const e = edits[k];
+    out = out.slice(0, e.at) + e.value + out.slice(e.at + e.len);
+  }
+  return out;
 }
 
 type TogglePlan = {
