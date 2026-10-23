@@ -238,6 +238,8 @@ From the reviewer reports; none blocks anything and each is a missing test, not 
 - The user keeps an uncommitted edit to the `android` / `ios` scripts in `package.json` (`expo run:android` / `expo run:ios`) in their own checkout; it must not be committed or reverted.
 - On Windows, the PowerShell tool sometimes reports exit code 255 for commands that actually succeeded. Read the output to confirm.
 
+Note (list editing 5b): `ListControlsPanel` (props-only panel shown in place of the keyboard), `panelContentHeight` (`src/utils/panelHeight.ts`, provisional fallback heights 260 iOS / 250 Android and a 200pt to half-window clamp) and `useKeyboardInset().lastHeight` (last non-zero keyboard height, remembered per orientation at module level) exist but are not wired in yet. Device behaviour unverified.
+
 ## 11. Next steps
 
 1. Build a development build and run the device checks in section 6 (the editor spike first: it decides `STYLE_LEVEL` and `EDIT_MODE`; then the markdown 6c-2 list, which tunes the three provisional mode constants), on Android now and on iOS once the Apple account clears.
