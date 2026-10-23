@@ -134,8 +134,72 @@ describe('continueList', () => {
     expect(continueList('- a', '- a\n', 99)).toEqual({ text: '- a\n- ', selection: at(6) });
   });
 
-  it('does not renumber following items', () => {
-    expect(cont('1. a\n2. b', 4)).toEqual({ text: '1. a\n2. \n2. b', selection: at(8) });
+  // Reversed on purpose (user decision 2026-10-23): a new numbered item renumbers the items after
+  // it in the same run. It used to be "does not renumber following items".
+  describe('numbered renumbering', () => {
+    it('renumbers the following items from the new one', () => {
+      expect(cont('1. a\n2. b', 4)).toEqual({ text: '1. a\n2. \n3. b', selection: at(8) });
+      expect(cont('1. a\n2. b\n3. c', 4)).toEqual({
+        text: '1. a\n2. \n3. b\n4. c',
+        selection: at(8),
+      });
+    });
+
+    it('splitting mid-item moves the rest to the new item and renumbers', () => {
+      expect(cont('1. ab\n2. c', 4)).toEqual({ text: '1. a\n2. b\n3. c', selection: at(8) });
+    });
+
+    it('handles digit growth (9 -> 10 -> 11)', () => {
+      expect(cont('9. a\n10. b', 4)).toEqual({ text: '9. a\n10. \n11. b', selection: at(9) });
+    });
+
+    it('leaves deeper items untouched and does not end the run on them', () => {
+      expect(cont('1. a\n  1. x\n2. b', 4)).toEqual({
+        text: '1. a\n2. \n  1. x\n3. b',
+        selection: at(8),
+      });
+    });
+
+    it('ends the run at a blank line', () => {
+      expect(cont('1. a\n2. b\n\n3. c', 4)!.text).toBe('1. a\n2. \n3. b\n\n3. c');
+    });
+
+    it('ends the run at a non-list line', () => {
+      expect(cont('1. a\n2. b\ntext\n3. c', 4)!.text).toBe('1. a\n2. \n3. b\ntext\n3. c');
+    });
+
+    it('ends the run at a line with a smaller indent', () => {
+      expect(cont('  1. a\n  2. b\n3. c', 6)!.text).toBe('  1. a\n  2. \n  3. b\n3. c');
+    });
+
+    it('ends the run at a bullet of the same indent', () => {
+      expect(cont('1. a\n2. b\n- c\n3. d', 4)!.text).toBe('1. a\n2. \n3. b\n- c\n3. d');
+    });
+
+    it('uses the body line ending and keeps others', () => {
+      expect(cont('1. a\r\n2. b', 4)).toEqual({ text: '1. a\r\n2. \r\n3. b', selection: at(9) });
+    });
+
+    it('is null when a renumbered item would not be a safe integer', () => {
+      // The new item (…991) is safe, the item after it would be …992.
+      expect(cont('9007199254740990. a\n1. b', 19)).toBeNull();
+    });
+
+    it('does not touch bullets or checkboxes', () => {
+      expect(cont('- a\n1. b', 3)!.text).toBe('- a\n- \n1. b');
+    });
+  });
+
+  // continueList stays pure: the caller (NoteBodyInput) must pass a caret that is consistent with
+  // the text. In a run of newlines, offsets c and c+1 both reproduce `next`.
+  it('continues when given the real caret in a newline run, plain newline for the stale one', () => {
+    expect(continueList('- a\ntext', '- a\n\ntext', 3)).toEqual({
+      text: '- a\n- \ntext',
+      selection: at(6),
+    });
+    // Stale caret 4 (one past the real one) is also "consistent", so it reads as an Enter typed on
+    // the blank line under the item: null. The caller must never pass it.
+    expect(continueList('- a\ntext', '- a\n\ntext', 4)).toBeNull();
   });
 
   it('is null for unsafe numbers', () => {

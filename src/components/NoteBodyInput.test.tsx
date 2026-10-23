@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect, useState } from 'react';
-import { TextInput } from 'react-native';
+import { Platform, TextInput } from 'react-native';
 import { bodyText } from '../test/bodyText';
 import * as markdownEdit from '../utils/markdownEdit';
 import { NoteBodyInput, type NoteBodyInputProps, cursorAfterEdit } from './NoteBodyInput';
@@ -210,6 +210,111 @@ describe('NoteBodyInput', () => {
       await render(<Harness initial="- a" />);
       await fireEvent.changeText(input(), '- a\n');
       expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a', '- a\n', undefined);
+    });
+  });
+
+  describe.each([
+    ['onChangeText before onSelectionChange', 'changeFirst', 'android'],
+    ['onSelectionChange before onChangeText', 'selectionFirst', 'ios'],
+  ] as const)('Enter with %s', (_name, order, wrongDefault) => {
+    // The platform default is set to the OPPOSITE of the order under test, so the pick has to come
+    // from what was learned from an unambiguous typed character, not from the default.
+    let restore: { restore: () => void } | undefined;
+    beforeEach(() => {
+      restore = jest.replaceProperty(Platform, 'OS', wrongDefault);
+    });
+    afterEach(() => restore?.restore());
+
+    // Native events for the caret moving to c then Enter: the selection event for the caret after
+    // the Enter is delivered before the change (selectionFirst) or not at all yet (changeFirst).
+    const press = async (c: number, next: string) => {
+      await caretAt(c);
+      if (order === 'selectionFirst') await caretAt(c + 1);
+      await fireEvent.changeText(input(), next);
+    };
+    // One typed character at the end: unambiguous, teaches the order.
+    const teach = async (body: string) => {
+      await caretAt(body.length);
+      if (order === 'selectionFirst') await caretAt(body.length + 1);
+      await fireEvent.changeText(input(), body + 'z');
+      changes.length = 0;
+    };
+    const enterAt = async (body: string, c: number) => {
+      await render(<Harness initial={body} />);
+      await teach(body);
+      const shownBody = body + 'z';
+      await press(c, shownBody.slice(0, c) + '\n' + shownBody.slice(c));
+    };
+
+    const cases: [string, string, number, string][] = [
+      ['a line below', '- a\ntext', 3, '- a\n- \ntext'],
+      ['one blank line below', '- a\n\ntext', 3, '- a\n- \n\ntext'],
+      ['3 blank lines below', '- a\n\n\n\ntext', 3, '- a\n- \n\n\n\ntext'],
+      ['a following bullet', '- a\n- b', 3, '- a\n- \n- b'],
+      ['a following numbered item (renumbered)', '1. a\n2. b', 4, '1. a\n2. \n3. b'],
+      ['a checkbox item', '- [x] a\ntext', 7, '- [x] a\n- [ ] \ntext'],
+      ['a numbered list with a paragraph below', '1. a\ntext', 4, '1. a\n2. \ntext'],
+      ['a CRLF body with a line below', '- a\r\ntext', 3, '- a\r\n- \r\ntext'],
+    ];
+    it.each(cases)('at the end of an item with %s continues the list', async (_n, body, c, out) => {
+      await enterAt(body, c);
+      expect(changes).toEqual([[out + 'z', 'format']]);
+      expect(bodyText(input())).toBe(out + 'z');
+    });
+
+    it('Enter on the blank line directly under an item stays a plain newline', async () => {
+      await enterAt('- a\n\ntext', 4);
+      expect(changes).toEqual([['- a\n\n\ntextz', 'typing']]);
+    });
+
+    it('Enter at the end of the document continues the list', async () => {
+      await render(<Harness initial="- a" />);
+      await teach('- a');
+      await press(4, '- az\n');
+      expect(changes).toEqual([['- az\n- ', 'format']]);
+    });
+  });
+
+  describe('event order learning', () => {
+    let restore: { restore: () => void } | undefined;
+    afterEach(() => restore?.restore());
+
+    it('an unambiguous typed character with selection first makes an ambiguous Enter pick the earlier caret', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios'); // default: change first
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(8);
+      await caretAt(9);
+      await fireEvent.changeText(input(), '- a\ntextx');
+      await caretAt(3);
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntextx');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntextx', '- a\n\ntextx', 3);
+      expect(changes.at(-1)).toEqual(['- a\n- \ntextx', 'format']);
+    });
+
+    it('before anything is learned an ambiguous Enter follows the platform default, then the latest caret', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'android');
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(3);
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\n\ntext', 3);
+      restore.restore();
+      restore = jest.replaceProperty(Platform, 'OS', 'ios');
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(3);
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\n\ntext', 4);
+    });
+
+    it('a programmatic edit resets both remembered carets to its selection', async () => {
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(3);
+      await caretAt(4);
+      await outside('- b\ntext', { start: 3, end: 3 });
+      await fireEvent.changeText(input(), '- b\n\ntext');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- b\ntext', '- b\n\ntext', 3);
     });
   });
 
