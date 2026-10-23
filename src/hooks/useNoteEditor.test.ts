@@ -24,58 +24,75 @@ async function setup(initial = BODY) {
 }
 
 describe('useNoteEditor', () => {
-  it('checkboxAction follows the caret line', async () => {
+  it('listActions follows body and selection', async () => {
     const { view, move } = await setup();
-    expect(view.result.current.checkboxAction).toBe('add'); // plain line 0
+    expect(view.result.current.listActions.onList).toBe(false); // plain line 0
     await move(8);
-    expect(view.result.current.checkboxAction).toBe('check');
+    expect(view.result.current.listActions).toMatchObject({ onList: true, kind: 'checkbox' });
     await move(20);
-    expect(view.result.current.checkboxAction).toBe('none'); // heading
+    expect(view.result.current.listActions.onList).toBe(false); // heading
     await move(28);
-    expect(view.result.current.checkboxAction).toBe('add'); // bullet
+    expect(view.result.current.listActions).toMatchObject({ onList: true, kind: 'bullet' });
+    await act(() => view.result.current.indentItem());
+    expect(view.result.current.listActions.canOutdent).toBe(true);
   });
 
-  it('toggleCheckbox sets the body and pending selection and reports a format edit', async () => {
+  it('setListType sets the body and pending selection and reports a format edit', async () => {
     const { view, setBodySpy, onEdit, move } = await setup();
     await move(8);
-    await act(() => view.result.current.toggleCheckbox());
-    expect(setBodySpy).toHaveBeenCalledWith('plain\n- [x] task\n# Head\n- bullet');
-    expect(view.result.current.inputProps.text).toBe('plain\n- [x] task\n# Head\n- bullet');
-    expect(view.result.current.inputProps.selection).toEqual(
-      at(view.result.current.selection.start),
-    );
+    await act(() => view.result.current.setListType('bullet'));
+    const next = 'plain\n- task\n# Head\n- bullet';
+    expect(setBodySpy).toHaveBeenCalledWith(next);
+    expect(view.result.current.inputProps.text).toBe(next);
+    expect(view.result.current.inputProps.selection).toEqual(view.result.current.selection);
     expect(view.result.current.inputProps.selection).toBeDefined();
-    expect(onEdit).toHaveBeenCalledWith(BODY, 'plain\n- [x] task\n# Head\n- bullet', 'format');
-    expect(view.result.current.checkboxAction).toBe('uncheck');
+    expect(onEdit).toHaveBeenCalledWith(BODY, next, 'format');
   });
 
   it('drops the pending selection once the input reports its own', async () => {
     const { view, move } = await setup();
     await move(8);
-    await act(() => view.result.current.toggleCheckbox());
+    await act(() => view.result.current.setListType('bullet'));
     expect(view.result.current.inputProps.selection).toBeDefined();
     await move(3);
     expect(view.result.current.inputProps.selection).toBeUndefined();
   });
 
-  it('a heading line is a no-op', async () => {
+  it('a heading line is a no-op for setListType', async () => {
     const { view, setBodySpy, onEdit, move } = await setup();
     await move(20);
-    await act(() => view.result.current.toggleCheckbox());
+    await act(() => view.result.current.setListType('checkbox'));
     expect(setBodySpy).not.toHaveBeenCalled();
     expect(onEdit).not.toHaveBeenCalled();
   });
 
-  it('indent on a non-list line does nothing; on a list line it indents', async () => {
-    const { view, setBodySpy, move } = await setup();
-    await move(2);
-    await act(() => view.result.current.indent());
+  it('indentItem and outdentItem call the pure function and use its selection', async () => {
+    const { view, setBodySpy, onEdit, move } = await setup();
+    await move(20);
+    await act(() => view.result.current.indentItem()); // heading line: null
     expect(setBodySpy).not.toHaveBeenCalled();
     await move(8);
-    await act(() => view.result.current.indent());
-    expect(setBodySpy).toHaveBeenCalledWith('plain\n  - [ ] task\n# Head\n- bullet');
-    await act(() => view.result.current.outdent());
+    await act(() => view.result.current.indentItem());
+    const indented = 'plain\n  - [ ] task\n# Head\n- bullet';
+    expect(setBodySpy).toHaveBeenCalledWith(indented);
+    expect(onEdit).toHaveBeenLastCalledWith(BODY, indented, 'format');
+    expect(view.result.current.selection).toEqual(at(10));
+    expect(view.result.current.inputProps.selection).toEqual(at(10));
+    await act(() => view.result.current.outdentItem());
     expect(setBodySpy).toHaveBeenLastCalledWith(BODY);
+  });
+
+  it('moveItem moves the item and null results leave body and selection alone', async () => {
+    const { view, setBodySpy, onEdit, move } = await setup('- a\n- b');
+    await move(1);
+    await act(() => view.result.current.moveItem('up')); // already first: null
+    expect(setBodySpy).not.toHaveBeenCalled();
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(view.result.current.selection).toEqual(at(1));
+    expect(view.result.current.inputProps.selection).toBeUndefined();
+    await act(() => view.result.current.moveItem('down'));
+    expect(setBodySpy).toHaveBeenCalledWith('- b\n- a');
+    expect(onEdit).toHaveBeenCalledWith('- a\n- b', '- b\n- a', 'format');
   });
 
   it('typing goes to setBody with its source and to onEdit', async () => {
@@ -112,9 +129,10 @@ describe('useNoteEditor', () => {
     const setBody = jest.fn();
     const onEdit = jest.fn();
     const view = await renderHook(() => useNoteEditor({ body: '- [ ] a', setBody, onEdit }));
-    await act(() => view.result.current.toggleCheckbox());
-    await act(() => view.result.current.indent());
-    await act(() => view.result.current.outdent());
+    await act(() => view.result.current.setListType('bullet'));
+    await act(() => view.result.current.indentItem());
+    await act(() => view.result.current.outdentItem());
+    await act(() => view.result.current.moveItem('down'));
     await act(() => view.result.current.inputProps.onChangeText('x', 'typing'));
     expect(setBody.mock.calls.every((c) => c.length === 1 && typeof c[0] === 'string')).toBe(true);
     expect(setBody).toHaveBeenCalled();

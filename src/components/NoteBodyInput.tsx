@@ -62,6 +62,11 @@ export function cursorAfterEdit(prev: string, next: string): number {
  *   onChangeText and onSelectionChange is not the same on every platform), or undefined when no
  *   collapsed selection explains the change.
  * - focusSignal: focuses the body each time this number changes (0, the initial value, is ignored).
+ * - blurSignal: blurs the body each time this number changes (0 is ignored). Its effect runs before
+ *   the focus effect, so when both change in one render the blur happens first, then the focus.
+ * - showSoftInputOnFocus (default true) and caretHidden (default false) go to the TextInput and
+ *   survive the remount. They support a panel that replaces the keyboard; the choreography lives
+ *   with the caller. Real keyboard behaviour is not covered by Jest.
  * - Styling: nested <Text> runs from `noteRuns`; `styleLevel` picks how much is styled and heading
  *   sizes derive from the `style` fontSize so both scale together.
  */
@@ -71,6 +76,9 @@ export type NoteBodyInputProps = {
   onSelectionChange?: (selection: Sel) => void;
   selection?: Sel;
   focusSignal?: number;
+  blurSignal?: number;
+  showSoftInputOnFocus?: boolean;
+  caretHidden?: boolean;
   editable?: boolean;
   placeholder?: string;
   placeholderTextColor?: string;
@@ -133,6 +141,9 @@ export function NoteBodyInput({
   onSelectionChange,
   selection,
   focusSignal = 0,
+  blurSignal = 0,
+  showSoftInputOnFocus = true,
+  caretHidden = false,
   editable = true,
   placeholder,
   placeholderTextColor,
@@ -217,6 +228,13 @@ export function NoteBodyInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
 
+  // Declared before the focus effect: effects run in order, so a blur and a focus requested in the
+  // same render blur first.
+  useEffect(() => {
+    // 0 is the initial value, not a request.
+    if (blurSignal > 0) inputRef.current?.blur();
+  }, [blurSignal]);
+
   useEffect(() => {
     // 0 is the initial value, not a request.
     if (focusSignal > 0) inputRef.current?.focus();
@@ -268,6 +286,8 @@ export function NoteBodyInput({
       textAlignVertical="top"
       autoFocus={epoch > 0 && refocus}
       editable={editable}
+      showSoftInputOnFocus={showSoftInputOnFocus}
+      caretHidden={caretHidden}
       placeholder={placeholder}
       placeholderTextColor={placeholderTextColor}
       selection={pending}

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect, useReducer } from 'react';
-import { Alert, Keyboard, Linking, ScrollView } from 'react-native';
+import { Alert, BackHandler, Keyboard, Linking, ScrollView, TextInput } from 'react-native';
 import { NoteSession, newSession, noteSessionReducer } from '../hooks/noteSessionState';
 import type { Note } from '../services/notesStorage';
 import * as playbackModule from '../hooks/useRecordingPlayback';
@@ -57,6 +57,7 @@ type HarnessProps = {
   imagesEnabled?: boolean;
   notes?: Note[];
   recordings?: NoteSession['recordings'];
+  knownTags?: string[];
 };
 
 function Harness({
@@ -67,6 +68,7 @@ function Harness({
   imagesEnabled = false,
   notes = [],
   recordings = [],
+  knownTags,
 }: HarnessProps) {
   const [session, dispatch] = useReducer(
     noteSessionReducer as (
@@ -99,6 +101,7 @@ function Harness({
         restoreRecording: (id) => dispatch({ type: 'restore', id }),
       }}
       notes={notes}
+      knownTags={knownTags}
       imagesEnabled={imagesEnabled}
       onFollowNoteLink={onFollowNoteLink}
     />
@@ -362,7 +365,7 @@ describe('entering and leaving editing', () => {
 
   it('shows the toolbar only while editing', async () => {
     await renderPage({ body: 'abc' });
-    for (const label of ['Add tags', 'Add checkbox', 'Check item', 'Undo', 'Redo'])
+    for (const label of ['Add tags', 'List controls', 'Undo', 'Redo'])
       expect(present(label)).toBe(false);
     // The reading-mode button carries the same label as the toolbar mic; it is the only one.
     expect(screen.getAllByLabelText('Record voice note')).toHaveLength(1);
@@ -376,6 +379,185 @@ describe('entering and leaving editing', () => {
     expect(disabled('Add tags')).toBe(false);
     expect(disabled('Record voice note')).toBe(false);
     expect(present('Hide keyboard')).toBe(true);
+  });
+});
+
+describe('list panel', () => {
+  const cell = () => screen.getByRole('button', { name: 'List controls' });
+  const cellSelected = () => cell().props.accessibilityState.selected === true;
+  const panelShown = () => screen.queryByLabelText('Keyboard') !== null;
+  const select = (start: number, end = start) =>
+    fireEvent(input(), 'selectionChange', { nativeEvent: { selection: { start, end } } });
+  const pressCell = async () => {
+    await fireEvent.press(cell());
+    await act(async () => {});
+  };
+  /** Opens the note in editing with the caret at `at`, as a real focus would. */
+  const editAt = async (props: HarnessProps, line: string, at = 0) => {
+    await renderPage(props);
+    await tap(line);
+    await fireEvent(input(), 'focus');
+    await select(at);
+  };
+  const openPanel = async (props: HarnessProps = { body: 'abc' }, line = 'abc') => {
+    await editAt(props, line);
+    await pressCell();
+  };
+
+  it('opens from the list cell: stays in editing, input keeps its place, no system keyboard', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    await editAt({ body: 'abc' }, 'abc');
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    expect(cellSelected()).toBe(false);
+    expect(panelShown()).toBe(false);
+    await pressCell();
+    expect(panelShown()).toBe(true);
+    expect(cellSelected()).toBe(true);
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+    expect(dismiss).toHaveBeenCalled();
+    expect(present('Hide keyboard')).toBe(true);
+  });
+
+  it('refocuses the input after the keyboard is dismissed and hides the caret meanwhile', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await editAt({ body: 'abc' }, 'abc');
+    focus.mockClear();
+    await pressCell();
+    expect(input().props.caretHidden).toBe(true);
+    await advance(60);
+    expect(focus).toHaveBeenCalled();
+    await advance(300);
+    expect(input().props.caretHidden).toBe(false);
+  });
+
+  it('keyboard hide events while the panel is open do not leave editing', async () => {
+    await openPanel();
+    await keyboard.emit('keyboardWillHide');
+    await keyboard.emit('keyboardDidHide');
+    await advance(5000);
+    expect(screen.getByTestId('note-body')).toBeTruthy();
+    expect(panelShown()).toBe(true);
+  });
+
+  it('abc returns to the keyboard: panel gone, soft input on, input focused again', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await openPanel();
+    await advance(300);
+    focus.mockClear();
+    await press('Keyboard');
+    expect(panelShown()).toBe(false);
+    expect(cellSelected()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    await advance(60);
+    expect(focus).toHaveBeenCalled();
+    await keyboard.emit('keyboardDidShow', 300);
+    expect(screen.getByTestId('note-body')).toBeTruthy();
+  });
+
+  it('pressing the list cell again returns to the keyboard', async () => {
+    await openPanel();
+    await pressCell();
+    expect(panelShown()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    expect(cellSelected()).toBe(false);
+  });
+
+  it('Android Back closes the panel and shows the keyboard instead of leaving', async () => {
+    let handler: (() => boolean) | undefined;
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation(((
+      _e: string,
+      h: () => boolean,
+    ) => {
+      handler = h;
+      return { remove: () => {} };
+    }) as never);
+    await openPanel();
+    expect(handler).toBeDefined();
+    let handled = false;
+    await act(async () => {
+      handled = handler!();
+    });
+    expect(handled).toBe(true);
+    expect(panelShown()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    expect(screen.getByTestId('note-body')).toBeTruthy();
+  });
+
+  it('tapping the text with the panel open leaves the panel open', async () => {
+    await openPanel();
+    await advance(300);
+    await fireEvent(input(), 'focus');
+    await select(2);
+    expect(panelShown()).toBe(true);
+    expect(input().props.showSoftInputOnFocus).toBe(false);
+  });
+
+  it('a real keyboard showing (e.g. hardware or system action) closes the panel', async () => {
+    await openPanel();
+    await keyboard.emit('keyboardDidShow', 300);
+    expect(panelShown()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+  });
+
+  it('Hide keyboard leaves to reading and resets the panel', async () => {
+    await openPanel();
+    await press('Hide keyboard');
+    expect(screen.queryByTestId('note-body')).toBeNull();
+    expect(panelShown()).toBe(false);
+    // Editing again starts with the keyboard, not the panel.
+    await tap('abc');
+    await fireEvent(input(), 'focus');
+    expect(panelShown()).toBe(false);
+    expect(input().props.showSoftInputOnFocus).toBe(true);
+    expect(cellSelected()).toBe(false);
+  });
+
+  it('hides the tag and note link suggestion bars while the panel is open', async () => {
+    const props = { body: 'one #wa', knownTags: ['water'] };
+    await editAt(props, 'one #wa', 7);
+    await keyboard.emit('keyboardDidShow', 300);
+    expect(screen.getByLabelText('Tag #water')).toBeTruthy();
+    await pressCell();
+    expect(screen.queryByLabelText('Tag #water')).toBeNull();
+    await press('Keyboard');
+    await keyboard.emit('keyboardDidShow', 300);
+    expect(screen.getByLabelText('Tag #water')).toBeTruthy();
+  });
+
+  it('starting a recording with the panel open ends editing and resets the panel', async () => {
+    await openPanel();
+    await press('Record voice note');
+    await advance(200);
+    expect(screen.queryByTestId('note-body')).toBeNull();
+    expect(screen.getByTestId('note-recording-panel')).toBeTruthy();
+    expect(panelShown()).toBe(false);
+  });
+
+  it('opening a voice note with the panel open ends editing and resets the panel', async () => {
+    await openPanel({ body: 'abc', recordings: [voice] });
+    await press('Open recording');
+    await advance(200);
+    expect(screen.queryByTestId('note-body')).toBeNull();
+    expect(panelShown()).toBe(false);
+    expect(present('Hide keyboard')).toBe(false);
+  });
+
+  it('never opens the panel in reading (no list cell) and ignores Back there', async () => {
+    const add = jest.spyOn(BackHandler, 'addEventListener');
+    await renderPage({ body: 'abc' });
+    expect(screen.queryByRole('button', { name: 'List controls' })).toBeNull();
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('while locked the panel is disabled including the abc key, and the list cell too', async () => {
+    const view = await renderPage({ body: 'abc', stored: false, autoFocus: true });
+    await fireEvent(input(), 'focus');
+    await pressCell();
+    expect(panelShown()).toBe(true);
+    await view.rerender(<Harness body="abc" stored={false} autoFocus locked />);
+    for (const l of ['Outdent', 'Indent', 'Move up', 'Move down', 'Bulleted list', 'Keyboard'])
+      expect(disabled(l)).toBe(true);
+    expect(cell().props.accessibilityState.disabled).toBe(true);
   });
 });
 

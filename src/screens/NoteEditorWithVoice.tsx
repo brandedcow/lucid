@@ -1,5 +1,6 @@
 import { Alert, Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { ListControlsPanel } from '../components/ListControlsPanel';
 import { NoteReadingView } from '../components/NoteReadingView';
 import { NoteToolbar } from '../components/NoteToolbar';
 import { RecordFab } from '../components/RecordFab';
@@ -11,6 +12,7 @@ import { VoiceNoteSheet } from '../components/VoiceNoteSheet';
 import { useAutoTranscribe, type AutoTranscribeSource } from '../hooks/useAutoTranscribe';
 import { useEntryHistory } from '../hooks/useEntryHistory';
 import type { NoteSession } from '../hooks/noteSessionState';
+import { useListPanel } from '../hooks/useListPanel';
 import { useNoteEditor } from '../hooks/useNoteEditor';
 import { useNoteMode } from '../hooks/useNoteMode';
 import type { useNoteSession } from '../hooks/useNoteSession';
@@ -27,6 +29,7 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import type { ListKind } from '../utils/markdownList';
 import { activeWikiToken, completeWikiToken, matchTitles } from '../utils/noteLinks';
 import { suggestTags } from '../utils/tagSuggestions';
 import { appendTranscript } from '../utils/transcriptAppend';
@@ -74,6 +77,9 @@ export type NoteEditorWithVoiceProps = Omit<
   | 'recordingPanel'
   | 'suggestions'
   | 'toolbar'
+  | 'listPanel'
+  | 'panelActive'
+  | 'panelHeight'
   | 'stored'
   | 'pinned'
   | 'mode'
@@ -145,6 +151,17 @@ export function NoteEditorWithVoice({
     recording,
   });
   const reading = noteMode.mode === 'reading';
+  // The list panel stands in for the keyboard. Its blur path bumps a per-mount counter (only ever
+  // on a user action) that NoteBodyInput watches, like the editor's focus signal.
+  const [blurSignal, setBlurSignal] = useState(0);
+  const panel = useListPanel({
+    noteMode,
+    focus: editor.focus,
+    blur: () => setBlurSignal((n) => n + 1),
+    isEditing: !reading,
+    locked,
+  });
+  const panelOpen = panel.panelOpen;
   // Stable callbacks (the control object itself is new each render), for the memo below.
   const { notifyFocus, notifyBlur, notifyRemount } = noteMode;
   const [reveal, setReveal] = useState<{ y: number; token: number } | undefined>(undefined);
@@ -208,15 +225,42 @@ export function NoteEditorWithVoice({
           editor.inputProps.onBlur?.();
         },
         onRemount: notifyRemount,
+        blurSignal,
+        showSoftInputOnFocus: !panelOpen,
+        caretHidden: panel.caretHidden,
       },
       // A format edit is its own undo step, apart from the typing around it.
-      toggleCheckbox: () => {
+      indentItem: () => {
         history.onBodyBlur();
-        editor.toggleCheckbox();
+        editor.indentItem();
+        history.onBodyBlur();
+      },
+      outdentItem: () => {
+        history.onBodyBlur();
+        editor.outdentItem();
+        history.onBodyBlur();
+      },
+      moveItem: (dir: 'up' | 'down') => {
+        history.onBodyBlur();
+        editor.moveItem(dir);
+        history.onBodyBlur();
+      },
+      setListType: (kind: ListKind) => {
+        history.onBodyBlur();
+        editor.setListType(kind);
         history.onBodyBlur();
       },
     }),
-    [editor, history, notifyFocus, notifyBlur, notifyRemount],
+    [
+      editor,
+      history,
+      notifyFocus,
+      notifyBlur,
+      notifyRemount,
+      blurSignal,
+      panelOpen,
+      panel.caretHidden,
+    ],
   );
 
   /** A tag action or transcript: its own undo step; the caret goes to `cursor`. */
@@ -257,6 +301,7 @@ export function NoteEditorWithVoice({
     : [];
   const showBar =
     !reading &&
+    !panelOpen &&
     !locked &&
     !recording &&
     editor.focused &&
@@ -265,6 +310,7 @@ export function NoteEditorWithVoice({
     offered.length > 0;
   const showWikiBar =
     !reading &&
+    !panelOpen &&
     !locked &&
     !recording &&
     editor.focused &&
@@ -309,6 +355,8 @@ export function NoteEditorWithVoice({
     if (!shown.some((r) => r.id === id)) return;
     stopAllPlayback();
     // A focused body would keep the keyboard over the view; blurring it also ends the typing step.
+    // With the list panel open there is no keyboard hide event to end editing, so end it here.
+    if (panelOpen) noteMode.done();
     Keyboard.dismiss();
     setRecordedAts(Object.fromEntries(shown.map((r) => [r.id, recordedAtOf(r)])));
     setFocusedNote(id);
@@ -366,6 +414,8 @@ export function NoteEditorWithVoice({
   // Recording must not overlap playback. Shared by the toolbar mic and the reading-mode button.
   const startRecording = () => {
     stopAllPlayback();
+    // With the list panel open there is no keyboard hide event to end editing, so end it here.
+    if (panelOpen) noteMode.done();
     Keyboard.dismiss();
     setRecording(true);
   };
@@ -385,9 +435,23 @@ export function NoteEditorWithVoice({
       onDismissKeyboard={finishEditing}
       onMic={startRecording}
       onTags={insertTagStart}
-      checkboxAction={editor.checkboxAction}
-      onCheckbox={boundEditor.toggleCheckbox}
+      listPanelOpen={panelOpen}
+      onListPanel={panel.togglePanel}
       disabled={locked}
+    />
+  );
+
+  const listPanel = (height: number) => (
+    <ListControlsPanel
+      actions={editor.listActions}
+      disabled={locked}
+      height={height}
+      onIndent={boundEditor.indentItem}
+      onOutdent={boundEditor.outdentItem}
+      onMoveUp={() => boundEditor.moveItem('up')}
+      onMoveDown={() => boundEditor.moveItem('down')}
+      onType={boundEditor.setListType}
+      onKeyboard={panel.showKeyboard}
     />
   );
 
@@ -445,6 +509,8 @@ export function NoteEditorWithVoice({
           recordingPanel={recordingPanel}
           suggestions={suggestions}
           toolbar={toolbar}
+          listPanel={listPanel}
+          panelActive={panelOpen && !reading}
           fab={fab}
         />
       </View>

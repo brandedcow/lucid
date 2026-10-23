@@ -4,6 +4,7 @@ import {
   FOCUS_GRACE_MS,
   HIDE_DEBOUNCE_MS,
   REMOUNT_GRACE_MS,
+  SWAP_GRACE_MS,
   initialNoteModeState,
   noteModeReducer,
   useNoteMode,
@@ -39,6 +40,69 @@ describe('noteModeReducer', () => {
   it('timeouts without a pending cause do nothing', () => {
     expect(noteModeReducer(editing, { type: 'hideTimeout' })).toBe(editing);
     expect(noteModeReducer(editing, { type: 'focusTimeout' })).toBe(editing);
+  });
+});
+
+describe('noteModeReducer panel', () => {
+  const editing = { ...initialNoteModeState('editing'), focusPending: false };
+  const open = noteModeReducer(editing, { type: 'panelOpen', at: 1000 });
+  it('panelOpen sets the guard and clears pending flags', () => {
+    const s = noteModeReducer(initialNoteModeState('editing'), { type: 'panelOpen', at: 1000 });
+    expect(s).toMatchObject({ panel: true, swapUntil: 1000 + SWAP_GRACE_MS, hidePending: false });
+    expect(s.focusPending).toBe(false);
+  });
+  it('panelOpen while reading is ignored', () => {
+    const r = initialNoteModeState('reading');
+    expect(noteModeReducer(r, { type: 'panelOpen', at: 1 })).toBe(r);
+  });
+  it('a hide with the panel open keeps editing and is not pending', () => {
+    const s = noteModeReducer(open, { type: 'keyboardHide', at: 99999 });
+    expect(s).toBe(open);
+    expect(s.mode).toBe('editing');
+    expect(s.hidePending).toBe(false);
+    expect(noteModeReducer(s, { type: 'hideTimeout' })).toBe(s);
+  });
+  it('keyboardShow with height > 0 closes the panel; height 0 is ignored', () => {
+    expect(noteModeReducer(open, { type: 'keyboardShow', height: 0 })).toBe(open);
+    expect(noteModeReducer(open, { type: 'keyboardShow', height: 328 })).toMatchObject({
+      panel: false,
+      swapUntil: 0,
+    });
+  });
+  it('panelClose: a hide within SWAP_GRACE_MS is ignored, after it starts the pending hide', () => {
+    const s = noteModeReducer(open, { type: 'panelClose', at: 2000 });
+    expect(s).toMatchObject({ mode: 'editing', panel: false });
+    expect(noteModeReducer(s, { type: 'keyboardHide', at: 2000 + SWAP_GRACE_MS - 1 })).toBe(s);
+    expect(noteModeReducer(s, { type: 'keyboardHide', at: 2000 + SWAP_GRACE_MS }).hidePending).toBe(
+      true,
+    );
+  });
+  it('done resets the panel', () => {
+    expect(noteModeReducer(open, { type: 'done' })).toMatchObject({
+      mode: 'reading',
+      panel: false,
+      swapUntil: 0,
+    });
+  });
+  it('focusTimeout cannot return to reading after panelOpen', () => {
+    const entered = noteModeReducer(initialNoteModeState('reading'), {
+      type: 'enter',
+      locked: false,
+      recording: false,
+    });
+    const s = noteModeReducer(entered, { type: 'panelOpen', at: 5 });
+    expect(noteModeReducer(s, { type: 'focusTimeout' }).mode).toBe('editing');
+  });
+  it('remount combined with the panel: both guards hold independently', () => {
+    const s = noteModeReducer(open, { type: 'remount', at: 1000 });
+    expect(noteModeReducer(s, { type: 'keyboardHide', at: 1000 + REMOUNT_GRACE_MS + 1 })).toBe(s);
+    const closed = noteModeReducer(s, { type: 'panelClose', at: 1100 });
+    expect(noteModeReducer(closed, { type: 'keyboardHide', at: 1000 + REMOUNT_GRACE_MS - 1 })).toBe(
+      closed,
+    );
+    expect(
+      noteModeReducer(closed, { type: 'keyboardHide', at: 1100 + SWAP_GRACE_MS }).hidePending,
+    ).toBe(true);
   });
 });
 
@@ -210,6 +274,24 @@ describe('useNoteMode', () => {
     await act(() => v.result.current.notifyFocus());
     await act(() => v.result.current.notifyBlur());
     await advance(5000);
+    expect(v.result.current.mode).toBe('editing');
+  });
+
+  it('openPanel keeps editing through the swap hide; a real keyboard show closes the panel', async () => {
+    const v = await setup('editing');
+    await act(() => v.result.current.notifyFocus());
+    await act(() => v.result.current.openPanel());
+    expect(v.result.current.panelOpen).toBe(true);
+    await kb.emit('keyboardDidHide');
+    await advance(5000);
+    expect(v.result.current.mode).toBe('editing');
+    await kb.emit('keyboardDidShow', 0);
+    expect(v.result.current.panelOpen).toBe(true);
+    await kb.emit('keyboardDidShow', 328);
+    expect(v.result.current.panelOpen).toBe(false);
+    await act(() => v.result.current.openPanel());
+    await act(() => v.result.current.closePanel());
+    expect(v.result.current.panelOpen).toBe(false);
     expect(v.result.current.mode).toBe('editing');
   });
 });

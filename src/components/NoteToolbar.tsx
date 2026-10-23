@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme';
-import type { NoteEditor } from '../hooks/useNoteEditor';
 import { KeyboardHideIcon } from './KeyboardHideIcon';
+import { ListIcon } from './ListIcon';
 import { WaveformIcon } from './WaveformIcon';
 
 type Props = {
@@ -14,9 +14,10 @@ type Props = {
   micDisabled: boolean;
   onMic: () => void;
   onTags: () => void;
-  /** From `useNoteEditor().checkboxAction`: sets the checkbox button's label and disabled state. */
-  checkboxAction: NoteEditor['checkboxAction'];
-  onCheckbox: () => void;
+  /** The list controls panel is showing in place of the keyboard (the list button is selected). */
+  listPanelOpen: boolean;
+  /** Shows the list controls in place of the keyboard, or brings the keyboard back. */
+  onListPanel: () => void;
   /** Locks every button (a leave or delete is in flight). */
   disabled?: boolean;
 };
@@ -24,38 +25,39 @@ type Props = {
 type ButtonProps = {
   label: string;
   hint?: string;
+  selected?: boolean;
   disabled: boolean;
   onPress: () => void;
   children: React.ReactNode;
 };
 
-function ToolbarButton({ label, hint, disabled, onPress, children }: ButtonProps) {
+function ToolbarButton({
+  label,
+  hint,
+  selected = false,
+  disabled,
+  onPress,
+  children,
+}: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
       hitSlop={4}
-      style={[styles.button, disabled && styles.disabled]}
+      style={[styles.button, selected && styles.selected, disabled && styles.disabled]}
     >
       {children}
     </Pressable>
   );
 }
 
-/** Label of the checkbox button for an editor's `checkboxAction`. */
-export function checkboxLabel(action: NoteEditor['checkboxAction']): string {
-  if (action === 'check') return 'Check item';
-  if (action === 'uncheck') return 'Uncheck item';
-  return 'Add checkbox';
-}
-
 /**
  * The bar under the note, shown only while editing: undo, redo, hide keyboard, record a voice note,
- * tags, checkbox. Six equal cells with dividers. Indent and outdent exist in the editor hook but are not on the bar.
+ * tags, list controls (shows the list panel in place of the keyboard). Six equal cells with dividers.
  */
 export function NoteToolbar({
   canUndo,
@@ -66,8 +68,8 @@ export function NoteToolbar({
   micDisabled,
   onMic,
   onTags,
-  checkboxAction,
-  onCheckbox,
+  listPanelOpen,
+  onListPanel,
   disabled = false,
 }: Props) {
   return (
@@ -98,11 +100,17 @@ export function NoteToolbar({
       </ToolbarButton>
       <View style={styles.divider} />
       <ToolbarButton
-        label={checkboxLabel(checkboxAction)}
-        disabled={disabled || checkboxAction === 'none'}
-        onPress={onCheckbox}
+        label="List controls"
+        hint={
+          listPanelOpen
+            ? 'Shows the keyboard again.'
+            : 'Shows list buttons in place of the keyboard.'
+        }
+        selected={listPanelOpen}
+        disabled={disabled}
+        onPress={onListPanel}
       >
-        <Text style={styles.glyph}>☑</Text>
+        <ListIcon color={listPanelOpen ? colors.accent : colors.text} size={24} />
       </ToolbarButton>
     </View>
   );
@@ -120,6 +128,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   button: { flex: 1, height: 48, alignItems: 'center', justifyContent: 'center' },
+  selected: { backgroundColor: colors.highlight, borderRadius: 12 },
   disabled: { opacity: 0.4 },
   divider: { width: StyleSheet.hairlineWidth, height: 24, backgroundColor: colors.border },
   glyph: { color: colors.text, fontSize: 22 },

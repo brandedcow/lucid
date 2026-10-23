@@ -12,12 +12,25 @@ import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
 import type { Note } from '../services/notesStorage';
 import * as noteLinks from '../utils/noteLinks';
+import type { NoteEditor } from '../hooks/useNoteEditor';
 import { NoteEditorWithVoice } from './NoteEditorWithVoice';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
+
+const mockScreen: { editor: NoteEditor | null } = { editor: null };
+jest.mock('./NoteEditorScreen', () => {
+  const actual = jest.requireActual('./NoteEditorScreen');
+  return {
+    ...actual,
+    NoteEditorScreen: (props: { editor: NoteEditor }) => {
+      mockScreen.editor = props.editor;
+      return <actual.NoteEditorScreen {...props} />;
+    },
+  };
+});
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
 jest.mock('../hooks/useVoiceRecorder', () => ({
@@ -132,6 +145,10 @@ const type = async (text: string, cursor = text.length) => {
   await select(cursor);
   await advance(600);
 };
+const openListPanel = async () => {
+  await fireEvent.press(screen.getByRole('button', { name: 'List controls' }));
+  await act(async () => {});
+};
 const openPanel = async () => {
   await press('Record voice note');
 };
@@ -177,7 +194,7 @@ describe('undo and redo', () => {
       'Hide keyboard',
       'Record voice note',
       'Add tags',
-      'Add checkbox',
+      'List controls',
     ])
       expect(screen.getByLabelText(label)).toBeTruthy();
     expect(disabled('Undo')).toBe(true);
@@ -210,26 +227,65 @@ describe('undo and redo', () => {
     expect(disabled('Redo')).toBe(true);
   });
 
-  it('a checkbox toggle is its own step, apart from the typing before and after', async () => {
+  it('a panel button is its own step, apart from the typing before and after', async () => {
     await renderPage();
     await fireEvent(body(), 'focus');
-    // No pause between typing and the toggle: they must still be separate steps.
-    await fireEvent.changeText(body(), '- [ ] milk');
-    await select(10);
-    expect(screen.getByLabelText('Check item')).toBeTruthy();
-    await press('Check item');
-    expect(state?.body).toBe('- [x] milk');
-    await fireEvent.changeText(body(), '- [x] milk!');
+    // No pause between typing and the button: they must still be separate steps.
+    await fireEvent.changeText(body(), 'milk');
+    await select(4);
+    await openListPanel();
+    await press('To-do list');
+    expect(state?.body).toBe('- [ ] milk');
+    expect(screen.getByLabelText('To-do list').props.accessibilityState.selected).toBe(true);
+    await fireEvent.changeText(body(), '- [ ] milk!');
     await advance(600);
-    await press('Undo');
-    expect(state?.body).toBe('- [x] milk');
     await press('Undo');
     expect(state?.body).toBe('- [ ] milk');
     await press('Undo');
+    expect(state?.body).toBe('milk');
+  });
+
+  it.each([
+    ['Indent', '- a\n- b', 5, '- a\n  - b'],
+    ['Outdent', '- a\n  - b', 8, '- a\n- b'],
+    ['Move up', '- a\n- b', 7, '- b\n- a'],
+    ['Move down', '- a\n- b', 2, '- b\n- a'],
+    ['Bulleted list', 'a', 1, '- a'],
+    ['Numbered list', 'a', 1, '1. a'],
+    ['To-do list', 'a', 1, '- [ ] a'],
+  ])(
+    'panel button %s calls the right editor method and is one undo step',
+    async (label, from, at, to) => {
+      await renderPage({ initial: { body: from } });
+      await fireEvent(body(), 'focus');
+      await select(at);
+      await openListPanel();
+      await press(label);
+      expect(state?.body).toBe(to);
+      await press('Undo');
+      expect(state?.body).toBe(from);
+      expect(disabled('Undo')).toBe(true);
+      await press('Redo');
+      expect(state?.body).toBe(to);
+    },
+  );
+
+  it('pressing the active list type again removes the marker', async () => {
+    await renderPage({ initial: { body: '- a' } });
+    await fireEvent(body(), 'focus');
+    await select(3);
+    await openListPanel();
+    await press('Bulleted list');
+    expect(state?.body).toBe('a');
+  });
+
+  it('a list method with a null result changes nothing and adds no undo step', async () => {
+    await renderPage();
+    await type('# head', 2);
+    await act(async () => mockScreen.editor!.indentItem());
+    expect(state?.body).toBe('# head');
+    await press('Undo');
     expect(state?.body).toBe('');
-    await press('Redo');
-    await press('Redo');
-    expect(state?.body).toBe('- [x] milk');
   });
 
   it('undo and redo put the caret at the end of the changed region', async () => {
@@ -297,7 +353,7 @@ describe('undo and redo', () => {
 
   it('locks every toolbar button while locked', async () => {
     await renderPage({ locked: true, initial: { body: 'a' } });
-    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox'])
+    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'List controls'])
       expect(disabled(label)).toBe(true);
     expect(body().props.editable).toBe(false);
   });

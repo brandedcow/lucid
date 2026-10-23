@@ -57,15 +57,15 @@ describe('EditorSpikeScreen', () => {
     expect(sizedBody('300 lines').split('\n')).toHaveLength(300);
   });
 
-  it('the checkbox button labels follow the caret line and toggle it', async () => {
+  it('the checkbox button label follows the caret line and toggles the to-do list type', async () => {
     await render(<EditorSpikeScreen />);
-    await fireEvent.changeText(body(), '- [ ] task');
+    await fireEvent.changeText(body(), '- task');
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 8, end: 8 } },
     });
-    await fireEvent.press(screen.getByLabelText('Check item'));
-    expect(bodyText(body())).toBe('- [x] task');
-    expect(screen.getByLabelText('Uncheck item')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add checkbox'));
+    expect(bodyText(body())).toBe('- [ ] task');
+    expect(screen.getByLabelText('Remove checkbox')).toBeTruthy();
     expect(colors.text).toBeDefined();
   });
 
