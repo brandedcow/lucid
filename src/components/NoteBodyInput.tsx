@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useReducer, useRef, useState } from 'react';
 import {
   NativeSyntheticEvent,
   Platform,
+  Pressable,
   StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  TextInputKeyPressEventData,
   TextInputSelectionChangeEventData,
   TextStyle,
+  View,
 } from 'react-native';
 import { continueList, type Sel } from '../utils/markdownEdit';
 import {
@@ -58,7 +61,10 @@ export function cursorAfterEdit(prev: string, next: string): number {
  *   (reported once through onSelectionChange). Always clamped into the text.
  * - Enter in a list item (`listContinue`) is detected by diffing the text: the result is applied
  *   as a programmatic edit and reported once, as 'format'. The previous caret goes to continueList
- *   as `caretBefore`, chosen by `pickCaretBefore` from the last two selection events (the order of
+ *   as `caretBefore`. Preferred source: `onKeyPress` fires for Enter before the edit, so the last
+ *   known collapsed caret at that moment is the caret before the Enter (used when it explains the
+ *   change as one inserted newline). Otherwise (no key press delivered, e.g. paste or some
+ *   keyboards) `pickCaretBefore` chooses from the last two selection events (the order of
  *   onChangeText and onSelectionChange is not the same on every platform), or undefined when no
  *   collapsed selection explains the change.
  * - focusSignal: focuses the body each time this number changes (0, the initial value, is ignored).
@@ -96,6 +102,117 @@ export type NoteBodyInputProps = {
 
 type Selections = { latest?: Sel; previous?: Sel };
 
+/** Whether `next` is `prev` with exactly one character inserted at `c`. */
+function fitsInsert(prev: string, next: string, c: number): boolean {
+  return (
+    c >= 0 &&
+    c <= prev.length &&
+    next.length === prev.length + 1 &&
+    next.slice(0, c) === prev.slice(0, c) &&
+    next.slice(c + 1) === prev.slice(c)
+  );
+}
+
+const collapsedAt = (s?: Sel) => (s && s.start === s.end ? s.start : undefined);
+
+// Whether onSelectionChange arrives before onChangeText, learned from the key press snapshot or an
+// unambiguous change. Module level so a reading -> editing remount does not forget it. undefined
+// until learned: then the platform default (Android = selection first, iOS = change first; both
+// are guesses, not device-confirmed).
+let learnedSelectionFirst: boolean | undefined;
+const currentSelectionFirst = () => learnedSelectionFirst ?? Platform.OS === 'android';
+/** Forgets the learned event order (for tests). */
+export function resetNoteBodyInputOrder(): void {
+  learnedSelectionFirst = undefined;
+}
+
+// DEV-ONLY diagnostic for the Enter-in-list bug (chunk 1b). Off unless __DEV__ and the bundle was
+// started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
+const ENTER_LOG_BUILD = 'enter-1b';
+const ENTER_LOG_CAP = 40;
+const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
+// Read once at load. Every log call site and the work only the log needs sit behind this flag, so
+// with the log off no string is built and no O(n) work is done.
+let enterLogEnabled = readEnterLogFlag();
+const enterLogOn = () => enterLogEnabled;
+/** Re-reads the log flag from the environment (for tests; the app reads it once at load). */
+export function refreshEnterLogFlag(): void {
+  enterLogEnabled = readEnterLogFlag();
+}
+let enterLogLines: string[] = [];
+let enterLogSeq = 0;
+let enterLogBuildDone = false;
+const enterLogListeners = new Set<() => void>();
+function enterLog(msg: string): void {
+  if (!enterLogOn()) return;
+  enterLogSeq += 1;
+  enterLogLines.push(`#${enterLogSeq} t=${Date.now()} ${msg}`);
+  if (enterLogLines.length > ENTER_LOG_CAP) enterLogLines = enterLogLines.slice(-ENTER_LOG_CAP);
+  enterLogListeners.forEach((l) => l());
+}
+/** The dev Enter log, oldest first (empty unless the log is on). */
+export const getEnterLog = (): string[] => enterLogLines;
+/** Empties the dev Enter log and its sequence (for tests and the Clear button). */
+export function clearEnterLog(): void {
+  enterLogLines = [];
+  enterLogSeq = 0;
+  enterLogBuildDone = false;
+  enterLogListeners.forEach((l) => l());
+}
+const fmtSel = (s?: Sel) => (s ? `${s.start}-${s.end}` : 'none');
+const commonHead = (a: string, b: string) => {
+  const max = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < max && a[i] === b[i]) i += 1;
+  return i;
+};
+
+function EnterLogStrip() {
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    enterLogListeners.add(bump);
+    return () => {
+      enterLogListeners.delete(bump);
+    };
+  }, []);
+  const lines = getEnterLog();
+  return (
+    <View testID="enter-log-strip" style={logStyles.strip}>
+      <View style={logStyles.row}>
+        <Pressable accessibilityRole="button" onPress={() => setOpen(!open)}>
+          <Text style={logStyles.head}>{`Enter log (${lines.length}) ${open ? '-' : '+'}`}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const Clipboard = require('expo-clipboard') as typeof import('expo-clipboard');
+            void Clipboard.setStringAsync(getEnterLog().join('\n'));
+          }}
+        >
+          <Text style={logStyles.head}>Copy log</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={clearEnterLog}>
+          <Text style={logStyles.head}>Clear log</Text>
+        </Pressable>
+      </View>
+      {open && (
+        <Text selectable style={logStyles.body}>
+          {lines.join('\n')}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+const logStyles = StyleSheet.create({
+  strip: { borderTopWidth: 1, borderColor: '#888', marginTop: 8, paddingVertical: 4 },
+  row: { flexDirection: 'row', justifyContent: 'space-between' },
+  head: { fontSize: 12, fontWeight: '600', padding: 4 },
+  body: { fontSize: 10, fontFamily: 'Courier' },
+});
+
 /**
  * The caret the typed character went in at. Candidates are the last two selection events (latest,
  * previous) that are collapsed and reproduce `next` from `prev` by inserting one character there.
@@ -110,15 +227,9 @@ export function pickCaretBefore(
   sels: Selections,
   selectionFirst: boolean,
 ): { caret?: number; learned?: boolean } {
-  const fits = (c: number) =>
-    c >= 0 &&
-    c <= prev.length &&
-    next.length === prev.length + 1 &&
-    next.slice(0, c) === prev.slice(0, c) &&
-    next.slice(c + 1) === prev.slice(c);
-  const collapsed = (s?: Sel) => (s && s.start === s.end ? s.start : undefined);
-  const latest = collapsed(sels.latest);
-  const previous = collapsed(sels.previous);
+  const fits = (c: number) => fitsInsert(prev, next, c);
+  const latest = collapsedAt(sels.latest);
+  const previous = collapsedAt(sels.previous);
   const okLatest = latest !== undefined && fits(latest);
   const okPrevious = previous !== undefined && fits(previous);
   if (okLatest && okPrevious) {
@@ -171,10 +282,11 @@ export function NoteBodyInput({
   // The last two selections the input knows of (reported by the native input or chosen here).
   // Either may be the caret from before a change, depending on the order of the native events.
   const selections = useRef<Selections>({});
-  // Whether onSelectionChange arrives before onChangeText. Learned from the first change that only
-  // one of the two selections explains; until then a platform default (Android is suspected to
-  // report the selection first, iOS the change first; neither is device-confirmed).
-  const selectionFirst = useRef<boolean>(Platform.OS === 'android');
+  // The caret known when Enter was pressed (onKeyPress fires before the edit), with the shown
+  // length and the two remembered selections at that moment; cleared by any other key and by every
+  // change.
+  const enterSnap = useRef<{ caret: number; len: number; latest: Sel; previous?: Sel }>(undefined);
+  const afterChange = useRef(false); // dev log: the next selection event is POSTSEL
   const knowSelection = (sel: Sel) => {
     selections.current = { latest: sel, previous: sel };
   };
@@ -240,26 +352,83 @@ export function NoteBodyInput({
     if (focusSignal > 0) inputRef.current?.focus();
   }, [focusSignal]);
 
+  useEffect(() => {
+    if (enterLogOn() && !enterLogBuildDone) {
+      enterLogBuildDone = true;
+      enterLog(`BUILD ${ENTER_LOG_BUILD} mount=${Date.now()} platform=${Platform.OS}`);
+    }
+  }, []);
+
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const key = e.nativeEvent.key;
+    const { latest, previous } = selections.current;
+    const caret = collapsedAt(latest);
+    enterSnap.current =
+      key === 'Enter' && latest && caret !== undefined
+        ? { caret, len: shown.length, latest, previous }
+        : undefined;
+    if (enterLogOn()) {
+      // Never the typed character: only whether it was Enter.
+      enterLog(
+        `KEY key=${key === 'Enter' ? 'Enter' : 'other'} latestSel=${fmtSel(latest)} prevSel=${fmtSel(previous)} shownLen=${shown.length}`,
+      );
+    }
+  };
+
   const handleSelection = (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+    if (enterLogOn()) enterLog(`SEL ${fmtSel(e.nativeEvent.selection)} shownLen=${shown.length}`);
+    if (afterChange.current) {
+      afterChange.current = false;
+      if (enterLogOn()) enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
+    }
     setPending(undefined);
     selections.current = { latest: e.nativeEvent.selection, previous: selections.current.latest };
     onSelectionChange?.(e.nativeEvent.selection);
   };
 
   const handleChange = (t: string) => {
+    const snap = enterSnap.current;
+    enterSnap.current = undefined;
+    afterChange.current = true;
+    const orderBefore = currentSelectionFirst();
+    let pick: number | undefined;
+    let usedSnap = false;
     if (listContinue) {
-      const { caret, learned } = pickCaretBefore(
-        shown,
-        t,
-        selections.current,
-        selectionFirst.current,
-      );
-      if (learned !== undefined) selectionFirst.current = learned;
+      let caret: number | undefined;
+      if (snap && snap.len === shown.length && fitsInsert(shown, t, snap.caret)) {
+        caret = snap.caret;
+        usedSnap = true;
+        // Learn the event order: the snapshot is the caret before the Enter. If it is the
+        // second-latest selection (and not the latest) the selection event came first.
+        const { latest, previous } = selections.current;
+        const isPrev = collapsedAt(previous) === snap.caret;
+        const isLatest = collapsedAt(latest) === snap.caret;
+        if (isPrev && !isLatest) learnedSelectionFirst = true;
+        else if (isLatest && !isPrev) learnedSelectionFirst = false;
+      } else {
+        const picked = pickCaretBefore(shown, t, selections.current, currentSelectionFirst());
+        caret = picked.caret;
+        if (picked.learned !== undefined) learnedSelectionFirst = picked.learned;
+      }
+      pick = caret;
       const result = continueList(shown, t, caret);
+      if (enterLogOn()) {
+        enterLog(
+          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=${pick ?? 'undefined'} snapshot=${snap ? snap.caret : 'undefined'}${usedSnap ? '' : ' (snapshot unused)'} platform=${Platform.OS}`,
+        );
+        enterLog(`RES ${result ? 'continued' : 'plain'}`);
+      }
       if (result) {
         programmatic(result.text, result.selection);
         onChangeText(result.text, 'format');
         return;
+      }
+    } else {
+      if (enterLogOn()) {
+        enterLog(
+          `CHG prevLen=${shown.length} nextLen=${t.length} head=${commonHead(shown, t)} latest=${fmtSel(selections.current.latest)} previous=${fmtSel(selections.current.previous)} order=${orderBefore} pick=undefined snapshot=${snap ? snap.caret : 'undefined'} platform=${Platform.OS}`,
+        );
+        enterLog('RES plain');
       }
     }
     setShown(t);
@@ -274,7 +443,7 @@ export function NoteBodyInput({
     </Text>
   ));
 
-  return (
+  const input = (
     <TextInput
       // No `value` prop: React Native does not allow it together with children. Typing is mirrored
       // above; in 'remount' mode a programmatic change bumps `epoch`, which remounts the input.
@@ -292,6 +461,7 @@ export function NoteBodyInput({
       placeholderTextColor={placeholderTextColor}
       selection={pending}
       onChangeText={handleChange}
+      onKeyPress={handleKeyPress}
       onSelectionChange={handleSelection}
       onFocus={() => {
         setFocused(true);
@@ -305,5 +475,12 @@ export function NoteBodyInput({
     >
       {kids}
     </TextInput>
+  );
+  if (!enterLogOn()) return input;
+  return (
+    <Fragment>
+      {input}
+      <EnterLogStrip />
+    </Fragment>
   );
 }

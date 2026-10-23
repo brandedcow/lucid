@@ -3,7 +3,15 @@ import { useEffect, useState } from 'react';
 import { Platform, TextInput } from 'react-native';
 import { bodyText } from '../test/bodyText';
 import * as markdownEdit from '../utils/markdownEdit';
-import { NoteBodyInput, type NoteBodyInputProps, cursorAfterEdit } from './NoteBodyInput';
+import {
+  NoteBodyInput,
+  type NoteBodyInputProps,
+  clearEnterLog,
+  cursorAfterEdit,
+  getEnterLog,
+  refreshEnterLogFlag,
+  resetNoteBodyInputOrder,
+} from './NoteBodyInput';
 
 jest.mock('../utils/markdownEdit', () => {
   const actual = jest.requireActual('../utils/markdownEdit');
@@ -52,6 +60,8 @@ beforeEach(() => {
   selections.length = 0;
   changes.length = 0;
   jest.mocked(markdownEdit.continueList).mockClear();
+  resetNoteBodyInputOrder();
+  clearEnterLog();
 });
 
 describe('cursorAfterEdit', () => {
@@ -292,7 +302,9 @@ describe('NoteBodyInput', () => {
       expect(changes.at(-1)).toEqual(['- a\n- \ntextx', 'format']);
     });
 
-    it('before anything is learned an ambiguous Enter follows the platform default, then the latest caret', async () => {
+    it('with NO key press and NO teaching an ambiguous Enter is a guess: the platform default (android earlier caret, ios latest caret)', async () => {
+      // Documents a guess, not device behaviour: this is the path taken only when onKeyPress was
+      // not delivered and nothing was learned yet.
       restore = jest.replaceProperty(Platform, 'OS', 'android');
       await render(<Harness initial={'- a\ntext'} />);
       await caretAt(3);
@@ -300,6 +312,7 @@ describe('NoteBodyInput', () => {
       await fireEvent.changeText(input(), '- a\n\ntext');
       expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\n\ntext', 3);
       restore.restore();
+      resetNoteBodyInputOrder();
       restore = jest.replaceProperty(Platform, 'OS', 'ios');
       await render(<Harness initial={'- a\ntext'} />);
       await caretAt(3);
@@ -315,6 +328,239 @@ describe('NoteBodyInput', () => {
       await outside('- b\ntext', { start: 3, end: 3 });
       await fireEvent.changeText(input(), '- b\n\ntext');
       expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- b\ntext', '- b\n\ntext', 3);
+    });
+  });
+
+  describe('Enter with a key press snapshot (fresh mount, nothing learned)', () => {
+    let restore: { restore: () => void } | undefined;
+    afterEach(() => restore?.restore());
+    const enter = () => fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+    const key = (k: string) => fireEvent(input(), 'keyPress', { nativeEvent: { key: k } });
+    const mount = (body: string, at: number) =>
+      render(<Harness initial={body} selection={{ start: at, end: at }} />);
+    const nl = (body: string, at: number) => body.slice(0, at) + '\n' + body.slice(at);
+
+    const bodies: [string, string, number, string][] = [
+      ['numbered, 2 blank lines', '1. new item\n\n\ntest', 11, '1. new item\n2. \n\n\ntest'],
+      ['numbered, 1 blank line', '1. new item\n\ntest', 11, '1. new item\n2. \n\ntest'],
+      ['bullet', '- new item\n\n\ntest', 10, '- new item\n- \n\n\ntest'],
+      ['checkbox', '- [ ] new item\n\n\ntest', 14, '- [ ] new item\n- [ ] \n\n\ntest'],
+    ];
+    describe.each(['ios', 'android'] as const)('platform %s', (os) => {
+      beforeEach(() => {
+        restore = jest.replaceProperty(Platform, 'OS', os);
+      });
+      describe.each(bodies)('%s', (_n, body, c, out) => {
+        it('selection first: keyPress, selection, change continues', async () => {
+          await mount(body, c);
+          await enter();
+          await caretAt(c + 1);
+          await fireEvent.changeText(input(), nl(body, c));
+          expect(changes).toEqual([[out, 'format']]);
+        });
+        it('change first: keyPress, change, selection continues', async () => {
+          await mount(body, c);
+          await enter();
+          await fireEvent.changeText(input(), nl(body, c));
+          expect(changes).toEqual([[out, 'format']]);
+          await caretAt(c + 1);
+        });
+        it('a duplicate selection event does not hide the caret', async () => {
+          await mount(body, c);
+          await enter();
+          await caretAt(c + 1);
+          await caretAt(c + 1);
+          await fireEvent.changeText(input(), nl(body, c));
+          expect(changes).toEqual([[out, 'format']]);
+        });
+      });
+    });
+
+    it('hands the caret after the new marker to the input', async () => {
+      await mount('1. new item\n\n\ntest', 11);
+      await enter();
+      await caretAt(12);
+      await fireEvent.changeText(input(), '1. new item\n\n\n\ntest');
+      expect('1. new item\n2. '.length).toBe(15);
+      expect(input().props.selection).toEqual({ start: 15, end: 15 });
+    });
+
+    it('with no key press delivered it falls back to pickCaretBefore', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios');
+      await mount('1. new item\n\n\ntest', 11);
+      await caretAt(12);
+      await fireEvent.changeText(input(), '1. new item\n\n\n\ntest');
+      // iOS default: the latest caret (12), which is the line below: plain.
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith(
+        '1. new item\n\n\ntest',
+        '1. new item\n\n\n\ntest',
+        12,
+      );
+      expect(changes).toEqual([['1. new item\n\n\n\ntest', 'typing']]);
+    });
+
+    it('a key other than Enter clears the snapshot', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios');
+      await mount('1. new item\n\n\ntest', 11);
+      await enter();
+      await key('a');
+      await caretAt(12);
+      await fireEvent.changeText(input(), '1. new item\n\n\n\ntest');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith(
+        '1. new item\n\n\ntest',
+        '1. new item\n\n\n\ntest',
+        12,
+      );
+    });
+
+    it('a snapshot that does not fit the change falls back to pickCaretBefore', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios');
+      await mount('- a\ntext', 3);
+      await enter();
+      await caretAt(8);
+      await caretAt(9);
+      await fireEvent.changeText(input(), '- a\ntextx');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\ntextx', 8);
+    });
+
+    it('the snapshot is used once: the next change does not reuse it', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios');
+      await mount('- a\ntext', 3);
+      await enter();
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(changes.at(-1)).toEqual(['- a\n- \ntext', 'format']);
+      await caretAt(5);
+      await fireEvent.changeText(input(), '- a\n- \ntextq');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith(
+        '- a\n- \ntext',
+        '- a\n- \ntextq',
+        undefined,
+      );
+    });
+
+    it('Enter on the blank line directly under an item, snapshot at the blank line, stays plain', async () => {
+      await mount('- a\n\ntext', 4);
+      await enter();
+      await caretAt(5);
+      await fireEvent.changeText(input(), '- a\n\n\ntext');
+      expect(changes).toEqual([['- a\n\n\ntext', 'typing']]);
+    });
+
+    it('learns selection-first from the snapshot and keeps it across an unmount and mount', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'ios'); // default would be change first
+      const first = await mount('- a\ntext', 3);
+      await enter();
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      await first.unmount();
+      // No key press now: the ambiguous change must use the learned order (earlier caret = 3).
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(3);
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\n\ntext', 3);
+    });
+
+    it('learns change-first from the snapshot (overrides the android default)', async () => {
+      restore = jest.replaceProperty(Platform, 'OS', 'android'); // default would be selection first
+      const first = await mount('- a\ntext', 3);
+      await caretAt(2);
+      await caretAt(3);
+      await enter();
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      await first.unmount();
+      await render(<Harness initial={'- a\ntext'} />);
+      await caretAt(3);
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(markdownEdit.continueList).toHaveBeenLastCalledWith('- a\ntext', '- a\n\ntext', 4);
+    });
+  });
+
+  describe('dev Enter log', () => {
+    const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
+    afterEach(() => {
+      if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+      refreshEnterLogFlag();
+    });
+    const setFlag = (on: boolean) => {
+      if (on) process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      else delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      refreshEnterLogFlag();
+    };
+
+    it('logs nothing and renders no strip unless EXPO_PUBLIC_ENTER_LOG is 1', async () => {
+      setFlag(false);
+      await render(<Harness initial={'- a\ntext'} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      expect(getEnterLog()).toEqual([]);
+      expect(screen.queryByTestId('enter-log-strip')).toBeNull();
+    });
+
+    it('logs BUILD, KEY, SEL, CHG, RES and POSTSEL for one Enter and shows the strip', async () => {
+      setFlag(true);
+      await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      await caretAt(6);
+      const log = getEnterLog().join('\n');
+      expect(log).toMatch(/BUILD enter-1b mount=\d+/);
+      expect(log).toMatch(/KEY key=Enter latestSel=3-3 prevSel=3-3 shownLen=8/);
+      expect(log).toMatch(/SEL 4-4 shownLen=8/);
+      expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
+      expect(log).toMatch(/RES continued/);
+      expect(log).toMatch(/POSTSEL 6-6/);
+      expect(screen.getByTestId('enter-log-strip')).toBeTruthy();
+      expect(changes.at(-1)).toEqual(['- a\n- \ntext', 'format']);
+    });
+
+    it('logs only Enter or other for keys, never typed characters or note text', async () => {
+      setFlag(true);
+      await render(<Harness initial="zebrafish note" selection={{ start: 3, end: 3 }} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'q' } });
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await caretAt(4);
+      await fireEvent.changeText(input(), 'zebrafish notq');
+      const log = getEnterLog().join('\n');
+      expect(log).toMatch(/KEY key=other /);
+      expect(log).toMatch(/KEY key=Enter /);
+      expect(log).not.toMatch(/key=q/);
+      expect(log).not.toContain('zebrafish');
+      expect(log.replace(/BUILD.*|platform=\w+/g, '')).not.toMatch(/[qz]/);
+    });
+
+    it('logs and renders nothing through a full Enter when the flag is off', async () => {
+      // Observable part only: that the call sites build no strings is by code structure (every
+      // enterLog call and commonHead sit inside `if (enterLogOn())`), not something jest can see.
+      setFlag(false);
+      await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
+      await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await caretAt(4);
+      await fireEvent.changeText(input(), '- a\n\ntext');
+      expect(getEnterLog()).toEqual([]);
+      expect(screen.queryByTestId('enter-log-strip')).toBeNull();
+    });
+
+    it('Clear log empties the log', async () => {
+      setFlag(true);
+      await render(<Harness initial="abc" />);
+      await caretAt(1);
+      expect(getEnterLog().length).toBeGreaterThan(0);
+      await fireEvent.press(screen.getByText('Clear log'));
+      expect(getEnterLog()).toEqual([]);
+      expect(screen.getByText('Enter log (0) +')).toBeTruthy();
+    });
+
+    it('keeps at most 40 entries with rising sequence numbers', async () => {
+      setFlag(true);
+      await render(<Harness initial="abc" />);
+      for (let i = 0; i < 60; i += 1) await caretAt(i % 3);
+      const log = getEnterLog();
+      expect(log).toHaveLength(40);
+      expect(log.at(-1)).toMatch(/^#6\d /);
     });
   });
 
