@@ -139,7 +139,7 @@ export function resetNoteBodyInputOrder(): void {
 
 // DEV-ONLY diagnostic for the Enter-in-list bug (chunk 1b). Off unless __DEV__ and the bundle was
 // started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
-const ENTER_LOG_BUILD = 'android-1';
+const ENTER_LOG_BUILD = 'android-2';
 const ENTER_LOG_CAP = 40;
 const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
 // Read once at load. Every log call site and the work only the log needs sit behind this flag, so
@@ -372,7 +372,15 @@ export function NoteBodyInput({
             timers.forEach(clearTimeout);
             return;
           }
-          inputRef.current?.focus();
+          const el = inputRef.current;
+          if (!el) return;
+          // RN skips focus() while its JS state says this input is already focused (set by the
+          // first focus()), so a plain repeat never reaches native. blurTextInput clears that
+          // state (and sends a native blur, which does not hide a keyboard that is not showing);
+          // the focus() then dispatches the native focus command, which asks for the keyboard.
+          if (enterLogOn()) enterLog(`FOCUS retry nativeCmd blur+focus attempt=${i + 1}`);
+          TextInput.State.blurTextInput(el);
+          el.focus();
         }, ms),
       );
     });
@@ -589,6 +597,7 @@ export function NoteBodyInput({
         onFocus?.();
       }}
       onBlur={() => {
+        if (enterLogOn()) enterLog('FOCUS onBlur');
         setFocused(false);
         onBlur?.();
       }}

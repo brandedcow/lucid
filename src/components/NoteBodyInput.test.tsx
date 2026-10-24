@@ -636,7 +636,7 @@ describe('NoteBodyInput', () => {
           change(nl(body, 12));
         });
         const log = getEnterLog().join('\n');
-        expect(log).toMatch(/BUILD android-1 /);
+        expect(log).toMatch(/BUILD android-2 /);
         expect(log).toMatch(/CHG .*pick=12 snapshot=12/);
         expect(log).toMatch(/RES continued/);
         expect(log).toMatch(/DUP ignored which=\d+ nextLen=\d+ shownLen=\d+/);
@@ -876,7 +876,7 @@ describe('NoteBodyInput', () => {
           change('- zebrafish the\nquokka');
         });
         const log = getEnterLog().join('\n');
-        expect(log).toMatch(/BUILD android-1 /);
+        expect(log).toMatch(/BUILD android-2 /);
         expect(log).toMatch(/KEY key=Enter .*keyKind=enter keyLen=5 liveLen=22 trackedCaret=15/);
         expect(log).toMatch(
           /CHG .*liveLen=22 shownLen=22 delta=0 region=\d+\.\.\d+ .*mapped=undefined->15 path=fallback/,
@@ -938,6 +938,7 @@ describe('NoteBodyInput', () => {
       const log = getEnterLog().join('\n');
       expect(log).toMatch(/FOCUS req=1 attempt=0 kbVisible=false/);
       expect(log).toMatch(/FOCUS req=1 attempt=3 kbVisible=false/);
+      expect(log).toMatch(/FOCUS retry nativeCmd blur\+focus attempt=1/);
       expect(log).toMatch(/REMOUNT epoch=1 pending=1-1/);
       expect(log).toMatch(/RESELECT want=1-1/);
       expect(log).not.toMatch(/secret/);
@@ -957,7 +958,7 @@ describe('NoteBodyInput', () => {
       await fireEvent.changeText(input(), '- a\n\ntext');
       await caretAt(6);
       const log = getEnterLog().join('\n');
-      expect(log).toMatch(/BUILD android-1 mount=\d+/);
+      expect(log).toMatch(/BUILD android-2 mount=\d+/);
       expect(log).toMatch(/KEY key=Enter latestSel=3-3 prevSel=3-3 shownLen=8/);
       expect(log).toMatch(/SEL 4-4 shownLen=8/);
       expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
@@ -1129,6 +1130,8 @@ describe('NoteBodyInput', () => {
 describe('Android focus retry and caret re-assert', () => {
   let restore: { restore: () => void } | undefined;
   let focus: jest.SpyInstance;
+  let blur: jest.SpyInstance;
+  let order: string[];
   let setSelection: jest.Mock;
   let visible: jest.SpyInstance;
   const advance = (ms: number) =>
@@ -1142,7 +1145,13 @@ describe('Android focus retry and caret re-assert', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    focus = jest.spyOn(TextInput.prototype, 'focus');
+    order = [];
+    focus = jest.spyOn(TextInput.prototype, 'focus').mockImplementation(() => {
+      order.push('focus');
+    });
+    blur = jest.spyOn(TextInput.State, 'blurTextInput').mockImplementation(() => {
+      order.push('blur');
+    });
     setSelection = jest.fn();
     (TextInput.prototype as unknown as { setSelection: unknown }).setSelection = setSelection;
     visible = jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
@@ -1151,6 +1160,7 @@ describe('Android focus retry and caret re-assert', () => {
     restore?.restore();
     restore = undefined;
     focus.mockRestore();
+    blur.mockRestore();
     visible.mockRestore();
     delete (TextInput.prototype as unknown as { setSelection?: unknown }).setSelection;
     jest.useRealTimers();
@@ -1170,7 +1180,18 @@ describe('Android focus retry and caret re-assert', () => {
     await view.rerender(tree(2));
     await advance(lastDelay + 100);
     expect(focus).toHaveBeenCalledTimes(2);
+    expect(blur).not.toHaveBeenCalled();
     expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: each retry blurs the input state before focusing, not the first attempt', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    expect(order).toEqual(['focus']);
+    await advance(lastDelay + 100);
+    expect(order).toEqual(['focus', 'blur', 'focus', 'blur', 'focus', 'blur', 'focus']);
+    expect(blur).toHaveBeenCalledTimes(ANDROID_FOCUS_RETRY_MS.length);
   });
 
   it('Android: retries focus at each delay while the keyboard is not visible', async () => {
@@ -1195,6 +1216,7 @@ describe('Android focus retry and caret re-assert', () => {
     visible.mockReturnValue(true);
     await advance(2000);
     expect(focus).toHaveBeenCalledTimes(2);
+    expect(blur).toHaveBeenCalledTimes(1);
   });
 
   it('Android: no retries when the soft keyboard is off (panel open) or not editable', async () => {
@@ -1224,6 +1246,7 @@ describe('Android focus retry and caret re-assert', () => {
     await view.unmount();
     await advance(2000);
     expect(focus).toHaveBeenCalledTimes(1);
+    expect(blur).not.toHaveBeenCalled();
   });
 
   it('Android: a new signal cancels the old retries and starts its own', async () => {
