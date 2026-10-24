@@ -2,7 +2,7 @@
 
 Where the project stands, so anyone (human or agent) can pick it up. `docs/product.md` says what the app is; this file says what exists, what is unverified, and what to watch out for. Update it when you change the state of the project.
 
-_Last updated: 2026-10-23, branch `feat/markdown-modeux-3` (the mode-UX refinement stacked on `feat/markdown`, which is built on `feat/notes-model`; local only, not pushed, no PR yet). Jest: 118 suites, 2705 tests, all green (`LANG=en_US.UTF-8 npm run check`: typecheck, lint, format check, tests)._
+_Last updated: 2026-10-24, branch `feat/markdown` (head 341467a plus this docs commit; open PR #11 into `main`). Jest: 123 suites, 3004 tests, all green (`LANG=en_US.UTF-8 npm run check`: typecheck, lint, format check, tests)._
 
 ## 1. Where it stands
 
@@ -101,6 +101,15 @@ Notes-model decisions only; the earlier dream/journal-app decisions went with th
 - **Downgrade**: an older build ignores `notes.json` and shows only its own data. Data is kept either way.
 
 ## 6. Gaps and device checks
+
+**Device result summary for list editing (2026-10-24; supersedes the "NOT verified" wording in the list panel and Enter paragraphs below where they conflict).**
+
+- Verified on an iPhone: the list controls panel (open, type buttons back to the keyboard, movement keeps the panel), Enter continuing lists, and the indent look.
+- Verified on Android: the keyboard showing when entering edit mode, and move up / move down.
+- Not verified: on Android, the Enter fixes and the indent look; the whole editor beyond that, as listed below.
+- Known gaps: a stale `liveText` is not re-synced in every case; the same text arriving twice in one tick is dropped; old 2-space notes may need two outdent presses; outdenting a line with 4 or more leading spaces onto a fence marker can open a fence; a legacy-import note with an unclosed fence is not handled.
+- Dev tool: `EXPO_PUBLIC_ENTER_LOG=1` (with `__DEV__`) shows a dark log bar for focus, Enter and selection events. It logs lengths and offsets only, never note text. Unset, nothing is logged or shown.
+- Rules and quotes: `---` (and `***`, `___`, `- - -`) is a rule and `>` a one-line quote. Editing shows a rule as dimmed text and leaves a quote's `>` plain (`noteRunStyles.ts`); the drawn line and the quote bar (`ReadingBlockRow`) show only in the reading view, after Hide keyboard. This is read from the code, not device-checked.
 
 Only chunk 9 (drawer with parallax, left-edge swipe, Today default, inline search with highlighting, Today = created or updated today) has been accepted on the phone (2026-10-20, no per-check detail). The chunk-10 work is not yet checked, and the 6c editor spike items and every other check below remain open. Consolidated from the 6c spike checklist and the 3a, 6b, 7a, 7b and 7c reports.
 
