@@ -236,7 +236,8 @@ describe('undo and redo', () => {
     await openListPanel();
     await press('To-do list');
     expect(state?.body).toBe('- [ ] milk');
-    expect(screen.getByLabelText('To-do list').props.accessibilityState.selected).toBe(true);
+    // A type button hands the keyboard back.
+    expect(screen.queryByLabelText('Keyboard')).toBeNull();
     await fireEvent.changeText(body(), '- [ ] milk!');
     await advance(600);
     await press('Undo');
