@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Keyboard,
   NativeSyntheticEvent,
   Platform,
   StyleProp,
@@ -98,6 +99,18 @@ export type NoteBodyInputProps = {
   onRemount?: () => void;
 };
 
+/**
+ * Android only (PROVISIONAL, not tuned on a device). Reading -> editing mounts a fresh TextInput and
+ * the immediate `focus()` can fail to raise the keyboard on a view that is not laid out yet, so
+ * `focus()` is repeated at these delays (ms after the focus signal) until the keyboard is visible.
+ */
+export const ANDROID_FOCUS_RETRY_MS: readonly number[] = [60, 200, 500];
+/**
+ * Android only (PROVISIONAL): after a programmatic remount, the delay before the wanted caret is
+ * set again with `setSelection`, once the native view has its text.
+ */
+export const ANDROID_RESELECT_MS = 50;
+
 type Selections = { latest?: Sel; previous?: Sel };
 
 /** Whether `next` is `prev` with exactly one character inserted at `c`. */
@@ -126,7 +139,7 @@ export function resetNoteBodyInputOrder(): void {
 
 // DEV-ONLY diagnostic for the Enter-in-list bug (chunk 1b). Off unless __DEV__ and the bundle was
 // started with EXPO_PUBLIC_ENTER_LOG=1; then nothing is logged and nothing renders.
-const ENTER_LOG_BUILD = 'enter-1f';
+const ENTER_LOG_BUILD = 'android-1';
 const ENTER_LOG_CAP = 40;
 const readEnterLogFlag = () => __DEV__ && process.env.EXPO_PUBLIC_ENTER_LOG === '1';
 // Read once at load. Every log call site and the work only the log needs sit behind this flag, so
@@ -267,6 +280,10 @@ export function NoteBodyInput({
   const trackedCaret = useRef<number | undefined>(undefined);
   const handled = useRef<string[]>([]);
   const awaitCommit = useRef(false);
+  // Latest props for the Android focus retries (timers must not use stale closures).
+  const latestProps = useRef({ showSoftInputOnFocus, editable });
+  // Android: a selection event the user (not a programmatic edit) caused since the last remount.
+  const selectionSinceRemount = useRef(false);
   const knowSelection = (sel: Sel) => {
     selections.current = { latest: sel, previous: sel };
   };
@@ -329,9 +346,67 @@ export function NoteBodyInput({
   }, [blurSignal]);
 
   useEffect(() => {
+    latestProps.current = { showSoftInputOnFocus, editable };
+  });
+
+  useEffect(() => {
     // 0 is the initial value, not a request.
-    if (focusSignal > 0) inputRef.current?.focus();
+    if (!(focusSignal > 0)) return;
+    if (enterLogOn()) {
+      enterLog(`FOCUS req=${focusSignal} attempt=0 kbVisible=${Keyboard.isVisible()}`);
+    }
+    inputRef.current?.focus();
+    if (Platform.OS !== 'android' || !showSoftInputOnFocus || !editable) return;
+    // Android: focus() right after the mount may not raise the keyboard; repeat it until it shows.
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    ANDROID_FOCUS_RETRY_MS.forEach((ms, i) => {
+      timers.push(
+        setTimeout(() => {
+          if (!latestProps.current.showSoftInputOnFocus || !latestProps.current.editable) return;
+          const visible = Keyboard.isVisible();
+          if (enterLogOn()) {
+            enterLog(`FOCUS req=${focusSignal} attempt=${i + 1} kbVisible=${visible}`);
+          }
+          if (visible) {
+            timers.forEach(clearTimeout);
+            return;
+          }
+          inputRef.current?.focus();
+        }, ms),
+      );
+    });
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSignal]);
+
+  useEffect(() => {
+    if (!enterLogOn()) return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      enterLog(`KB show h=${Math.round(e.endCoordinates?.height ?? 0)}`);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => enterLog('KB hide'));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  // Android: the one-shot `selection` command can lose to the native text/selection events of a
+  // fresh view, so after a programmatic remount the wanted caret is set again once the text is in.
+  useEffect(() => {
+    if (epoch === 0) return;
+    selectionSinceRemount.current = false;
+    if (enterLogOn()) enterLog(`REMOUNT epoch=${epoch} pending=${fmtSel(pending)}`);
+    if (Platform.OS !== 'android' || !pending) return;
+    const want = pending;
+    const id = setTimeout(() => {
+      if (selectionSinceRemount.current) return;
+      if (enterLogOn()) enterLog(`RESELECT want=${fmtSel(want)}`);
+      inputRef.current?.setSelection(want.start, want.end);
+    }, ANDROID_RESELECT_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch]);
 
   // No deps: runs after every commit, which ends the window the guards above cover.
   useEffect(() => {
@@ -388,6 +463,7 @@ export function NoteBodyInput({
       if (enterLogOn()) enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
     }
     trackedCaret.current = undefined;
+    selectionSinceRemount.current = true;
     setPending(undefined);
     selections.current = { latest: e.nativeEvent.selection, previous: selections.current.latest };
     onSelectionChange?.(e.nativeEvent.selection);
@@ -501,6 +577,7 @@ export function NoteBodyInput({
       onKeyPress={handleKeyPress}
       onSelectionChange={handleSelection}
       onFocus={() => {
+        if (enterLogOn()) enterLog('FOCUS onFocus');
         setFocused(true);
         onFocus?.();
       }}

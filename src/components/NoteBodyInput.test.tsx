@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useEffect, useState } from 'react';
-import { Platform, TextInput } from 'react-native';
+import { Keyboard, Platform, TextInput } from 'react-native';
 import { bodyText } from '../test/bodyText';
 import * as markdownEdit from '../utils/markdownEdit';
 import {
+  ANDROID_FOCUS_RETRY_MS,
+  ANDROID_RESELECT_MS,
   NoteBodyInput,
   type NoteBodyInputProps,
   clearEnterLog,
@@ -634,7 +636,7 @@ describe('NoteBodyInput', () => {
           change(nl(body, 12));
         });
         const log = getEnterLog().join('\n');
-        expect(log).toMatch(/BUILD enter-1f /);
+        expect(log).toMatch(/BUILD android-1 /);
         expect(log).toMatch(/CHG .*pick=12 snapshot=12/);
         expect(log).toMatch(/RES continued/);
         expect(log).toMatch(/DUP ignored which=\d+ nextLen=\d+ shownLen=\d+/);
@@ -874,7 +876,7 @@ describe('NoteBodyInput', () => {
           change('- zebrafish the\nquokka');
         });
         const log = getEnterLog().join('\n');
-        expect(log).toMatch(/BUILD enter-1f /);
+        expect(log).toMatch(/BUILD android-1 /);
         expect(log).toMatch(/KEY key=Enter .*keyKind=enter keyLen=5 liveLen=22 trackedCaret=15/);
         expect(log).toMatch(
           /CHG .*liveLen=22 shownLen=22 delta=0 region=\d+\.\.\d+ .*mapped=undefined->15 path=fallback/,
@@ -911,6 +913,42 @@ describe('NoteBodyInput', () => {
       expect(getEnterLog()).toEqual([]);
     });
 
+    it('logs FOCUS, REMOUNT and RESELECT lines on Android, without note text', async () => {
+      jest.useFakeTimers();
+      const restoreOs = jest.replaceProperty(Platform, 'OS', 'android');
+      const visible = jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
+      // The RN jest mock's focus is itself a mock whose calls would leak into later tests.
+      const focus = jest.spyOn(TextInput.prototype, 'focus');
+      // The RN jest mock of TextInput has no setSelection.
+      (TextInput.prototype as unknown as { setSelection: unknown }).setSelection = jest.fn();
+      setFlag(true);
+      const view = await render(<NoteBodyInput text="secret" onChangeText={() => {}} />);
+      await view.rerender(<NoteBodyInput text="secret" onChangeText={() => {}} focusSignal={1} />);
+      await view.rerender(
+        <NoteBodyInput
+          text="secret2"
+          onChangeText={() => {}}
+          focusSignal={1}
+          selection={{ start: 1, end: 1 }}
+        />,
+      );
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      const log = getEnterLog().join('\n');
+      expect(log).toMatch(/FOCUS req=1 attempt=0 kbVisible=false/);
+      expect(log).toMatch(/FOCUS req=1 attempt=3 kbVisible=false/);
+      expect(log).toMatch(/REMOUNT epoch=1 pending=1-1/);
+      expect(log).toMatch(/RESELECT want=1-1/);
+      expect(log).not.toMatch(/secret/);
+      await view.unmount();
+      focus.mockRestore();
+      restoreOs.restore();
+      visible.mockRestore();
+      delete (TextInput.prototype as unknown as { setSelection?: unknown }).setSelection;
+      jest.useRealTimers();
+    });
+
     it('logs BUILD, KEY, SEL, CHG, RES and POSTSEL for one Enter and shows the strip', async () => {
       setFlag(true);
       await render(<Harness initial={'- a\ntext'} selection={{ start: 3, end: 3 }} />);
@@ -919,7 +957,7 @@ describe('NoteBodyInput', () => {
       await fireEvent.changeText(input(), '- a\n\ntext');
       await caretAt(6);
       const log = getEnterLog().join('\n');
-      expect(log).toMatch(/BUILD enter-1f mount=\d+/);
+      expect(log).toMatch(/BUILD android-1 mount=\d+/);
       expect(log).toMatch(/KEY key=Enter latestSel=3-3 prevSel=3-3 shownLen=8/);
       expect(log).toMatch(/SEL 4-4 shownLen=8/);
       expect(log).toMatch(/CHG prevLen=8 nextLen=9 head=4 .*pick=3 snapshot=3/);
@@ -1082,5 +1120,188 @@ describe('NoteBodyInput', () => {
     await fireEvent(input(), 'changeText', 'abcd');
     await outside('abcde');
     expect(onRemount).not.toHaveBeenCalled();
+  });
+});
+
+// Jest does not exercise the native IME or native selection: these tests only pin down when
+// focus() and setSelection() are called. Whether they fix the keyboard / caret on a device is
+// unverified.
+describe('Android focus retry and caret re-assert', () => {
+  let restore: { restore: () => void } | undefined;
+  let focus: jest.SpyInstance;
+  let setSelection: jest.Mock;
+  let visible: jest.SpyInstance;
+  const advance = (ms: number) =>
+    act(async () => {
+      jest.advanceTimersByTime(ms);
+    });
+  const noop = () => {};
+  const withOs = (os: 'ios' | 'android') => {
+    restore = jest.replaceProperty(Platform, 'OS', os);
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    focus = jest.spyOn(TextInput.prototype, 'focus');
+    setSelection = jest.fn();
+    (TextInput.prototype as unknown as { setSelection: unknown }).setSelection = setSelection;
+    visible = jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
+  });
+  afterEach(() => {
+    restore?.restore();
+    restore = undefined;
+    focus.mockRestore();
+    visible.mockRestore();
+    delete (TextInput.prototype as unknown as { setSelection?: unknown }).setSelection;
+    jest.useRealTimers();
+  });
+
+  const lastDelay = Math.max(...ANDROID_FOCUS_RETRY_MS);
+  const tree = (signal: number, extra: Partial<NoteBodyInputProps> = {}) => (
+    <NoteBodyInput text="a" onChangeText={noop} focusSignal={signal} {...extra} />
+  );
+
+  it('iOS: focuses exactly once per signal and never retries or calls setSelection', async () => {
+    withOs('ios');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    await advance(lastDelay + 100);
+    expect(focus).toHaveBeenCalledTimes(1);
+    await view.rerender(tree(2));
+    await advance(lastDelay + 100);
+    expect(focus).toHaveBeenCalledTimes(2);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: retries focus at each delay while the keyboard is not visible', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    expect(focus).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < ANDROID_FOCUS_RETRY_MS.length; i += 1) {
+      await advance((ANDROID_FOCUS_RETRY_MS[i] ?? 0) - (ANDROID_FOCUS_RETRY_MS[i - 1] ?? 0));
+      expect(focus).toHaveBeenCalledTimes(2 + i);
+    }
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(1 + ANDROID_FOCUS_RETRY_MS.length);
+  });
+
+  it('Android: stops retrying once the keyboard is visible', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    await advance(ANDROID_FOCUS_RETRY_MS[0] ?? 0);
+    expect(focus).toHaveBeenCalledTimes(2);
+    visible.mockReturnValue(true);
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(2);
+  });
+
+  it('Android: no retries when the soft keyboard is off (panel open) or not editable', async () => {
+    withOs('android');
+    const view = await render(tree(0, { showSoftInputOnFocus: false }));
+    await view.rerender(tree(1, { showSoftInputOnFocus: false }));
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(1);
+    await view.rerender(tree(2, { editable: false }));
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(2);
+  });
+
+  it('Android: stops a pending retry when the panel opens before it fires', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    await view.rerender(tree(1, { showSoftInputOnFocus: false }));
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android: makes no calls after unmount', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    await view.unmount();
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android: a new signal cancels the old retries and starts its own', async () => {
+    withOs('android');
+    const view = await render(tree(0));
+    await view.rerender(tree(1));
+    await advance(ANDROID_FOCUS_RETRY_MS[0] ?? 0);
+    await view.rerender(tree(2));
+    expect(focus).toHaveBeenCalledTimes(3);
+    await advance(2000);
+    expect(focus).toHaveBeenCalledTimes(3 + ANDROID_FOCUS_RETRY_MS.length);
+  });
+
+  it('iOS: a programmatic remount never calls setSelection', async () => {
+    withOs('ios');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 2 });
+    await advance(1000);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: a programmatic remount re-asserts the selection once, after the delay', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 3 });
+    expect(setSelection).not.toHaveBeenCalled();
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection).toHaveBeenCalledTimes(1);
+    expect(setSelection).toHaveBeenCalledWith(1, 3);
+    await advance(2000);
+    expect(setSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android: with no selection from the parent it re-asserts the end of the changed region', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abXYc');
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection).toHaveBeenCalledTimes(1);
+    expect(setSelection).toHaveBeenCalledWith(4, 4);
+  });
+
+  it('Android: clamps a selection beyond the text', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 2, end: 99 });
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection).toHaveBeenCalledWith(2, 4);
+  });
+
+  it('Android: does not re-assert when a user selection event arrived after the remount', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await caretAt(3);
+    await advance(2000);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: makes no setSelection call after unmount', async () => {
+    withOs('android');
+    const view = await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await view.unmount();
+    await advance(2000);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: each remount re-asserts its own selection', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await advance(ANDROID_RESELECT_MS);
+    await outside('abcde', { start: 2, end: 2 });
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection.mock.calls).toEqual([
+      [1, 1],
+      [2, 2],
+    ]);
   });
 });
