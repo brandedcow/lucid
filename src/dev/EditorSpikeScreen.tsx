@@ -29,6 +29,8 @@ import { colors, spacing } from '../theme';
 export const SPIKE_SEED = [
   '# Heading one',
   '## Heading two',
+  '### Heading three',
+  '---',
   'Plain line with **bold**, *italic* and a #tag in the middle.',
   '- bullet one',
   '* star bullet',
@@ -38,6 +40,13 @@ export const SPIKE_SEED = [
   '- [ ] open task',
   '- [x] done task',
   '> a quote line',
+  'Inline `code` span',
+  '```',
+  'fenced code line',
+  '```',
+  'A [web link](https://example.com) here',
+  '![image alt](https://example.com/a.png)',
+  'A [[wikilink]] here',
   '日本語の行と한국어 줄',
   'Emoji line 😀 with 🌙 moons',
   '',
@@ -107,12 +116,7 @@ function SpikeBody() {
     viewportHeight,
   });
 
-  const actionLabel =
-    editor.checkboxAction === 'check'
-      ? 'Check item'
-      : editor.checkboxAction === 'uncheck'
-        ? 'Uncheck item'
-        : 'Add checkbox';
+  const actionLabel = editor.listActions.kind === 'checkbox' ? 'Remove checkbox' : 'Add checkbox';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -200,9 +204,7 @@ function SpikeBody() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={actionLabel}
-            accessibilityState={{ disabled: editor.checkboxAction === 'none' }}
-            disabled={editor.checkboxAction === 'none'}
-            onPress={editor.toggleCheckbox}
+            onPress={() => editor.setListType('checkbox')}
             style={styles.tool}
           >
             <Text style={styles.chipText}>{actionLabel}</Text>
@@ -210,7 +212,7 @@ function SpikeBody() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Indent"
-            onPress={editor.indent}
+            onPress={editor.indentItem}
             style={styles.tool}
           >
             <Text style={styles.chipText}>Indent</Text>
@@ -218,7 +220,7 @@ function SpikeBody() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Outdent"
-            onPress={editor.outdent}
+            onPress={editor.outdentItem}
             style={styles.tool}
           >
             <Text style={styles.chipText}>Outdent</Text>

@@ -1,16 +1,25 @@
-import { Keyboard, Platform, StyleSheet, View } from 'react-native';
+import { Alert, Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { ListControlsPanel } from '../components/ListControlsPanel';
+import { NoteReadingView } from '../components/NoteReadingView';
 import { NoteToolbar } from '../components/NoteToolbar';
+import { RecordFab } from '../components/RecordFab';
 import { PanelRecording, RecordingPanel } from '../components/RecordingPanel';
+import { WikiLinkSuggestionBar } from '../components/WikiLinkSuggestionBar';
 import { TagSuggestionBar } from '../components/TagSuggestionBar';
 import { VoiceNoteCarousel } from '../components/VoiceNoteCarousel';
 import { VoiceNoteSheet } from '../components/VoiceNoteSheet';
 import { useAutoTranscribe, type AutoTranscribeSource } from '../hooks/useAutoTranscribe';
 import { useEntryHistory } from '../hooks/useEntryHistory';
 import type { NoteSession } from '../hooks/noteSessionState';
+import { useListPanel } from '../hooks/useListPanel';
 import { useNoteEditor } from '../hooks/useNoteEditor';
+import { useNoteMode } from '../hooks/useNoteMode';
 import type { useNoteSession } from '../hooks/useNoteSession';
 import { stopAllPlayback } from '../hooks/useRecordingPlayback';
+import { noteLinkState, useTitleIndex } from '../hooks/useTitleIndex';
+import type { Note } from '../services/notesStorage';
+import { openWebLink } from '../services/openLink';
 import { UNSUPPORTED_TRANSCRIPTION } from '../services/transcription';
 import type { SessionRecording } from '../types/recording';
 import {
@@ -20,12 +29,16 @@ import {
   inlineTags,
   insertHash,
 } from '../utils/inlineTags';
+import { setListType as planListType, type ListKind } from '../utils/markdownList';
+import { activeWikiToken, completeWikiToken, matchTitles } from '../utils/noteLinks';
 import { suggestTags } from '../utils/tagSuggestions';
 import { appendTranscript } from '../utils/transcriptAppend';
-import { NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
+import { BODY_PLACEHOLDER, NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
 
 const MICROPHONE_MESSAGE =
   'Lucid needs the microphone to record a voice note. You can allow it in Settings.';
+
+export const LINK_COPY = { openFailedTitle: "Couldn't open this link" };
 
 type SessionActions = Pick<
   ReturnType<typeof useNoteSession>,
@@ -45,6 +58,12 @@ type SessionActions = Pick<
  *   recording: "Discard this recording?"). onRecordingDiscarded: the user discarded to leave.
  * - locked (NoteEditorScreen's): the parent releases it after a failed leave or delete.
  *
+ * Modes: a stored note opens in the reading view (rendered markdown, no input), a new note in
+ * editing. A tap in the reading view (a line, or the empty space below it) enters editing with the
+ * caret placed; the toolbar's Hide keyboard button or the keyboard hiding returns to reading
+ * (`useNoteMode`). The toolbar is shown only while editing. notes / imagesEnabled / onFollowNoteLink
+ * feed the reading view: wiki link state, the load-images setting, and following a `[[note]]` link.
+ *
  * Undo / redo (one stack: body text and closing a voice note card): typing is grouped, a checkbox
  * toggle, a tag completion, the # button and "Add transcript" are each their own step. Off while
  * the recording panel is open. Tag bar: shown while the body has focus and the keyboard is up, the
@@ -53,7 +72,19 @@ type SessionActions = Pick<
  */
 export type NoteEditorWithVoiceProps = Omit<
   NoteEditorScreenProps,
-  'editor' | 'attachment' | 'recordingPanel' | 'suggestions' | 'toolbar' | 'stored' | 'pinned'
+  | 'editor'
+  | 'attachment'
+  | 'recordingPanel'
+  | 'suggestions'
+  | 'toolbar'
+  | 'listPanel'
+  | 'panelActive'
+  | 'panelHeight'
+  | 'stored'
+  | 'pinned'
+  | 'mode'
+  | 'readingView'
+  | 'revealRequest'
 > & {
   session: NoteSession;
   actions: SessionActions;
@@ -62,9 +93,13 @@ export type NoteEditorWithVoiceProps = Omit<
   onRecordingChange?: (recording: boolean) => void;
   leaveRef?: MutableRefObject<(() => void) | null>;
   onRecordingDiscarded?: () => void;
+  notes?: readonly Note[];
+  imagesEnabled?: boolean;
+  onFollowNoteLink?: (target: string) => void;
 };
 
 const NO_TAGS: readonly string[] = [];
+const NO_NOTES: readonly Note[] = [];
 
 export function NoteEditorWithVoice({
   session,
@@ -74,7 +109,11 @@ export function NoteEditorWithVoice({
   onRecordingChange,
   leaveRef,
   onRecordingDiscarded,
+  notes = NO_NOTES,
+  imagesEnabled = false,
+  onFollowNoteLink,
   locked,
+  autoFocus,
   ...page
 }: NoteEditorWithVoiceProps) {
   const body = session.body;
@@ -106,6 +145,48 @@ export function NoteEditorWithVoice({
 
   const editor = useNoteEditor({ body, setBody: history.onBodyChange });
 
+  const noteMode = useNoteMode({
+    initial: autoFocus || !session.stored ? 'editing' : 'reading',
+    locked,
+    recording,
+  });
+  const reading = noteMode.mode === 'reading';
+  // The list panel stands in for the keyboard. Its blur path bumps a per-mount counter (only ever
+  // on a user action) that NoteBodyInput watches, like the editor's focus signal.
+  const [blurSignal, setBlurSignal] = useState(0);
+  const panel = useListPanel({
+    noteMode,
+    focus: editor.focus,
+    blur: () => setBlurSignal((n) => n + 1),
+    isEditing: !reading,
+    locked,
+  });
+  const panelOpen = panel.panelOpen;
+  // Stable callbacks (the control object itself is new each render), for the memo below.
+  const { notifyFocus, notifyBlur, notifyRemount } = noteMode;
+  const [reveal, setReveal] = useState<{ y: number; token: number } | undefined>(undefined);
+  const titleIndex = useTitleIndex(notes, { id: session.id, body }, reading);
+
+  // Leaving editing (Hide keyboard, or the keyboard hiding) ends the typing step and the body's focus.
+  const wasReading = useRef(reading);
+  useEffect(() => {
+    if (reading && !wasReading.current) {
+      history.onBodyBlur();
+      editor.markBlurred();
+    }
+    wasReading.current = reading;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on a mode change
+  }, [reading]);
+
+  // A new note opened with text already in it (a link to a missing note): typing continues after it.
+  useEffect(() => {
+    if (autoFocus && !session.stored && body.length > 0) {
+      editor.select({ start: body.length, end: body.length });
+    }
+    // Once on mount; the screen's own mount effect requests the focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Whether the input has ever reported a caret (until then the # button goes to the end).
   const selectionKnown = useRef(false);
   // The keyboard closed while the body may still be focused: the bar hides until it opens again.
@@ -135,21 +216,51 @@ export function NoteEditorWithVoice({
         },
         onFocus: () => {
           setKeyboardHidden(false);
+          notifyFocus();
           editor.inputProps.onFocus?.();
         },
         onBlur: () => {
           history.onBodyBlur();
+          notifyBlur();
           editor.inputProps.onBlur?.();
         },
+        onRemount: notifyRemount,
+        blurSignal,
+        showSoftInputOnFocus: !panelOpen,
+        caretHidden: panel.caretHidden,
       },
       // A format edit is its own undo step, apart from the typing around it.
-      toggleCheckbox: () => {
+      indentItem: () => {
         history.onBodyBlur();
-        editor.toggleCheckbox();
+        editor.indentItem();
+        history.onBodyBlur();
+      },
+      outdentItem: () => {
+        history.onBodyBlur();
+        editor.outdentItem();
+        history.onBodyBlur();
+      },
+      moveItem: (dir: 'up' | 'down') => {
+        history.onBodyBlur();
+        editor.moveItem(dir);
+        history.onBodyBlur();
+      },
+      setListType: (kind: ListKind) => {
+        history.onBodyBlur();
+        editor.setListType(kind);
         history.onBodyBlur();
       },
     }),
-    [editor, history],
+    [
+      editor,
+      history,
+      notifyFocus,
+      notifyBlur,
+      notifyRemount,
+      blurSignal,
+      panelOpen,
+      panel.caretHidden,
+    ],
   );
 
   /** A tag action or transcript: its own undo step; the caret goes to `cursor`. */
@@ -175,7 +286,11 @@ export function NoteEditorWithVoice({
     return out;
   }, [knownTags]);
   const sel = editor.selection;
-  const token = sel.start === sel.end ? activeToken(body, sel.end) : null;
+  const wikiToken = sel.start === sel.end ? activeWikiToken(body, sel) : null;
+  const wikiIndex = useTitleIndex(notes, { id: session.id, body }, wikiToken !== null);
+  const wikiMatches =
+    wikiToken && wikiIndex ? matchTitles(wikiIndex, wikiToken.query, 20, session.id) : [];
+  const token = sel.start === sel.end && !wikiToken ? activeToken(body, sel.end) : null;
   // Tags elsewhere in this note (the word under the caret left out), from the body on every render.
   const offered = token
     ? suggestTags(
@@ -185,14 +300,34 @@ export function NoteEditorWithVoice({
       )
     : [];
   const showBar =
+    !reading &&
+    !panelOpen &&
     !locked &&
     !recording &&
     editor.focused &&
     !keyboardHidden &&
     token !== null &&
     offered.length > 0;
+  const showWikiBar =
+    !reading &&
+    !panelOpen &&
+    !locked &&
+    !recording &&
+    editor.focused &&
+    !keyboardHidden &&
+    wikiToken !== null &&
+    wikiMatches.length > 0;
   const suggestions =
-    showBar && token ? (
+    showWikiBar && wikiToken ? (
+      <WikiLinkSuggestionBar
+        matches={wikiMatches}
+        onPick={(entry) => {
+          const r = completeWikiToken(body, wikiToken, entry.title);
+          if (!r.selection) return;
+          applyBodyEdit({ text: r.text, cursor: r.selection.end }, true);
+        }}
+      />
+    ) : showBar && token ? (
       <TagSuggestionBar
         matches={offered}
         onPick={(tag) => applyBodyEdit(completeToken(body, token, tag), true)}
@@ -220,6 +355,8 @@ export function NoteEditorWithVoice({
     if (!shown.some((r) => r.id === id)) return;
     stopAllPlayback();
     // A focused body would keep the keyboard over the view; blurring it also ends the typing step.
+    // With the list panel open there is no keyboard hide event to end editing, so end it here.
+    if (panelOpen) noteMode.done();
     Keyboard.dismiss();
     setRecordedAts(Object.fromEntries(shown.map((r) => [r.id, recordedAtOf(r)])));
     setFocusedNote(id);
@@ -266,23 +403,95 @@ export function NoteEditorWithVoice({
     />
   ) : undefined;
 
-  const toolbar = (
+  // Leaves editing: the typing step ends, the body is blurred and the note shows again.
+  const finishEditing = () => {
+    noteMode.done();
+    history.onBodyBlur();
+    editor.markBlurred();
+    Keyboard.dismiss();
+  };
+
+  // Recording must not overlap playback. Shared by the toolbar mic and the reading-mode button.
+  const startRecording = () => {
+    stopAllPlayback();
+    // With the list panel open there is no keyboard hide event to end editing, so end it here.
+    if (panelOpen) noteMode.done();
+    Keyboard.dismiss();
+    setRecording(true);
+  };
+
+  const fab =
+    reading && !locked && !recording && !sheetOpen
+      ? (inset: number) => <RecordFab bottomInset={inset} onPress={startRecording} />
+      : undefined;
+
+  const toolbar = reading ? undefined : (
     <NoteToolbar
       canUndo={history.canUndo && !recording}
       canRedo={history.canRedo && !recording}
       onUndo={history.undo}
       onRedo={history.redo}
       micDisabled={locked}
-      onMic={() => {
-        // Recording must not overlap playback.
-        stopAllPlayback();
-        Keyboard.dismiss();
-        setRecording(true);
-      }}
+      onDismissKeyboard={finishEditing}
+      onMic={startRecording}
       onTags={insertTagStart}
-      checkboxAction={editor.checkboxAction}
-      onCheckbox={boundEditor.toggleCheckbox}
+      listPanelOpen={panelOpen}
+      onListPanel={panel.togglePanel}
       disabled={locked}
+    />
+  );
+
+  // A type change hands the keyboard back so typing can go on. Only when the edit changed the text
+  // (a no-op, e.g. on a heading, leaves the panel as it is). The edit and the closePanel run in one
+  // event, so the remount sees showSoftInputOnFocus already true.
+  const changeListType = (kind: ListKind) => {
+    const changed = planListType(editor.inputProps.text, editor.selection, kind);
+    boundEditor.setListType(kind);
+    if (changed && changed.text !== editor.inputProps.text) panel.showKeyboard();
+  };
+
+  const listPanel = (height: number) => (
+    <ListControlsPanel
+      actions={editor.listActions}
+      disabled={locked}
+      height={height}
+      onIndent={boundEditor.indentItem}
+      onOutdent={boundEditor.outdentItem}
+      onMoveUp={() => boundEditor.moveItem('up')}
+      onMoveDown={() => boundEditor.moveItem('down')}
+      onType={changeListType}
+      onKeyboard={panel.showKeyboard}
+    />
+  );
+
+  const startEditing = (offset: number, y?: number) => {
+    if (locked || recording) return;
+    editor.select({ start: offset, end: offset });
+    noteMode.enterEditing();
+    editor.focus();
+    if (y !== undefined) setReveal((r) => ({ y, token: (r?.token ?? 0) + 1 }));
+  };
+
+  const readingView = (
+    <NoteReadingView
+      body={body}
+      onEdit={startEditing}
+      onToggleCheckbox={(offset) => {
+        // A checkbox toggle is its own undo step; the caret and the mode stay as they are.
+        history.onBodyBlur();
+        editor.toggleCheckboxAt(offset);
+        history.onBodyBlur();
+      }}
+      onOpenWeb={(url) => {
+        void openWebLink(url).then((ok) => {
+          if (!ok) Alert.alert(LINK_COPY.openFailedTitle, undefined, [{ text: 'OK' }]);
+        });
+      }}
+      onOpenNote={(target) => onFollowNoteLink?.(target)}
+      noteLinkState={(target) => noteLinkState(titleIndex, target, session.id)}
+      imagesEnabled={imagesEnabled}
+      linksDisabled={locked || recording}
+      placeholder={BODY_PLACEHOLDER}
     />
   );
 
@@ -300,11 +509,18 @@ export function NoteEditorWithVoice({
           stored={session.stored}
           pinned={session.pinned}
           locked={locked}
+          autoFocus={autoFocus}
+          mode={noteMode.mode}
+          readingView={readingView}
+          revealRequest={reveal}
           editor={boundEditor}
           attachment={attachment}
           recordingPanel={recordingPanel}
           suggestions={suggestions}
           toolbar={toolbar}
+          listPanel={listPanel}
+          panelActive={panelOpen && !reading}
+          fab={fab}
         />
       </View>
       {sheetOpen && openIndex >= 0 && (

@@ -26,6 +26,7 @@ import { noteHasDeletableAudio } from '../utils/deletedRow';
 import { migrationNotice } from '../utils/migrationNotice';
 import { LAUNCH_CAP_MS, noteLaunchTarget } from '../utils/noteLaunch';
 import { shouldResumeNewDay } from '../utils/noteResume';
+import { buildTitleIndex, resolveWikilink } from '../utils/noteLinks';
 import { noteTitle } from '../utils/noteTitle';
 import { tagsByUse } from '../utils/noteViewLabels';
 import { dayDone, type NoteView } from '../utils/noteViews';
@@ -45,6 +46,10 @@ export const FLOW_COPY = {
   deleteFailedTitle: "Couldn't delete this note.",
   deleteFailedMessage: 'Nothing was changed.',
   movedToTrash: 'Moved to Recently Deleted',
+  linkFailedTitle: "Couldn't open that note",
+  openedLink: (title: string) => `Opened "${title}"`,
+  createdLink: (title: string) => `Created "${title}"`,
+  backToPreviousNote: 'Back to previous note',
 } as const;
 
 /** Copy for the trash, restore, pin and delete-forever actions (one place to edit the wording). */
@@ -65,6 +70,9 @@ export const TRASH_COPY = {
   unpinFailedTitle: "Couldn't unpin this note.",
   pinFailedMessage: 'Nothing was changed.',
 } as const;
+
+/** The most previous notes the Back trail remembers (the oldest is dropped). */
+const TRAIL_CAP = 50;
 
 /** The view the list starts on, and the one it returns to when the selected tag disappears. */
 const DEFAULT_VIEW: ListView = { kind: 'today' };
@@ -143,6 +151,14 @@ function useAppFlowValue() {
   const launchNote = useRef(false);
   // The pin value that could not be saved, for the banner's Try again.
   const [failedPin, setFailedPin] = useState<boolean | null>(null);
+  // The notes the user followed links from, oldest first (ids only; in memory, never stored). The
+  // count mirrors its length for the Back label only.
+  const trailRef = useRef<string[]>([]);
+  const [trailCount, setTrailCount] = useState(0);
+  const clearTrail = useCallback(() => {
+    trailRef.current = [];
+    setTrailCount(0);
+  }, []);
 
   // Launch: once the notes, the import, the day marker and the settings are read, the launch rule
   // picks a new note or the list. If they are not ready in time a new note opens anyway, and late
@@ -156,6 +172,7 @@ function useAppFlowValue() {
   // editor) and the resume on a new day (`navigate` pushes the editor over the current screen).
   const openLaunchNote = useCallback(
     (navigate: () => void) => {
+      clearTrail();
       openNew();
       launchNote.current = true;
       resetAllowLeave();
@@ -163,7 +180,7 @@ function useAppFlowValue() {
       setLocked(false);
       navigate();
     },
-    [openNew, resetAllowLeave],
+    [openNew, resetAllowLeave, clearTrail],
   );
   const startOnEditor = useCallback(() => setStartInEditor(true), []);
   useEffect(() => {
@@ -221,6 +238,7 @@ function useAppFlowValue() {
   const openNewNote = () => {
     if (busy.current || notes.indexStatus === 'unreadable' || session) return;
     if (!navigationRef.isReady() || currentRoute() === 'Editor') return;
+    clearTrail();
     noteSession.openNew();
     launchNote.current = false;
     resetAllowLeave();
@@ -235,6 +253,7 @@ function useAppFlowValue() {
     if (!navigationRef.isReady() || currentRoute() === 'Editor') return;
     const note = notes.all.find((n) => n.id === id);
     if (!note) return;
+    clearTrail();
     if (!noteSession.open(note)) {
       // The list was stale: the note is in Recently Deleted.
       void refresh();
@@ -250,6 +269,7 @@ function useAppFlowValue() {
 
   // Refreshes the list, then pops Editor once (see `allowLeave`).
   const popEditor = async () => {
+    clearTrail();
     await refresh();
     busy.current = false;
     if (!mounted.current) return;
@@ -258,12 +278,44 @@ function useAppFlowValue() {
     setAllowLeave(true);
   };
 
+  // Where the user goes once the note was left or deleted without error: the previous note of the
+  // trail when there is a live one (the route stays), else the list. The list is read fresh after
+  // the leave, so the previous note's body is current and the note just left is saved. The editor
+  // stays locked (and so protected) until the previous note is open; no await follows `open`.
+  const afterLeave = async () => {
+    if (trailRef.current.length > 0) {
+      let fresh = await refresh();
+      if (!fresh) fresh = await refresh();
+      if (!mounted.current) return;
+      if (fresh) {
+        const trail = trailRef.current;
+        while (trail.length > 0) {
+          const id = trail.pop();
+          const previous = fresh.find((n) => n.id === id && !n.deletedAt);
+          if (!previous || !noteSession.open(previous)) continue;
+          setTrailCount(trail.length);
+          launchNote.current = false;
+          resetAllowLeave();
+          setFailedPin(null);
+          busy.current = false;
+          setLocked(false);
+          AccessibilityInfo.announceForAccessibility(
+            FLOW_COPY.openedLink(noteTitle(previous.body)),
+          );
+          return;
+        }
+      }
+      clearTrail();
+    }
+    await popEditor();
+  };
+
   // The note was left or deleted without error.
   const finishLeave = async (kept: boolean, wasStored: boolean) => {
     if (launchNote.current && !kept) dayMarker.markDayDone(todayKey);
     launchNote.current = false;
     if (!kept && wasStored) AccessibilityInfo.announceForAccessibility(FLOW_COPY.movedToTrash);
-    await popEditor();
+    await afterLeave();
   };
 
   const leaveAnyway = async () => {
@@ -273,6 +325,16 @@ function useAppFlowValue() {
     const wasStored = session.stored;
     const result = await noteSession.leave({ discardUnsaved: true });
     await finishLeave(result.kept, wasStored);
+  };
+
+  // A save before leaving failed: stay on the note with everything on screen.
+  const showLeaveFailed = () => {
+    busy.current = false;
+    setLocked(false);
+    Alert.alert(FLOW_COPY.leaveFailedTitle, FLOW_COPY.leaveFailedMessage, [
+      { text: FLOW_COPY.keepEditing, style: 'cancel' },
+      { text: FLOW_COPY.leaveAnyway, style: 'destructive', onPress: () => void leaveAnyway() },
+    ]);
   };
 
   // Every way out of the editor (arrow, Android back, iOS edge swipe) ends here.
@@ -294,13 +356,7 @@ function useAppFlowValue() {
     }
     if (!mounted.current) return;
     if ('error' in result) {
-      // Stay on the note with everything on screen.
-      busy.current = false;
-      setLocked(false);
-      Alert.alert(FLOW_COPY.leaveFailedTitle, FLOW_COPY.leaveFailedMessage, [
-        { text: FLOW_COPY.keepEditing, style: 'cancel' },
-        { text: FLOW_COPY.leaveAnyway, style: 'destructive', onPress: () => void leaveAnyway() },
-      ]);
+      showLeaveFailed();
       return;
     }
     await finishLeave(result.kept, wasStored);
@@ -328,7 +384,7 @@ function useAppFlowValue() {
     }
     AccessibilityInfo.announceForAccessibility(FLOW_COPY.movedToTrash);
     launchNote.current = false;
-    await popEditor();
+    await afterLeave();
   };
 
   // A failed pin leaves the session in its save-error state, which shows the banner.
@@ -507,6 +563,80 @@ function useAppFlowValue() {
     }
   };
 
+  /** Records the note the user came from, so Back can return to it. */
+  const pushTrail = (fromId: string) => {
+    const trail = trailRef.current;
+    trail.push(fromId);
+    if (trail.length > TRAIL_CAP) trail.splice(0, trail.length - TRAIL_CAP);
+    setTrailCount(trail.length);
+  };
+
+  /**
+   * Follows a `[[note]]` link from the open note: opens the note with that title in place, or
+   * creates one. The route does not change. Every await comes before `leave()` resolves into
+   * `open`/`openNew`, so nothing can slip in between the old note closing and the new one opening.
+   */
+  const followNoteLink = async (target: string): Promise<void> => {
+    if (busy.current || trashBusyRef.current || !session || !mounted.current) return;
+    if (entryRecordingRef.current || notes.indexStatus === 'unreadable') return;
+    if (currentRoute() !== 'Editor') return;
+    busy.current = true;
+    setLocked(true);
+    const unlock = () => {
+      busy.current = false;
+      if (mounted.current) setLocked(false);
+    };
+    const from = session;
+    // The list in state can be stale (the open note's own saves refresh it, others may not): read
+    // fresh, once more if that load failed or was superseded.
+    let fresh = await refresh();
+    if (!fresh) fresh = await refresh();
+    if (!mounted.current) return;
+    if (!fresh) {
+      unlock();
+      Alert.alert(FLOW_COPY.linkFailedTitle, undefined, [{ text: FLOW_COPY.ok }]);
+      return;
+    }
+    const index = buildTitleIndex(fresh, { id: from.id, body: from.body });
+    const res = resolveWikilink(index, target, from.id);
+    if (res.kind === 'invalid' || (res.kind === 'existing' && res.id === from.id)) {
+      unlock();
+      return;
+    }
+    let result: Awaited<ReturnType<typeof noteSession.leave>>;
+    try {
+      result = await noteSession.leave();
+    } catch (error) {
+      result = { kept: true, error };
+    }
+    if (!mounted.current) return;
+    if ('error' in result) {
+      showLeaveFailed();
+      return;
+    }
+    // No await from here to the end of the open.
+    if (launchNote.current && !result.kept) dayMarker.markDayDone(todayKey);
+    launchNote.current = false;
+    if (res.kind === 'existing') {
+      const note = fresh.find((n) => n.id === res.id);
+      if (!note || !noteSession.open(note)) {
+        // Cannot happen with a fresh list; fall back to the list.
+        await popEditor();
+        return;
+      }
+    } else {
+      noteSession.openNew({ body: res.title });
+    }
+    resetAllowLeave();
+    setFailedPin(null);
+    busy.current = false;
+    setLocked(false);
+    if (result.kept) pushTrail(from.id);
+    announce(
+      res.kind === 'existing' ? FLOW_COPY.openedLink(res.title) : FLOW_COPY.createdLink(res.title),
+    );
+  };
+
   // Returning to the app on a new day: push a new launch note over whatever screen is showing
   // (leaving it returns there). The token is consumed on every change, so a blocked resume is never
   // retried later; `shouldResumeNewDay` holds every guard. No timer: `useToday` raises the token.
@@ -575,9 +705,11 @@ function useAppFlowValue() {
     entryRecordingRef: entryRecordingRef as MutableRefObject<boolean>,
     entryLeaveRef: entryLeaveRef as MutableRefObject<(() => void) | null>,
     locked,
+    backLabel: trailCount > 0 ? FLOW_COPY.backToPreviousNote : undefined,
     banner,
     leaveEditor,
     deleteOpenNote,
+    followNoteLink,
     togglePin,
     allowLeaveRef,
     allowLeave,

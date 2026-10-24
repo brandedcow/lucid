@@ -30,7 +30,8 @@ const TRASH: NoteView = { kind: 'trash' };
  * them: `visible` (the search results when `query` is not blank, else the chosen `view`),
  * `trashed` and the tag counts. Changing the view or the query needs no storage read.
  * The first load runs on mount; `refresh()` reloads notes and index status together and resolves
- * once state is updated (safe to call from `useNoteSession`'s `onChange`). Only the newest load
+ * once state is updated, with the loaded notes (Recently Deleted ones included) or `null` when the
+ * load failed or a newer one superseded it (safe to call from `useNoteSession`'s `onChange`). Only the newest load
  * may update state, so a slow earlier one cannot overwrite a fresher one, and nothing updates
  * after unmount. A failed load keeps the previous data and sets `error`; if nothing ever loaded,
  * `all` is [] and `loaded` still becomes true.
@@ -48,7 +49,7 @@ export function useNotes(args: { view: NoteView; query?: string; todayKey: strin
   visible: Note[];
   trashed: Note[];
   tags: TagCount[];
-  refresh(): Promise<void>;
+  refresh(): Promise<Note[] | null>;
   pin(id: string, pinned: boolean): Promise<boolean>;
   trash(id: string): Promise<boolean>;
   restore(id: string): Promise<boolean>;
@@ -63,21 +64,23 @@ export function useNotes(args: { view: NoteView; query?: string; todayKey: strin
   const requestId = useRef(0);
   const mounted = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<Note[] | null> => {
     const id = ++requestId.current;
     try {
       const [list, status] = await Promise.all([
         listNotes({ includeDeleted: true }),
         getIndexStatus(),
       ]);
-      if (!mounted.current || id !== requestId.current) return;
+      if (!mounted.current || id !== requestId.current) return null;
       setAll(list);
       setIndexStatus(status);
       setLoaded(true);
+      return list;
     } catch (cause) {
-      if (!mounted.current || id !== requestId.current) return;
+      if (!mounted.current || id !== requestId.current) return null;
       setError({ action: 'load', code: codeOf(cause), cause });
       setLoaded(true);
+      return null;
     }
   }, []);
 

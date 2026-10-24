@@ -1,4 +1,5 @@
-import { checkboxAction, continueList, indentLines, lineAt, toggleCheckbox } from './markdownEdit';
+import { continueList, lineAt, mapCaretThroughEdit, toggleCheckboxAtLine } from './markdownEdit';
+import { parseListPrefix } from './markdownLines';
 
 /** Simulates typing Enter at `c` in `prev`. */
 const enter = (prev: string, c: number) => prev.slice(0, c) + '\n' + prev.slice(c);
@@ -56,10 +57,20 @@ describe('continueList', () => {
   });
 
   it('outdents an empty indented bullet first, then exits', () => {
-    const first = cont('- a\n    - ');
-    expect(first).toEqual({ text: '- a\n  - ', selection: at(8) });
-    expect(cont(first!.text)).toEqual({ text: '- a\n- ', selection: at(6) });
+    // 2-space note: 2 -> 0 (the marker stays), then the empty item is dropped at indent 0.
+    const first = cont('- a\n  - ');
+    expect(first).toEqual({ text: '- a\n- ', selection: at(6) });
+    expect(cont(first!.text)).toEqual({ text: '- a\n', selection: at(4) });
+    // 4-space note: 4 -> 0 in one step.
+    expect(cont('- a\n    - ')).toEqual({ text: '- a\n- ', selection: at(6) });
+    // A 6-width item under a 2-width parent goes to the parent's width, then 0.
+    const mixed = cont('- a\n  - b\n      - ');
+    expect(mixed).toEqual({ text: '- a\n  - b\n  - ', selection: at(14) });
+    expect(cont(mixed!.text)).toEqual({ text: '- a\n  - b\n- ', selection: at(12) });
     expect(cont('- a\n\t- ')).toEqual({ text: '- a\n- ', selection: at(6) });
+    // Enter on a non-empty nested item keeps its own indent string, in either note style.
+    expect(cont('- a\n  - b')).toEqual({ text: '- a\n  - b\n  - ', selection: at(14) });
+    expect(cont('- a\n    - b')).toEqual({ text: '- a\n    - b\n    - ', selection: at(18) });
   });
 
   it('exits an empty checkbox with and without the trailing space', () => {
@@ -126,8 +137,72 @@ describe('continueList', () => {
     expect(continueList('- a', '- a\n', 99)).toEqual({ text: '- a\n- ', selection: at(6) });
   });
 
-  it('does not renumber following items', () => {
-    expect(cont('1. a\n2. b', 4)).toEqual({ text: '1. a\n2. \n2. b', selection: at(8) });
+  // Reversed on purpose (user decision 2026-10-23): a new numbered item renumbers the items after
+  // it in the same run. It used to be "does not renumber following items".
+  describe('numbered renumbering', () => {
+    it('renumbers the following items from the new one', () => {
+      expect(cont('1. a\n2. b', 4)).toEqual({ text: '1. a\n2. \n3. b', selection: at(8) });
+      expect(cont('1. a\n2. b\n3. c', 4)).toEqual({
+        text: '1. a\n2. \n3. b\n4. c',
+        selection: at(8),
+      });
+    });
+
+    it('splitting mid-item moves the rest to the new item and renumbers', () => {
+      expect(cont('1. ab\n2. c', 4)).toEqual({ text: '1. a\n2. b\n3. c', selection: at(8) });
+    });
+
+    it('handles digit growth (9 -> 10 -> 11)', () => {
+      expect(cont('9. a\n10. b', 4)).toEqual({ text: '9. a\n10. \n11. b', selection: at(9) });
+    });
+
+    it('leaves deeper items untouched and does not end the run on them', () => {
+      expect(cont('1. a\n  1. x\n2. b', 4)).toEqual({
+        text: '1. a\n2. \n  1. x\n3. b',
+        selection: at(8),
+      });
+    });
+
+    it('ends the run at a blank line', () => {
+      expect(cont('1. a\n2. b\n\n3. c', 4)!.text).toBe('1. a\n2. \n3. b\n\n3. c');
+    });
+
+    it('ends the run at a non-list line', () => {
+      expect(cont('1. a\n2. b\ntext\n3. c', 4)!.text).toBe('1. a\n2. \n3. b\ntext\n3. c');
+    });
+
+    it('ends the run at a line with a smaller indent', () => {
+      expect(cont('  1. a\n  2. b\n3. c', 6)!.text).toBe('  1. a\n  2. \n  3. b\n3. c');
+    });
+
+    it('ends the run at a bullet of the same indent', () => {
+      expect(cont('1. a\n2. b\n- c\n3. d', 4)!.text).toBe('1. a\n2. \n3. b\n- c\n3. d');
+    });
+
+    it('uses the body line ending and keeps others', () => {
+      expect(cont('1. a\r\n2. b', 4)).toEqual({ text: '1. a\r\n2. \r\n3. b', selection: at(9) });
+    });
+
+    it('is null when a renumbered item would not be a safe integer', () => {
+      // The new item (…991) is safe, the item after it would be …992.
+      expect(cont('9007199254740990. a\n1. b', 19)).toBeNull();
+    });
+
+    it('does not touch bullets or checkboxes', () => {
+      expect(cont('- a\n1. b', 3)!.text).toBe('- a\n- \n1. b');
+    });
+  });
+
+  // continueList stays pure: the caller (NoteBodyInput) must pass a caret that is consistent with
+  // the text. In a run of newlines, offsets c and c+1 both reproduce `next`.
+  it('continues when given the real caret in a newline run, plain newline for the stale one', () => {
+    expect(continueList('- a\ntext', '- a\n\ntext', 3)).toEqual({
+      text: '- a\n- \ntext',
+      selection: at(6),
+    });
+    // Stale caret 4 (one past the real one) is also "consistent", so it reads as an Enter typed on
+    // the blank line under the item: null. The caller must never pass it.
+    expect(continueList('- a\ntext', '- a\n\ntext', 4)).toBeNull();
   });
 
   it('is null for unsafe numbers', () => {
@@ -135,152 +210,94 @@ describe('continueList', () => {
   });
 });
 
-describe('checkboxAction / toggleCheckbox', () => {
-  const table: [string, string, string, string][] = [
-    ['unchecked -> checked', '- [ ] a', 'check', '- [x] a'],
-    ['checked -> unchecked', '- [x] a', 'uncheck', '- [ ] a'],
-    ['uppercase X -> unchecked', '- [X] a', 'uncheck', '- [ ] a'],
-    ['no trailing space', '- [ ]', 'check', '- [x]'],
-    ['star checkbox', '* [ ] a', 'check', '* [x] a'],
-    ['bullet -> checkbox', '- a', 'add', '- [ ] a'],
-    ['star bullet keeps its char', '* a', 'add', '* [ ] a'],
-    ['indented star bullet keeps its char', '  * a', 'add', '  * [ ] a'],
-    ['plus is not a bullet -> plain line', '+ a', 'add', '- [ ] + a'],
-    ['indented bullet', '  - a', 'add', '  - [ ] a'],
-    ['numbered -> checkbox', '3. a', 'add', '- [ ] a'],
-    ['indented numbered', '  3. a', 'add', '  - [ ] a'],
-    ['plain -> checkbox', 'a', 'add', '- [ ] a'],
-    ['indented plain', '  a', 'add', '  - [ ] a'],
-    ['blank -> checkbox', '', 'add', '- [ ] '],
-  ];
-  it.each(table)('%s', (_n, text, action, out) => {
-    expect(checkboxAction(text, at(text.length))).toBe(action);
-    expect(toggleCheckbox(text, at(text.length))!.text).toBe(out);
+describe('code, fence and rule lines are plain for the edit helpers', () => {
+  const fenced = '```\n- item\n- [ ] box\n1. one\n```';
+
+  it.each([
+    ['inside a fence, bullet', fenced, 9],
+    ['inside a fence, checkbox', fenced, 19],
+    ['inside a fence, numbered', fenced, 27],
+    ['unclosed fence', '```\n- a', 7],
+  ])('continueList leaves Enter alone: %s', (_n, text, c) => {
+    expect(cont(text, c)).toBeNull();
   });
 
-  it('keeps the star bullet through add, check and uncheck', () => {
-    const added = toggleCheckbox('* a', at(3))!;
-    expect(added.text).toBe('* [ ] a');
-    const checked = toggleCheckbox(added.text, added.selection)!;
-    expect(checked.text).toBe('* [x] a');
-    expect(toggleCheckbox(checked.text, checked.selection)!.text).toBe('* [ ] a');
+  it('continueList still continues a list after the fence closes', () => {
+    expect(cont('```\nx\n```\n- a')!.text).toBe('```\nx\n```\n- a\n- ');
   });
 
-  it('is a no-op on headings and quotes', () => {
-    for (const t of ['# h', '## h', '> q']) {
-      expect(checkboxAction(t, at(1))).toBe('none');
-      expect(toggleCheckbox(t, at(1))).toBeNull();
+  it('continueList does not treat a rule as a bullet', () => {
+    expect(cont('- - -')).toBeNull();
+    expect(cont('* * *')).toBeNull();
+    expect(cont('---')).toBeNull();
+  });
+
+  it('parseListPrefix: rule-looking lines are null with and without a kind', () => {
+    for (const line of ['- - -', '* * *', '-  -  -']) {
+      expect(parseListPrefix(line)).toBeNull();
+      expect(parseListPrefix(line, 'rule')).toBeNull();
     }
-  });
-
-  it('only touches the line at sel.start', () => {
-    const text = '- [ ] a\n- [ ] b\nplain';
-    expect(toggleCheckbox(text, at(10))!.text).toBe('- [ ] a\n- [x] b\nplain');
-    expect(toggleCheckbox('a\r\nb\r\nc', at(4))!.text).toBe('a\r\n- [ ] b\r\nc');
-    expect(toggleCheckbox('a\n# h', at(0))!.text).toBe('- [ ] a\n# h');
-  });
-
-  it('shifts the selection for a same-length change', () => {
-    const t = '- [ ] abc';
-    expect(toggleCheckbox(t, at(0))!.selection).toEqual(at(6)); // before prefix -> end of prefix
-    expect(toggleCheckbox(t, at(3))!.selection).toEqual(at(6)); // inside
-    expect(toggleCheckbox(t, at(8))!.selection).toEqual(at(8)); // after
-    expect(toggleCheckbox(t, { start: 7, end: 9 })!.selection).toEqual({ start: 7, end: 9 });
-  });
-
-  it('shifts the selection when the prefix grows', () => {
-    expect(toggleCheckbox('- abc', at(5))!.selection).toEqual(at(9));
-    expect(toggleCheckbox('- abc', at(1))!.selection).toEqual(at(6));
-    expect(toggleCheckbox('abc', at(2))!.selection).toEqual(at(8));
-    expect(toggleCheckbox('abc', { start: 1, end: 3 })!.selection).toEqual({ start: 7, end: 9 });
-    expect(toggleCheckbox('12. abc', at(7))!.selection).toEqual(at(9)); // prefix shrinks 4 -> 6? grows by 2
-  });
-
-  it('shifts a range that ends on a later line', () => {
-    const r = toggleCheckbox('- a\nb', { start: 2, end: 5 })!;
-    expect(r.text).toBe('- [ ] a\nb');
-    expect(r.selection).toEqual({ start: 6, end: 9 });
-  });
-
-  it('twice on a checkbox returns the original (property)', () => {
-    let seed = 12345;
-    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-    const pieces = [
-      '- [ ] ',
-      '- [x] ',
-      '* [ ] ',
-      '  - [ ] ',
-      '- ',
-      '1. ',
-      '# ',
-      '> ',
-      'a',
-      'bc ',
-      '😀',
-      '\n',
-      '\r\n',
-    ];
-    for (let i = 0; i < 300; i++) {
-      let text = '';
-      const n = 1 + Math.floor(rnd() * 8);
-      for (let k = 0; k < n; k++) text += pieces[Math.floor(rnd() * pieces.length)];
-      const caret = Math.floor(rnd() * (text.length + 1));
-      const once = toggleCheckbox(text, at(caret));
-      if (!once) continue;
-      const line = lineAt(text, caret).text;
-      if (!/^\s*[-*] \[[ xX]\]/.test(line)) continue;
-      const twice = toggleCheckbox(once.text, at(lineAt(text, caret).start));
-      expect(twice!.text.toLowerCase()).toBe(text.toLowerCase());
-      if (!/\[X\]/.test(line)) expect(twice!.text).toBe(text);
-    }
+    expect(parseListPrefix('- a', 'code')).toBeNull();
+    expect(parseListPrefix('- a', 'bullet')).not.toBeNull();
   });
 });
 
-describe('indentLines', () => {
-  it('indents a list line by two spaces and nests twice', () => {
-    const one = indentLines('- a', at(3))!;
-    expect(one).toEqual({ text: '  - a', selection: at(5) });
-    expect(indentLines(one.text, one.selection)!.text).toBe('    - a');
+describe('toggleCheckboxAtLine', () => {
+  it('toggles the checkbox on the line containing the offset', () => {
+    const t = 'T\n- [ ] a\n- [x] b';
+    expect(toggleCheckboxAtLine(t, 5)!.text).toBe('T\n- [x] a\n- [x] b');
+    expect(toggleCheckboxAtLine(t, 14)!.text).toBe('T\n- [ ] a\n- [ ] b');
+    expect(toggleCheckboxAtLine(t, 9)!.text).toBe('T\n- [x] a\n- [x] b');
   });
 
-  it('indents numbered and checkbox lines', () => {
-    expect(indentLines('1. a', at(0))!.text).toBe('  1. a');
-    expect(indentLines('- [ ] a', at(0))!.text).toBe('  - [ ] a');
+  it('is null for non-checkbox, heading, rule and code lines', () => {
+    expect(toggleCheckboxAtLine('T\n- a', 3)).toBeNull();
+    expect(toggleCheckboxAtLine('T\nplain', 3)).toBeNull();
+    expect(toggleCheckboxAtLine('# h', 0)).toBeNull();
+    expect(toggleCheckboxAtLine('- - -', 1)).toBeNull();
+    expect(toggleCheckboxAtLine('```\n- [ ] a\n```', 6)).toBeNull();
   });
 
-  it('outdents by up to two spaces, never past zero', () => {
-    expect(indentLines('    - a', at(7), true)!.text).toBe('  - a');
-    expect(indentLines(' - a', at(4), true)!.text).toBe('- a');
-    expect(indentLines('- a', at(3), true)).toBeNull();
+  it('keeps CRLF and clamps odd offsets', () => {
+    expect(toggleCheckboxAtLine('- [ ] a\r\nz', 3)!.text).toBe('- [x] a\r\nz');
+    expect(toggleCheckboxAtLine('- [ ] a', 99)!.text).toBe('- [x] a');
   });
+});
 
-  it('outdents a tab as one level', () => {
-    expect(indentLines('\t- a', at(4), true)).toEqual({ text: '- a', selection: at(3) });
+describe('mapCaretThroughEdit', () => {
+  it('leaves the caret when nothing changed', () => {
+    expect(mapCaretThroughEdit('- abc', '- abc', 3)).toBe(3);
   });
-
-  it('leaves non-list lines untouched', () => {
-    expect(indentLines('plain', at(2))).toBeNull();
-    expect(indentLines('# h', at(2))).toBeNull();
-    expect(indentLines('> q', at(2))).toBeNull();
-    expect(indentLines('a\n- b\nc', at(0))).toBeNull();
-    expect(indentLines('a\n- b\nc', { start: 0, end: 7 })!.text).toBe('a\n  - b\nc');
+  it('keeps a caret at the end after a same-length swap with a coincident tail', () => {
+    expect(mapCaretThroughEdit('recieve', 'receive', 7)).toBe(7);
   });
-
-  it('works on every list line of a range and shifts both endpoints', () => {
-    const r = indentLines('- a\n- b\nplain\n- c', { start: 2, end: 9 })!;
-    expect(r.text).toBe('  - a\n  - b\nplain\n- c');
-    expect(r.selection).toEqual({ start: 4, end: 13 });
+  it('shifts a caret after a longer correction', () => {
+    expect(mapCaretThroughEdit('- im', "- I'm", 4)).toBe(5);
   });
-
-  it('does not touch the line a range ends at the very start of', () => {
-    expect(indentLines('- a\n- b', { start: 0, end: 4 })!.text).toBe('  - a\n- b');
+  it('shifts a caret back after a shorter correction', () => {
+    expect(mapCaretThroughEdit('- hte', '- he', 5)).toBe(4);
   });
-
-  it('keeps \\r\\n endings', () => {
-    expect(indentLines('- a\r\n- b', { start: 0, end: 8 })!.text).toBe('  - a\r\n  - b');
+  it('keeps a caret before the changed span', () => {
+    expect(mapCaretThroughEdit('- hte', '- he', 2)).toBe(2);
+    expect(mapCaretThroughEdit('- hte', '- he', 3)).toBe(3);
   });
-
-  it('outdent selection inside the removed run goes to its start', () => {
-    expect(indentLines('  - a', at(1), true)).toEqual({ text: '- a', selection: at(0) });
+  it('puts a caret inside the span at the end of the new span', () => {
+    expect(mapCaretThroughEdit('xx teh yy', 'xx the yy', 5)).toBe(6);
+    expect(mapCaretThroughEdit('xx im yy', "xx I'm yy", 4)).toBe(5);
+  });
+  it('shifts a caret after the span in the middle of the text', () => {
+    expect(mapCaretThroughEdit('a im b', "a I'm b", 6)).toBe(7);
+  });
+  it('never lands inside a surrogate pair', () => {
+    // Replacing "ab" by an emoji: a caret inside the span maps to next.length - tail = 0 + 2 = 2,
+    // which is after the pair; a position between the halves moves back to before it.
+    expect(mapCaretThroughEdit('x\u{1F600}y', 'x\u{1F601}y', 2)).toBe(1);
+    expect(mapCaretThroughEdit('xy', 'x\u{1F600}y', 2)).toBe(4);
+  });
+  it('handles empty strings', () => {
+    expect(mapCaretThroughEdit('', '', 0)).toBe(0);
+    expect(mapCaretThroughEdit('', 'ab', 0)).toBe(0);
+    expect(mapCaretThroughEdit('ab', '', 2)).toBe(0);
+    expect(mapCaretThroughEdit('ab', 'abc', 99)).toBe(3);
   });
 });

@@ -271,10 +271,14 @@ export function EditorRoute() {
     entryRecordingRef,
     entryLeaveRef,
     locked,
+    backLabel,
     banner,
     leaveEditor,
     deleteOpenNote,
+    followNoteLink,
     togglePin,
+    notes,
+    settings,
     allowLeave,
     resetAllowLeave,
   } = useAppFlow();
@@ -295,7 +299,7 @@ export function EditorRoute() {
 
   // All removals (arrow, Android back, iOS swipe) are prevented while a note is open and land in
   // `leaveEditor`. `usePreventRemove` also tells iOS to let the swipe start and report it.
-  const preventRemove = !!openSession && !allowLeave;
+  const preventRemove = (!!openSession || locked) && !allowLeave;
   usePreventRemove(preventRemove, () => void leaveEditor());
 
   // The app's own exit: pops once, in the render after `allowLeave` lowered the prevention.
@@ -331,9 +335,13 @@ export function EditorRoute() {
         onTogglePin={() => void togglePin()}
         onDelete={() => void deleteOpenNote()}
         menuDisabled={locked}
+        backLabel={backLabel}
         banner={banner}
         locked={locked}
         autoFocus={!session.stored}
+        notes={notes.all}
+        imagesEnabled={settings.loaded && settings.loadImages}
+        onFollowNoteLink={(t) => void followNoteLink(t)}
       />
     </View>
   );
@@ -385,6 +393,8 @@ export function NotesSettingsRoute() {
       onChangeAutoOpenNewNote={settings.setAutoOpenNewNote}
       onlineTranscription={settings.onlineTranscription}
       onChangeOnlineTranscription={settings.setOnlineTranscription}
+      loadImages={settings.loadImages}
+      onChangeLoadImages={settings.setLoadImages}
       onBack={() => navigation.goBack()}
     />
   );

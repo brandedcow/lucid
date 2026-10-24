@@ -1,3 +1,4 @@
+import { excludedRanges, fenceStates, splitLines } from './markdownSpans';
 import { normalizeTag } from './tags';
 
 /**
@@ -11,6 +12,10 @@ import { normalizeTag } from './tags';
  * not a tag. A run longer than 40 characters is not a tag at all (it is not
  * truncated). Tags are stored lowercase via normalizeTag; no Unicode
  * normalization is applied.
+ *
+ * A match that touches any range from `excludedRanges` (fenced code, inline code, link and image
+ * destinations, wikilink bodies) is dropped entirely, never truncated. `scanTags`, `activeToken`
+ * and the editor tokenizer all use that one rule, so they cannot disagree.
  */
 
 export const MAX_TAG_LENGTH = 40;
@@ -51,6 +56,23 @@ function canStartAt(text: string, index: number): boolean {
   return isWhitespace(prev) || OPENERS.indexOf(prev) !== -1;
 }
 
+/** True when `[start, end)` intersects one of `ranges` (sorted, non-overlapping). */
+function touchesRange(
+  ranges: readonly (readonly [number, number])[],
+  start: number,
+  end: number,
+): boolean {
+  let lo = 0;
+  let hi = ranges.length;
+  // First range that ends after `start`.
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ranges[mid][1] > start) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo < ranges.length && ranges[lo][0] < end;
+}
+
 function codePointLength(s: string): number {
   return Array.from(s).length;
 }
@@ -58,6 +80,7 @@ function codePointLength(s: string): number {
 /** Finds every inline tag with its offsets, in order of appearance (duplicates kept). */
 export function scanTags(text: string): TagMatch[] {
   const out: TagMatch[] = [];
+  const excluded = excludedRanges(text);
   let i = 0;
   while (i < text.length) {
     if (text[i] !== '#' || !canStartAt(text, i)) {
@@ -70,7 +93,8 @@ export function scanTags(text: string): TagMatch[] {
     const trimmed = run.replace(/[-_]+$/, '');
     const len = codePointLength(trimmed);
     if (len >= 1 && len <= MAX_TAG_LENGTH && !/^[0-9]+$/.test(trimmed)) {
-      out.push({ start: i, end: i + 1 + trimmed.length, tag: normalizeTag(trimmed) });
+      const end = i + 1 + trimmed.length;
+      if (!touchesRange(excluded, i, end)) out.push({ start: i, end, tag: normalizeTag(trimmed) });
     }
     i = j > i + 1 ? j : i + 1;
   }
@@ -98,6 +122,7 @@ export function activeToken(text: string, cursor: number): ActiveToken | null {
   if (s === 0 || text[s - 1] !== '#' || !canStartAt(text, s - 1)) return null;
   let e = cursor;
   while (e < text.length && isTagChar(text[e])) e += 1;
+  if (touchesRange(excludedRanges(text), s - 1, e)) return null;
   return { start: s - 1, end: e, query: normalizeTag(text.slice(s, e)) };
 }
 
@@ -185,16 +210,35 @@ export function missingInlineTags(body: string, tags: readonly string[]): string
 }
 
 /**
+ * The closing fence line (backticks only) needed when `body` ends inside an unclosed fenced code
+ * block, or null. Without it an appended tag line would itself be code and never be recognised.
+ */
+function openFenceCloser(body: string): string | null {
+  if (body.indexOf('```') === -1) return null;
+  const lines = splitLines(body).map((l) => l.text);
+  const states = fenceStates(lines);
+  let opener = -1;
+  states.forEach((st, i) => {
+    if (st === 'fence') opener = opener === -1 ? i : -1;
+  });
+  if (opener === -1) return null;
+  const ticks = (lines[opener].match(/`+/) ?? ['```'])[0].length;
+  return '`'.repeat(Math.max(3, ticks));
+}
+
+/**
  * Appends tags missing from `body` as a final line of "#tag" tokens. Whitespace and terminator
  * characters in a tag become hyphens (a run becomes one; trailing "-" and "_" are trimmed), so
  * "bad dream" becomes #bad-dream and "v1.2" becomes #v1-2. Tags that are then empty, only digits or
  * over 40 characters are dropped. Tags already present in the body (by the same conversion) are
- * skipped. Returns `body` unchanged if nothing is added.
+ * skipped. Returns `body` unchanged if nothing is added. A body that ends inside an unclosed fenced
+ * code block gets a closing fence line first, so the tag line is not swallowed by the fence.
  */
 export function materializeTags(body: string, tags: string[]): string {
   const add = missingInlineTags(body, tags);
   if (add.length === 0) return body;
   const line = add.map((t) => '#' + t).join(' ');
   if (body === '') return line;
-  return body + (body.endsWith('\n') ? '' : '\n') + line;
+  const close = openFenceCloser(body);
+  return body + (body.endsWith('\n') ? '' : '\n') + (close === null ? '' : close + '\n') + line;
 }

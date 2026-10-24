@@ -1,6 +1,8 @@
+import { Platform } from 'react-native';
 import { colors } from '../theme';
 import {
   DEFAULT_BODY_FONT_SIZE,
+  HEADING3_SCALE,
   STYLE_MAX_CHARS,
   noteRuns,
   type StyleLevel,
@@ -16,6 +18,11 @@ const BODIES = [
   'unclosed **bold and *it',
   'mid#word and # not tag\n\n\n',
   'old mac\rline',
+  '### H3 #t\n---\nuse `code` and ``a`b``\n```js\nlet x = [1](2)\n**not bold**\n```\nafter',
+  '[web **bold** link](http://a.b) ![alt](http://i.png) [[Wiki Page]] [[x|y]]',
+  '[`code link`](http://a) [unclosed](http://a `tick',
+  '- [x](http://a) item\r\n```\r\nunclosed fence',
+  '[😀 link](http://a/😀) `co😀de` [[Wiki 😀]]',
 ];
 
 const find = (body: string, level: StyleLevel, text: string) =>
@@ -142,5 +149,169 @@ describe('noteRuns', () => {
 
   it('is empty for an empty body', () => {
     expect(noteRuns('', 'full')).toEqual([]);
+  });
+
+  describe('new markdown tokens', () => {
+    const mono = Platform.select({ ios: 'Menlo', default: 'monospace' });
+    const styleOf = (body: string, level: StyleLevel, text: string) =>
+      find(body, level, text)?.style;
+
+    it('sizes H3 at 1.125x body in full and leaves it at body size in basic', () => {
+      expect(styleOf('### Three', 'full', 'Three')).toMatchObject({
+        fontWeight: '700',
+        color: colors.text,
+        fontSize: DEFAULT_BODY_FONT_SIZE * HEADING3_SCALE,
+      });
+      expect(noteRuns('### Three', 'full')[0].style).toMatchObject({ color: colors.muted });
+      const basic = styleOf('### Three', 'basic', 'Three');
+      expect(basic).toMatchObject({ fontWeight: '700' });
+      expect(basic).not.toHaveProperty('fontSize');
+      expect(styleOf('### Three', 'tagsOnly', 'Three')).toBeUndefined();
+      expect(styleOf('### Three', 'none', '### Three')).toBeUndefined();
+    });
+
+    it('dims rule lines and fence lines at full and basic only', () => {
+      for (const body of ['---', '```\n```']) {
+        const first = body.split('\n')[0];
+        expect(styleOf(body, 'full', first)).toEqual({ color: colors.muted });
+        expect(styleOf(body, 'basic', first)).toEqual({ color: colors.muted });
+        expect(styleOf(body, 'tagsOnly', first)).toBeUndefined();
+        expect(styleOf(body, 'none', body)).toBeUndefined();
+      }
+      expect(styleOf('```js\nx\n```', 'full', '```js')).toEqual({ color: colors.muted });
+      expect(styleOf('```js\nx\n```', 'full', '```')).toEqual({ color: colors.muted });
+    });
+
+    it('styles inline code and code lines as monospace on a muted background', () => {
+      const inline = styleOf('a `code` b', 'full', 'code');
+      expect(inline).toEqual({ fontFamily: mono, backgroundColor: colors.tagChipBg });
+      expect(styleOf('a `code` b', 'full', '`')).toEqual({ color: colors.muted });
+      expect(styleOf('```\n**x** [a](b)\n```', 'full', '**x** [a](b)')).toEqual({
+        fontFamily: mono,
+        backgroundColor: colors.tagChipBg,
+      });
+      for (const level of ['basic', 'tagsOnly', 'none'] as const) {
+        expect(styleOf('a `code` b', level, 'code')).toBeUndefined();
+        expect(styleOf('```\nx\n```', level, 'x')).toBeUndefined();
+      }
+    });
+
+    it('code never sets lineHeight and keeps the body font size', () => {
+      for (const body of ['a `code` b', '```\ncode line\n```']) {
+        for (const size of [undefined, 24]) {
+          const runs = noteRuns(body, 'full', size).filter((r) => r.style?.fontFamily);
+          expect(runs.length).toBeGreaterThan(0);
+          for (const r of runs) {
+            expect(r.style).not.toHaveProperty('lineHeight');
+            expect(r.style).not.toHaveProperty('fontSize');
+          }
+        }
+      }
+    });
+
+    it('styles web link, image alt and wikilink text with the accent, underlined only in full', () => {
+      for (const [body, text] of [
+        ['[site](http://a.b)', 'site'],
+        ['![pic](http://a.b/i.png)', 'pic'],
+        ['[[Wiki Page]]', 'Wiki Page'],
+      ]) {
+        expect(styleOf(body, 'full', text)).toEqual({
+          color: colors.accent,
+          textDecorationLine: 'underline',
+        });
+        expect(styleOf(body, 'basic', text)).toEqual({ color: colors.accent });
+        expect(styleOf(body, 'tagsOnly', text)).toBeUndefined();
+        expect(styleOf(body, 'none', body)).toBeUndefined();
+      }
+    });
+
+    it('dims bracket and destination markers but not markers inside link text', () => {
+      const runs = noteRuns('[a **b** c](http://x)', 'full');
+      const bracket = runs.find((r) => r.text === '[')!;
+      const dest = runs.find((r) => r.text === '](http://x)')!;
+      expect(bracket.style).toEqual({ color: colors.muted });
+      expect(dest.style).toEqual({ color: colors.muted });
+      const stars = runs.filter((r) => r.text === '**');
+      expect(stars).toHaveLength(2);
+      for (const r of stars) {
+        expect(r.style).toMatchObject({ color: colors.accent, textDecorationLine: 'underline' });
+      }
+      expect(runs.find((r) => r.text === 'b')!.style).toMatchObject({
+        fontWeight: '700',
+        color: colors.accent,
+      });
+    });
+
+    it('composes code and link styles on a run that has both', () => {
+      const style = styleOf('[`both`](http://a)', 'full', 'both');
+      expect(style).toEqual({
+        fontFamily: mono,
+        backgroundColor: colors.tagChipBg,
+        color: colors.accent,
+        textDecorationLine: 'underline',
+      });
+    });
+
+    it('keeps the strike-through on a checked item whose text is a link', () => {
+      expect(styleOf('- [x] [a](http://u)', 'full', 'a')).toEqual({
+        color: colors.accent,
+        textDecorationLine: 'underline line-through',
+      });
+      expect(styleOf('- [x] [a](http://u)', 'basic', 'a')).toEqual({ color: colors.accent });
+      expect(styleOf('- [x] [a](http://u)', 'tagsOnly', 'a')).toBeUndefined();
+      expect(styleOf('- [ ] [a](http://u)', 'full', 'a')).toEqual({
+        color: colors.accent,
+        textDecorationLine: 'underline',
+      });
+      expect(styleOf('- [x] plain', 'full', 'plain')).toEqual({
+        color: colors.muted,
+        textDecorationLine: 'line-through',
+      });
+    });
+
+    it('inline code in a heading keeps the heading size and sets none of its own', () => {
+      const head = styleOf('# Head `c` x', 'full', 'Head ');
+      const code = styleOf('# Head `c` x', 'full', 'c');
+      expect(code).toMatchObject({ fontFamily: mono, fontSize: head?.fontSize });
+      expect(code?.lineHeight).toBe(head?.lineHeight);
+      expect(head?.fontSize).toBeGreaterThan(DEFAULT_BODY_FONT_SIZE);
+    });
+
+    it('does not style the wikilink by whether the note exists', () => {
+      expect(styleOf('[[Nope]]', 'full', 'Nope')).toEqual(styleOf('[[Other]]', 'full', 'Other'));
+    });
+  });
+
+  describe('text invariance', () => {
+    it.each(LEVELS)('joins back to the body for every sample at level %s', (level) => {
+      for (const body of BODIES) {
+        for (const size of [undefined, 30]) {
+          expect(
+            noteRuns(body, level, size)
+              .map((r) => r.text)
+              .join(''),
+          ).toBe(body);
+        }
+      }
+    });
+
+    it('holds for 600 seeded random bodies at every level, with unique keys', () => {
+      const alphabet = ['`', '[', ']', '(', ')', '*', '#', '-', '!', ' ', 'a', '\n', '\r'];
+      let seed = 12345;
+      const next = () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return seed / 4294967296;
+      };
+      for (let i = 0; i < 600; i += 1) {
+        const len = Math.floor(next() * 40);
+        let body = '';
+        for (let j = 0; j < len; j += 1) body += alphabet[Math.floor(next() * alphabet.length)];
+        for (const level of LEVELS) {
+          const runs = noteRuns(body, level);
+          expect(runs.map((r) => r.text).join('')).toBe(body);
+          expect(new Set(runs.map((r) => r.key)).size).toBe(runs.length);
+        }
+      }
+    });
   });
 });

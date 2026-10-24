@@ -1,8 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Platform, Text, TextInput } from 'react-native';
+import { Platform, Text, TextInput, View } from 'react-native';
+import { resetKeyboardHeightMemory } from '../hooks/useKeyboardInset';
 import { useNoteEditor } from '../hooks/useNoteEditor';
 import { fakeKeyboard } from '../test/fakeKeyboard';
+import { refreshEnterLogFlag } from '../components/NoteBodyInput';
 import { NoteToolbar } from '../components/NoteToolbar';
 import { NoteEditorScreen, type NoteEditorScreenProps } from './NoteEditorScreen';
 
@@ -10,6 +12,19 @@ jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
+
+// Exposes the `enabled` prop (the real component renders only a styled View).
+jest.mock('react-native/Libraries/Components/Keyboard/KeyboardAvoidingView', () => {
+  const { View } = jest.requireActual('react-native');
+  return {
+    __esModule: true,
+    default: ({ enabled = true, children, style }: any) => (
+      <View testID="kav" style={style} accessibilityValue={{ text: enabled }}>
+        {children}
+      </View>
+    ),
+  };
+});
 
 const callbacks = {
   onBack: jest.fn(),
@@ -38,10 +53,11 @@ function Harness({ initial = '', ...rest }: Overrides) {
           micDisabled={false}
           onUndo={() => {}}
           onRedo={() => {}}
+          onDismissKeyboard={() => {}}
           onMic={() => {}}
           onTags={() => {}}
-          checkboxAction={editor.checkboxAction}
-          onCheckbox={editor.toggleCheckbox}
+          listPanelOpen={false}
+          onListPanel={() => {}}
           disabled={rest.locked}
         />
       }
@@ -57,6 +73,7 @@ let keyboard: ReturnType<typeof fakeKeyboard>;
 beforeEach(() => {
   jest.clearAllMocks();
   keyboard = fakeKeyboard();
+  resetKeyboardHeightMemory();
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -72,6 +89,39 @@ describe('NoteEditorScreen', () => {
     await render(<Harness />);
     await fireEvent.press(screen.getByLabelText('Back to notes'));
     expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels the back arrow with backLabel when given', async () => {
+    await render(<Harness backLabel="Back to previous note" />);
+    expect(screen.getByLabelText('Back to previous note')).toBeTruthy();
+    expect(screen.queryByLabelText('Back to notes')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Back to previous note'));
+    expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  describe('dev Enter log bar', () => {
+    const OLD = process.env.EXPO_PUBLIC_ENTER_LOG;
+    afterEach(() => {
+      if (OLD === undefined) delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      else process.env.EXPO_PUBLIC_ENTER_LOG = OLD;
+      refreshEnterLogFlag();
+    });
+
+    it('is absent from the dock when the flag is off', async () => {
+      delete process.env.EXPO_PUBLIC_ENTER_LOG;
+      refreshEnterLogFlag();
+      await render(<Harness />);
+      expect(screen.queryByTestId('enter-log-bar')).toBeNull();
+    });
+
+    it('sits in the bottom dock, outside the scroll content, when the flag is on', async () => {
+      process.env.EXPO_PUBLIC_ENTER_LOG = '1';
+      refreshEnterLogFlag();
+      await render(<Harness />);
+      const bar = screen.getByTestId('enter-log-bar');
+      expect(within(screen.getByTestId('note-bottom-dock')).getByTestId('enter-log-bar')).toBe(bar);
+      expect(within(screen.getByTestId('note-page')).queryByTestId('enter-log-bar')).toBeNull();
+    });
   });
 
   describe('menu', () => {
@@ -222,9 +272,81 @@ describe('NoteEditorScreen', () => {
       }
     });
 
-    it('uses the checkbox button labels from the editor', async () => {
-      await render(<Harness initial="- [ ] a" />);
-      expect(screen.getByLabelText('Check item')).toBeTruthy();
+    describe('list panel', () => {
+      const panel = (h: number) => <View testID="list-panel-body" style={{ height: h }} />;
+      const withOS = async (os: 'ios' | 'android', fn: () => Promise<void>) => {
+        const original = Platform.OS;
+        Object.defineProperty(Platform, 'OS', { configurable: true, get: () => os });
+        try {
+          await fn();
+        } finally {
+          Object.defineProperty(Platform, 'OS', { configurable: true, get: () => original });
+        }
+      };
+      const padding = () => screen.getByTestId('note-bottom-dock').props.style.paddingBottom;
+      // The `enabled` prop the page gives KeyboardAvoidingView (mocked below to expose it).
+      const avoiding = () => screen.getByTestId('kav').props.accessibilityValue.text;
+      const bodyHeight = () => screen.getByTestId('list-panel-body').props.style.height;
+
+      it('does not render the panel unless it is active', async () => {
+        await render(<Harness listPanel={panel} />);
+        expect(screen.queryByTestId('list-panel-body')).toBeNull();
+      });
+
+      it('renders it below the toolbar and the recording panel hides it', async () => {
+        const view = await render(<Harness listPanel={panel} panelActive />);
+        expect(screen.getByTestId('list-panel-body')).toBeTruthy();
+        expect(screen.getByLabelText('Undo')).toBeTruthy();
+        await view.rerender(
+          <Harness listPanel={panel} panelActive recordingPanel={<Text>rec</Text>} />,
+        );
+        expect(screen.queryByTestId('list-panel-body')).toBeNull();
+      });
+
+      it('iOS: KeyboardAvoidingView is on without the panel', async () => {
+        await withOS('ios', async () => {
+          await render(<Harness listPanel={panel} />);
+          expect(avoiding()).toBe(true);
+        });
+      });
+
+      it('iOS: turns KeyboardAvoidingView off and keeps the inset under a panel as tall as the keyboard', async () => {
+        await withOS('ios', async () => {
+          await render(<Harness listPanel={panel} panelActive />);
+          await keyboard.emit('keyboardWillShow', 336);
+          await keyboard.emit('keyboardWillHide', 0);
+          expect(avoiding()).toBe(false);
+          // Content height + the home-indicator inset under it = the remembered keyboard height.
+          expect(bodyHeight() + padding()).toBe(336);
+          expect(padding()).toBe(34);
+        });
+      });
+
+      it('iOS: the panel stands even if the keyboard still reports visible', async () => {
+        await withOS('ios', async () => {
+          await render(<Harness listPanel={panel} panelActive />);
+          await keyboard.emit('keyboardWillShow', 336);
+          expect(padding()).toBe(34);
+        });
+      });
+
+      it('Android: the dock padding ignores keyboard.visible and stays at the inset', async () => {
+        await withOS('android', async () => {
+          await render(<Harness listPanel={panel} panelActive />);
+          expect(padding()).toBe(34);
+          await keyboard.emit('keyboardDidShow', 300);
+          expect(padding()).toBe(34);
+          // Android: the panel is as tall as the remembered keyboard, the inset adds on top.
+          expect(bodyHeight()).toBe(300);
+        });
+      });
+
+      it('uses the fallback height when no keyboard height was seen, and panelHeight overrides', async () => {
+        const view = await render(<Harness listPanel={panel} panelActive />);
+        expect(bodyHeight()).toBe(260);
+        await view.rerender(<Harness listPanel={panel} panelActive panelHeight={222} />);
+        expect(bodyHeight()).toBe(222);
+      });
     });
   });
 });

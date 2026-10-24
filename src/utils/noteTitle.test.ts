@@ -37,9 +37,10 @@ describe('noteTitle', () => {
     expect(noteTitle('Flying #dream')).toBe('Flying #dream');
   });
 
-  it('does not count a bare # or ### as tags', () => {
+  it('does not count a bare # as a tag, and #### stays plain', () => {
     expect(noteTitle('# #')).toBe('#');
-    expect(noteTitle('### x')).toBe('### x');
+    expect(noteTitle('### x')).toBe('x');
+    expect(noteTitle('#### x')).toBe('#### x');
   });
 
   it('handles CRLF and unicode', () => {
@@ -49,5 +50,29 @@ describe('noteTitle', () => {
 
   it('keeps unclosed markers as text', () => {
     expect(noteTitle('a **b')).toBe('a **b');
+  });
+
+  describe('new markdown syntax', () => {
+    it.each([
+      ['[Foo](u)', 'Foo'],
+      ['[[Foo]]', 'Foo'],
+      ['[[ Foo ]]', 'Foo'],
+      ['`x`', 'x'],
+      ['![alt](u)', 'alt'],
+      ['![](u)', 'Untitled'],
+      ['---', 'Untitled'],
+      ['***', 'Untitled'],
+      ['```js', 'Untitled'],
+      ['```js\ntext', 'Untitled'],
+      ['```\n# real title\n```', 'Untitled'],
+      ['### x', 'x'],
+      ['see [Foo](http://u) now', 'see Foo now'],
+      // The wikilink body is tag-excluded, so [[#x]] has the title "#x". noteTitle('#x') is
+      // Untitled, so a link [[#x]] can never resolve to a note (chunk 5a relies on this).
+      ['[[#x]]', '#x'],
+      ['#x', 'Untitled'],
+    ])('noteTitle(%j) is %j', (body, expected) => {
+      expect(noteTitle(body)).toBe(expected);
+    });
   });
 });

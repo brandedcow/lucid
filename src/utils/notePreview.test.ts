@@ -164,3 +164,30 @@ describe('matchSnippet', () => {
     }
   });
 });
+
+describe('notePreview with the new markdown syntax', () => {
+  it.each([
+    ['T\n---', ''],
+    ['T\n- - -', ''],
+    ['T\na\n***\nb', 'a b'],
+    ['T\n```js\ncode\n```', 'code'],
+    ['T\n```\n- [ ] a\n# h\n```', '- [ ] a # h'],
+    ['T\n```\nunclosed code', 'unclosed code'],
+    ['T\nuse `x` here', 'use x here'],
+    ['T\nsee [Foo](http://u) now', 'see Foo now'],
+    ['T\n![](u)', ''],
+    ['T\n![alt](u)', 'alt'],
+    ['T\n[[Foo]] and [[Bar]]', 'Foo and Bar'],
+    ['T\n### head', 'head'],
+    ['T\n```js title\ncode\n```', 'code'],
+  ])('notePreview(%j) is %j', (body, expected) => {
+    expect(notePreview(body)).toBe(expected);
+  });
+
+  it('matchSnippet falls back to the plain preview for a word only in a URL or a fence', () => {
+    const q = { words: ['zzz'], tagTerms: [] };
+    expect(matchSnippet('T\n[a](http://zzz.example)', q)).toBe('a');
+    // The fence info string is not shown, so a hit there is not visible either.
+    expect(matchSnippet('T\n```zzz\ncode\n```', q)).toBe('code');
+  });
+});

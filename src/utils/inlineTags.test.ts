@@ -343,3 +343,66 @@ describe('missingInlineTags', () => {
     expect(missingInlineTags('#a #b', ['a', 'b'])).toEqual([]);
   });
 });
+
+describe('tag exclusions (code, link destinations, wikilink bodies)', () => {
+  const found = (text: string) => scanTags(text).map((m) => text.slice(m.start, m.end));
+
+  it.each([
+    ['`#x`', []],
+    ['a `#x` b #y', ['#y']],
+    ['```\n#x\n```', []],
+    ['```\n#x', []],
+    ['#a`c`', []],
+    ['#a `c`', ['#a']],
+    ['[[#x]]', []],
+    ['[[a #x]]', []],
+    ['[#x](u)', ['#x']],
+    ['[link](#anchor)', []],
+    ['[a](u) #t', ['#t']],
+    ['![#alt](u)', ['#alt']],
+    ['[[ok', []],
+    ['`open #x', ['#x']],
+    ['plain #x', ['#x']],
+  ])('scanTags(%j)', (text, expected) => {
+    expect(found(text)).toEqual(expected);
+  });
+
+  it('drops a tag whole, never truncated, when a glued backtick starts a code span', () => {
+    expect(scanTags('#a`c`')).toEqual([]);
+    expect(inlineTags('#a`c` #b')).toEqual(['b']);
+  });
+
+  it('activeToken is null inside excluded ranges', () => {
+    expect(activeToken('`#x`', 3)).toBeNull();
+    expect(activeToken('[[#x]]', 4)).toBeNull();
+    expect(activeToken('[l](#x)', 6)).toBeNull();
+    expect(activeToken('```\n#x\n```', 6)).toBeNull();
+    expect(activeToken('#a`c`', 2)).toBeNull();
+  });
+
+  it('activeToken still works while the span is not closed', () => {
+    expect(activeToken('`a #x', 5)).toEqual({ start: 3, end: 5, query: 'x' });
+    expect(activeToken('[[#x', 4)).toEqual({ start: 2, end: 4, query: 'x' });
+    expect(activeToken('[#x](u)', 3)).toEqual({ start: 1, end: 3, query: 'x' });
+  });
+
+  it('materializeTags: tags are not recognised inside fences, so a closing fence is added', () => {
+    const out = materializeTags('a\n```js\ncode', ['water']);
+    expect(out).toBe('a\n```js\ncode\n```\n#water');
+    expect(inlineTags(out)).toEqual(['water']);
+    expect(materializeTags(out, ['water'])).toBe(out);
+  });
+
+  it.each([
+    ['a\n```\n', 'a\n```\n```\n#t'],
+    ['````\nx', '````\nx\n````\n#t'],
+    ['```', '```\n```\n#t'],
+    ['```\nx\n```', '```\nx\n```\n#t'],
+    ['```\nx\n```\n```\ny\n', '```\nx\n```\n```\ny\n```\n#t'],
+  ])('materializeTags fence handling for %j', (body, expected) => {
+    const out = materializeTags(body, ['t']);
+    expect(out).toBe(expected);
+    expect(inlineTags(out)).toEqual(['t']);
+    expect(materializeTags(out, ['t'])).toBe(out);
+  });
+});

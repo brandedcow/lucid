@@ -1,12 +1,14 @@
 import { useCallback, useState } from 'react';
 import type { NoteBodyInputProps } from '../components/NoteBodyInput';
+import { toggleCheckboxAtLine, type EditResult, type Sel } from '../utils/markdownEdit';
 import {
-  checkboxAction as planCheckbox,
-  indentLines,
-  toggleCheckbox as applyToggle,
-  type EditResult,
-  type Sel,
-} from '../utils/markdownEdit';
+  indentItem,
+  listActions as planListActions,
+  moveItem,
+  setListType,
+  type ListActions,
+  type ListKind,
+} from '../utils/markdownList';
 
 type EditSource = 'typing' | 'format';
 
@@ -24,12 +26,18 @@ export type NoteEditor = {
   /** The selection as last reported (or last requested by a toolbar edit). */
   selection: Sel;
   focused: boolean;
-  /** What the checkbox button would do on the caret's line, for its state and label. */
-  checkboxAction: 'check' | 'uncheck' | 'add' | 'none';
-  toggleCheckbox(): void;
-  indent(): void;
-  outdent(): void;
+  /** What the list controls can do for the current body and selection (derived, never stored). */
+  listActions: ListActions;
+  /** Toggles the checkbox on the line at `offset` (reading view); no selection change. */
+  toggleCheckboxAt(offset: number): void;
+  /** List edits: each applies the pure function from markdownList; a null result changes nothing. */
+  indentItem(): void;
+  outdentItem(): void;
+  moveItem(dir: 'up' | 'down'): void;
+  setListType(kind: ListKind): void;
   focus(): void;
+  /** Marks the body as not focused (leaving editing mode without a native blur event). */
+  markBlurred(): void;
   /** Moves the caret to `sel` together with a body change made in the same update (a tag edit). */
   select(sel: Sel): void;
 };
@@ -79,11 +87,19 @@ export function useNoteEditor(args: {
     },
     selection,
     focused,
-    checkboxAction: planCheckbox(body, selection),
-    toggleCheckbox: () => apply(applyToggle(body, selection)),
-    indent: () => apply(indentLines(body, selection)),
-    outdent: () => apply(indentLines(body, selection, true)),
+    listActions: planListActions(body, selection),
+    toggleCheckboxAt: (offset) => {
+      const result = toggleCheckboxAtLine(body, offset);
+      if (!result) return;
+      setBody(result.text);
+      onEdit?.(body, result.text, 'format');
+    },
+    indentItem: () => apply(indentItem(body, selection)),
+    outdentItem: () => apply(indentItem(body, selection, true)),
+    moveItem: (dir) => apply(moveItem(body, selection, dir)),
+    setListType: (kind) => apply(setListType(body, selection, kind)),
     focus: () => setFocusSignal((n) => n + 1),
+    markBlurred: () => setFocused(false),
     select: (sel) => {
       setSelection(sel);
       setPending(sel);

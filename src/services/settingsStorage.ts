@@ -21,6 +21,12 @@ export type Settings = {
   onlineTranscription: boolean;
   /** Tag order in the drawer. Defaults to 'alpha'; any missing or invalid value is 'alpha'. */
   tagSort: TagSortOrder;
+  /**
+   * Load images written in notes (`![alt](https://...)`) automatically. Loading contacts the site
+   * the image comes from. Defaults to OFF and fails closed: a missing, damaged or non-boolean
+   * value is false.
+   */
+  loadImages: boolean;
 };
 
 /**
@@ -33,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoOpenNewNote: true,
   onlineTranscription: false,
   tagSort: 'alpha',
+  loadImages: false,
 };
 
 // Paths.document can change between app updates on iOS, so resolve it on every call.
@@ -93,6 +100,8 @@ export async function readSettings(): Promise<Settings> {
         ? raw.onlineTranscription
         : DEFAULT_SETTINGS.onlineTranscription,
     tagSort: isTagSortOrder(raw?.tagSort) ? raw.tagSort : DEFAULT_SETTINGS.tagSort,
+    // Fails closed like onlineTranscription: anything but a stored boolean means no web images.
+    loadImages: typeof raw?.loadImages === 'boolean' ? raw.loadImages : DEFAULT_SETTINGS.loadImages,
   };
 }
 
@@ -114,6 +123,7 @@ async function writeNow(patch: Partial<Settings>): Promise<void> {
     if (patch.tagSort !== undefined) {
       next.tagSort = patch.tagSort;
     }
+    if (patch.loadImages !== undefined) next.loadImages = patch.loadImages;
     settingsFile().write(JSON.stringify(next));
   } catch {
     // Settings are a convenience: a failed write must never reach the UI.

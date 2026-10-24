@@ -6,17 +6,30 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NoteBodyInput } from '../components/NoteBodyInput';
+import { EnterLogBar } from '../components/EnterLogBar';
+import { NoteBodyInput, type NoteBodyInputProps } from '../components/NoteBodyInput';
 import { OverflowMenu } from '../components/OverflowMenu';
+import { recordFabClearance } from '../components/RecordFab';
 import { useCaretFollow } from '../hooks/useCaretFollow';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import type { NoteEditor } from '../hooks/useNoteEditor';
 import { colors, iconCircle, spacing } from '../theme';
+import { panelContentHeight } from '../utils/panelHeight';
 
 const BODY_MIN_HEIGHT = 160;
+
+/** The body's empty-state text, shared with the reading view. */
+export const BODY_PLACEHOLDER = 'Start writing...';
+
+/** The editor the page binds to; `inputProps` may also carry NoteBodyInput's `onRemount`. */
+export type ScreenEditor = Omit<NoteEditor, 'inputProps'> & {
+  inputProps: NoteEditor['inputProps'] &
+    Pick<NoteBodyInputProps, 'onRemount' | 'blurSignal' | 'showSoftInputOnFocus' | 'caretHidden'>;
+};
 
 export type NoteEditorBanner = {
   kind: 'saveError' | 'inTrash' | 'unreadable';
@@ -45,32 +58,57 @@ const BANNER_TEXT: Record<NoteEditorBanner['kind'], string> = {
  * - autoFocus: a new note focuses the body once on open (editor.focus()). A stored note does not.
  * - attachment: slot at the top of the page flow (saved voice note cards).
  * - recordingPanel: while set it takes the bottom dock; suggestions and toolbar are not shown.
+ * - listPanel / panelActive / panelHeight: the list controls shown in place of the keyboard.
+ *   `listPanel` is given the content height (from `panelContentHeight`, or `panelHeight` when set)
+ *   and is rendered below the toolbar while `panelActive` (and no recording panel). While active,
+ *   iOS KeyboardAvoidingView is off and the Android dock ignores the keyboard; the dock keeps the
+ *   bottom inset under the panel, so panel + inset equals the keyboard it stands in for.
  * - suggestions / toolbar: slots in the bottom dock, lifted above the keyboard (explicit padding on
  *   Android, KeyboardAvoidingView on iOS) and above the bottom inset when the keyboard is closed.
+ *
+ * Modes (all optional; the defaults keep the page a plain editing page):
+ * - mode: 'editing' (default) shows the body input; 'reading' shows `readingView` in its place when
+ *   it is set. There is no Edit / Done button: the parent enters editing from a tap in the reading
+ *   view and returns to reading from the toolbar's Hide keyboard button or a keyboard hide.
+ * - fab: a floating button, given the bottom inset; rendered only in reading mode (the parent also
+ *   gates it). With one, the reading content gets bottom padding so the last line scrolls clear of
+ *   it. The 24pt gap above the button is padding, so it is not tappable to edit.
+ * - revealRequest: while editing, once the keyboard height is known, scrolls so the tapped reading
+ *   row (y in the body) sits a third of the way down the viewport. Each new token is handled once.
  *
  * The page is one ScrollView (keyboardShouldPersistTaps="handled") that follows the caret.
  */
 export type NoteEditorScreenProps = {
   date: string;
   onBack: () => void;
+  /** Accessibility label of the back arrow; defaults to "Back to notes". */
+  backLabel?: string;
   stored: boolean;
   pinned: boolean;
   onTogglePin: () => void;
   onDelete: () => void;
   menuDisabled: boolean;
   banner?: NoteEditorBanner;
-  editor: NoteEditor;
+  editor: ScreenEditor;
   locked: boolean;
   autoFocus: boolean;
   attachment?: ReactNode;
   recordingPanel?: ReactNode;
   suggestions?: ReactNode;
   toolbar?: ReactNode;
+  listPanel?: (height: number) => ReactNode;
+  panelActive?: boolean;
+  panelHeight?: number;
+  mode?: 'reading' | 'editing';
+  readingView?: ReactNode;
+  fab?: (bottomInset: number) => ReactNode;
+  revealRequest?: { y: number; token: number };
 };
 
 export function NoteEditorScreen({
   date,
   onBack,
+  backLabel = 'Back to notes',
   stored,
   pinned,
   onTogglePin,
@@ -84,14 +122,29 @@ export function NoteEditorScreen({
   recordingPanel,
   suggestions,
   toolbar,
+  listPanel,
+  panelActive = false,
+  panelHeight,
+  mode = 'editing',
+  readingView,
+  fab,
+  revealRequest,
 }: NoteEditorScreenProps) {
   const keyboard = useKeyboardInset();
   const { bottom: bottomInset } = useSafeAreaInsets();
   // Android: the keyboard height plus the system bar inset while open (edge-to-edge does not resize
   // the window), else the inset. iOS: KeyboardAvoidingView lifts the page, so only the home
-  // indicator inset while the keyboard is closed.
-  const dockPadding =
-    Platform.OS === 'android'
+  // indicator inset while the keyboard is closed. With the list panel standing in for the keyboard
+  // (both platforms) the keyboard is ignored and the inset sits under the panel.
+  const { height: windowHeight } = useWindowDimensions();
+  const os = Platform.OS === 'android' ? 'android' : 'ios';
+  const panelOn = panelActive && listPanel != null;
+  const contentHeight =
+    panelHeight ??
+    panelContentHeight({ remembered: keyboard.lastHeight, windowHeight, bottomInset, os });
+  const dockPadding = panelOn
+    ? bottomInset
+    : Platform.OS === 'android'
       ? keyboard.visible
         ? keyboard.height + bottomInset
         : bottomInset
@@ -111,6 +164,16 @@ export function NoteEditorScreen({
     viewportHeight,
   });
 
+  // A reveal request is handled once its token is new, while editing and the keyboard is up.
+  const revealed = useRef(0);
+  useEffect(() => {
+    if (!revealRequest || revealRequest.token === revealed.current) return;
+    if (mode !== 'editing' || keyboard.height <= 0 || !bodyLayout) return;
+    revealed.current = revealRequest.token;
+    const y = Math.max(0, bodyLayout.y + revealRequest.y - viewportHeight / 3);
+    pageScrollRef.current?.scrollTo({ y, animated: false });
+  }, [revealRequest, mode, keyboard.height, bodyLayout, viewportHeight]);
+
   // A new note focuses the body once, when the screen opens.
   useEffect(() => {
     // editor.focus only bumps a counter (a functional state update), so the mount-time closure is safe.
@@ -119,6 +182,7 @@ export function NoteEditorScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const showFab = mode === 'reading' && fab != null;
   const hasPanel = recordingPanel != null && recordingPanel !== false;
   const hasAttachment = attachment != null && attachment !== false;
   const bannerAction =
@@ -133,11 +197,12 @@ export function NoteEditorScreen({
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={!(Platform.OS === 'ios' && panelOn)}
       >
         <View style={styles.topBar}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to notes"
+            accessibilityLabel={backLabel}
             accessibilityState={{ disabled: locked }}
             disabled={locked}
             onPress={onBack}
@@ -179,7 +244,7 @@ export function NoteEditorScreen({
           ref={pageScrollRef}
           testID="note-page"
           style={styles.flex}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={showFab ? [styles.content, styles.contentWithFab] : styles.content}
           keyboardShouldPersistTaps="handled"
           onLayout={(e) => setViewportHeight(e.nativeEvent.layout.height)}
           onScroll={onScroll}
@@ -188,21 +253,27 @@ export function NoteEditorScreen({
           {hasAttachment && <View testID="note-attachment">{attachment}</View>}
           <View
             testID="note-body-wrap"
+            style={mode === 'reading' && readingView ? styles.flexGrow : undefined}
             onLayout={(e) =>
               setBodyLayout({ y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })
             }
           >
-            <NoteBodyInput
-              {...editor.inputProps}
-              editable={!locked}
-              placeholder="Start writing..."
-              placeholderTextColor={colors.faint}
-              testID="note-body"
-              style={styles.bodyInput}
-            />
+            {mode === 'reading' && readingView ? (
+              readingView
+            ) : (
+              <NoteBodyInput
+                {...editor.inputProps}
+                editable={!locked}
+                placeholder={BODY_PLACEHOLDER}
+                placeholderTextColor={colors.faint}
+                testID="note-body"
+                style={styles.bodyInput}
+              />
+            )}
           </View>
         </ScrollView>
         <View testID="note-bottom-dock" style={{ paddingBottom: dockPadding }}>
+          <EnterLogBar />
           {hasPanel ? (
             <View testID="note-recording-panel" style={styles.recordingSlot}>
               {recordingPanel}
@@ -211,9 +282,11 @@ export function NoteEditorScreen({
             <>
               {suggestions}
               {toolbar}
+              {panelOn && <View testID="note-list-panel">{listPanel(contentHeight)}</View>}
             </>
           )}
         </View>
+        {showFab && fab(bottomInset)}
         {stored && (
           <OverflowMenu
             items={[
@@ -239,6 +312,7 @@ export function NoteEditorScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
+  flexGrow: { flexGrow: 1 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -264,7 +338,8 @@ const styles = StyleSheet.create({
   bannerText: { color: colors.text, fontSize: 14, lineHeight: 20 },
   bannerButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   bannerButtonText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { padding: spacing.lg, gap: spacing.md },
+  content: { flexGrow: 1, padding: spacing.lg, gap: spacing.md },
+  contentWithFab: { paddingBottom: recordFabClearance + spacing.lg },
   recordingSlot: { paddingHorizontal: spacing.lg },
   bodyInput: {
     color: colors.text,

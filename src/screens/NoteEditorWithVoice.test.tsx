@@ -10,12 +10,27 @@ import {
 import { createFakeTranscription, FakeTranscription } from '../test/fakeTranscription';
 import { fakeKeyboard } from '../test/fakeKeyboard';
 import { bodyText } from '../test/bodyText';
+import type { Note } from '../services/notesStorage';
+import * as noteLinks from '../utils/noteLinks';
+import type { NoteEditor } from '../hooks/useNoteEditor';
 import { NoteEditorWithVoice } from './NoteEditorWithVoice';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 34 }),
 }));
+
+const mockScreen: { editor: NoteEditor | null } = { editor: null };
+jest.mock('./NoteEditorScreen', () => {
+  const actual = jest.requireActual('./NoteEditorScreen');
+  return {
+    ...actual,
+    NoteEditorScreen: (props: { editor: NoteEditor }) => {
+      mockScreen.editor = props.editor;
+      return <actual.NoteEditorScreen {...props} />;
+    },
+  };
+});
 
 const mockRec = { start: jest.fn(), stop: jest.fn(), level: 0, durationMs: 0 };
 jest.mock('../hooks/useVoiceRecorder', () => ({
@@ -61,9 +76,10 @@ type HarnessProps = {
   knownTags?: string[];
   initial?: Partial<NoteSession>;
   locked?: boolean;
+  notes?: Note[];
 };
 
-function Harness({ knownTags, initial, locked = false }: HarnessProps) {
+function Harness({ knownTags, initial, locked = false, notes }: HarnessProps) {
   const [session, dispatch] = useReducer(
     noteSessionReducer as (
       s: NoteSession,
@@ -96,6 +112,7 @@ function Harness({ knownTags, initial, locked = false }: HarnessProps) {
         restoreRecording: (id) => dispatch({ type: 'restore', id }),
       }}
       knownTags={knownTags}
+      notes={notes}
       transcription={fakeT}
       onRecordingChange={events.onRecordingChange}
       leaveRef={leaveRef}
@@ -127,6 +144,10 @@ const type = async (text: string, cursor = text.length) => {
   await fireEvent.changeText(body(), text);
   await select(cursor);
   await advance(600);
+};
+const openListPanel = async () => {
+  await fireEvent.press(screen.getByRole('button', { name: 'List controls' }));
+  await act(async () => {});
 };
 const openPanel = async () => {
   await press('Record voice note');
@@ -165,9 +186,16 @@ afterEach(() => {
 });
 
 describe('undo and redo', () => {
-  it('starts with undo and redo disabled and shows the five buttons', async () => {
+  it('starts with undo and redo disabled and shows the six buttons', async () => {
     await renderPage();
-    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox'])
+    for (const label of [
+      'Undo',
+      'Redo',
+      'Hide keyboard',
+      'Record voice note',
+      'Add tags',
+      'List controls',
+    ])
       expect(screen.getByLabelText(label)).toBeTruthy();
     expect(disabled('Undo')).toBe(true);
     expect(disabled('Redo')).toBe(true);
@@ -175,6 +203,8 @@ describe('undo and redo', () => {
 
   it('groups typing into steps and undoes and redoes them', async () => {
     await renderPage();
+    // The real input is focused by autoFocus; without a focus the new note falls back to reading.
+    await fireEvent(body(), 'focus');
     await typeBody('first');
     await typeBody('first second');
     await press('Undo');
@@ -197,26 +227,66 @@ describe('undo and redo', () => {
     expect(disabled('Redo')).toBe(true);
   });
 
-  it('a checkbox toggle is its own step, apart from the typing before and after', async () => {
+  it('a panel button is its own step, apart from the typing before and after', async () => {
     await renderPage();
     await fireEvent(body(), 'focus');
-    // No pause between typing and the toggle: they must still be separate steps.
-    await fireEvent.changeText(body(), '- [ ] milk');
-    await select(10);
-    expect(screen.getByLabelText('Check item')).toBeTruthy();
-    await press('Check item');
-    expect(state?.body).toBe('- [x] milk');
-    await fireEvent.changeText(body(), '- [x] milk!');
+    // No pause between typing and the button: they must still be separate steps.
+    await fireEvent.changeText(body(), 'milk');
+    await select(4);
+    await openListPanel();
+    await press('To-do list');
+    expect(state?.body).toBe('- [ ] milk');
+    // A type button hands the keyboard back.
+    expect(screen.queryByLabelText('Keyboard')).toBeNull();
+    await fireEvent.changeText(body(), '- [ ] milk!');
     await advance(600);
-    await press('Undo');
-    expect(state?.body).toBe('- [x] milk');
     await press('Undo');
     expect(state?.body).toBe('- [ ] milk');
     await press('Undo');
+    expect(state?.body).toBe('milk');
+  });
+
+  it.each([
+    ['Indent', '- a\n- b', 5, '- a\n    - b'],
+    ['Outdent', '- a\n  - b', 8, '- a\n- b'],
+    ['Move up', '- a\n- b', 7, '- b\n- a'],
+    ['Move down', '- a\n- b', 2, '- b\n- a'],
+    ['Bulleted list', 'a', 1, '- a'],
+    ['Numbered list', 'a', 1, '1. a'],
+    ['To-do list', 'a', 1, '- [ ] a'],
+  ])(
+    'panel button %s calls the right editor method and is one undo step',
+    async (label, from, at, to) => {
+      await renderPage({ initial: { body: from } });
+      await fireEvent(body(), 'focus');
+      await select(at);
+      await openListPanel();
+      await press(label);
+      expect(state?.body).toBe(to);
+      await press('Undo');
+      expect(state?.body).toBe(from);
+      expect(disabled('Undo')).toBe(true);
+      await press('Redo');
+      expect(state?.body).toBe(to);
+    },
+  );
+
+  it('pressing the active list type again removes the marker', async () => {
+    await renderPage({ initial: { body: '- a' } });
+    await fireEvent(body(), 'focus');
+    await select(3);
+    await openListPanel();
+    await press('Bulleted list');
+    expect(state?.body).toBe('a');
+  });
+
+  it('a list method with a null result changes nothing and adds no undo step', async () => {
+    await renderPage();
+    await type('# head', 2);
+    await act(async () => mockScreen.editor!.indentItem());
+    expect(state?.body).toBe('# head');
+    await press('Undo');
     expect(state?.body).toBe('');
-    await press('Redo');
-    await press('Redo');
-    expect(state?.body).toBe('- [x] milk');
   });
 
   it('undo and redo put the caret at the end of the changed region', async () => {
@@ -249,6 +319,9 @@ describe('undo and redo', () => {
     await renderPage({ initial: { stored: true, recordings: [storedVoice] } });
     await press('Remove recording');
     expect(state?.recordings[0]?.removed).toBe(true);
+    // The toolbar (and Undo) only exists while editing: tap into the note first.
+    await press('Edit note');
+    await fireEvent(body(), 'focus');
     await press('Undo');
     expect(state?.recordings[0]?.removed).toBe(false);
     await press('Redo');
@@ -281,7 +354,7 @@ describe('undo and redo', () => {
 
   it('locks every toolbar button while locked', async () => {
     await renderPage({ locked: true, initial: { body: 'a' } });
-    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'Add checkbox'])
+    for (const label of ['Undo', 'Redo', 'Record voice note', 'Add tags', 'List controls'])
       expect(disabled(label)).toBe(true);
     expect(body().props.editable).toBe(false);
   });
@@ -534,6 +607,9 @@ describe('transcription', () => {
     expect(screen.queryByTestId('voice-note-sheet')).toBeNull();
     expect(state?.body).toBe('Last night\n\nI was flying #water');
     expect(focus).not.toHaveBeenCalled();
+    // The toolbar (and Undo) only exists while editing: tap into the note first.
+    await press('Edit note');
+    await fireEvent(body(), 'focus');
     await press('Undo');
     expect(state?.body).toBe('Last night');
     await press('Redo');
@@ -542,6 +618,8 @@ describe('transcription', () => {
 
   it('flushes pending typing first, so it is its own step', async () => {
     await renderPage({ initial: { stored: true, recordings: [storedVoice] } });
+    // A stored note opens in the reading view; a tap on the note brings the input back.
+    await press('Edit note');
     await fireEvent.changeText(body(), 'typed words');
     await press('Open recording');
     await addFromMenu();
@@ -582,5 +660,141 @@ describe('automatic transcription after a recording', () => {
     fakeT.cancelAll.mockClear();
     await openPanel();
     expect(fakeT.cancelAll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('[[ note link suggestions', () => {
+  const note = (id: string, body: string, day: number): Note => ({
+    id,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: `2026-10-${String(day).padStart(2, '0')}T00:00:00.000Z`,
+    body,
+  });
+  const NOTES = [note('a', 'Foo bar\ntext', 3), note('b', 'Food diary', 2), note('c', 'Other', 1)];
+  const bar = () => screen.queryByTestId('wikilink-suggestions');
+  const rows = () =>
+    screen
+      .queryAllByRole('button')
+      .map((b) => b.props.accessibilityLabel as string)
+      .filter((l) => ['Foo bar', 'Food diary', 'Other', 'Bad [x]'].includes(l));
+
+  it('appears while typing [[Fo, best match first, and tags stay out of it', async () => {
+    await renderPage({ notes: NOTES, knownTags: ['foo'] });
+    await type('see [[Fo');
+    expect(bar()).not.toBeNull();
+    expect(rows()).toEqual(['Foo bar', 'Food diary']);
+    expect(screen.getByTestId('wikilink-suggestions').props.keyboardShouldPersistTaps).toBe(
+      'always',
+    );
+    expect(pills()).toEqual([]);
+  });
+
+  it('suppresses the tag bar inside a wiki token even when a tag would match', async () => {
+    await renderPage({ notes: [], knownTags: ['foo'] });
+    await type('[[#fo');
+    expect(screen.queryByTestId('tag-suggestions')).toBeNull();
+  });
+
+  it('hides when nothing matches', async () => {
+    await renderPage({ notes: NOTES });
+    await type('[[zzz');
+    expect(bar()).toBeNull();
+  });
+
+  it('hides for a range selection', async () => {
+    await renderPage({ notes: NOTES });
+    await type('[[Fo');
+    await select(0, 4);
+    expect(bar()).toBeNull();
+  });
+
+  it('hides while locked', async () => {
+    const view = await renderPage({ notes: NOTES });
+    await type('[[Fo');
+    expect(bar()).not.toBeNull();
+    await view.rerender(<Harness notes={NOTES} locked />);
+    expect(bar()).toBeNull();
+  });
+
+  it('hides while the recording panel is open', async () => {
+    await renderPage({ notes: NOTES });
+    await type('[[Fo');
+    await openPanel();
+    expect(bar()).toBeNull();
+  });
+
+  it('is not shown in the reading view', async () => {
+    await renderPage({ notes: NOTES, initial: { stored: true, body: '[[Fo' } });
+    expect(bar()).toBeNull();
+  });
+
+  it('hides on blur and when the keyboard hides, returns on focus', async () => {
+    await renderPage({ notes: NOTES });
+    await type('[[Fo');
+    await fireEvent(body(), 'blur');
+    expect(bar()).toBeNull();
+    await fireEvent(body(), 'focus');
+    expect(bar()).not.toBeNull();
+    await keyboard.emit('keyboardWillHide');
+    expect(bar()).toBeNull();
+  });
+
+  it('a pick writes [[Title]], puts the caret after ]], is ONE undo step and keeps focus', async () => {
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await renderPage({ notes: NOTES });
+    await type('see [[Fo and more', 8);
+    await press('Foo bar');
+    expect(state?.body).toBe('see [[Foo bar]] and more');
+    expect(body().props.selection).toEqual({ start: 15, end: 15 });
+    expect(focus).toHaveBeenCalled();
+    expect(bar()).toBeNull();
+    await press('Undo');
+    expect(state?.body).toBe('see [[Fo and more');
+    expect(disabled('Undo')).toBe(false);
+    await press('Redo');
+    expect(state?.body).toBe('see [[Foo bar]] and more');
+  });
+
+  it('does not double the ]] that already follows the caret', async () => {
+    await renderPage({ notes: NOTES });
+    await type('[[Fo]] x', 4);
+    await press('Food diary');
+    expect(state?.body).toBe('[[Food diary]] x');
+    expect(body().props.selection).toEqual({ start: 14, end: 14 });
+  });
+
+  it('a title completeWikiToken rejects does nothing', async () => {
+    await renderPage({ notes: [note('x', 'Bad [x]', 5)] });
+    await type('[[Ba');
+    // matchTitles already hides bracketed titles; force a row through to exercise the guard.
+    jest
+      .spyOn(noteLinks, 'matchTitles')
+      .mockReturnValue([{ key: 'bad', id: 'x', title: 'Bad [x]', updatedAt: undefined }]);
+    await type('[[Bad');
+    await press('Bad [x]');
+    expect(state?.body).toBe('[[Bad');
+  });
+
+  it('does not rebuild the index when only text below the Title changes', async () => {
+    const build = jest.spyOn(noteLinks, 'buildTitleIndex');
+    await renderPage({ notes: NOTES });
+    await type('Mine\n[[Fo');
+    const n = build.mock.calls.length;
+    expect(n).toBeGreaterThan(0);
+    await fireEvent.changeText(body(), 'Mine\n[[Foo');
+    await select(10);
+    expect(rows()).toEqual(['Foo bar', 'Food diary']);
+    expect(build.mock.calls.length).toBe(n);
+  });
+
+  it('builds and matches 5000 notes in a sane time', async () => {
+    const many = Array.from({ length: 5000 }, (_, i) => note(`n${i}`, `Note title ${i}\nx`, 1));
+    await renderPage({ notes: many });
+    const t0 = Date.now();
+    await type('[[Note title 49');
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect(bar()).not.toBeNull();
+    expect(rows().length).toBe(0); // titles are not in the fixed label list above
+    expect(screen.getAllByRole('button', { name: /^Note title 49/ }).length).toBeGreaterThan(0);
   });
 });

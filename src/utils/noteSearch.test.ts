@@ -175,3 +175,27 @@ describe('searchChips', () => {
     expect(out.map((c) => c.tag)).toEqual(['b', 'a']);
   });
 });
+
+describe('searchResults on the raw body with the new markdown syntax', () => {
+  it('matches a word that only appears in a URL or a fence', () => {
+    const notes = [
+      note('url', 'T\n[a](http://zzzword.example)'),
+      note('fence', 'T\n```zzzword\ncode\n```'),
+      note('none', 'T\nnothing'),
+    ];
+    expect(ids(searchResults(notes, 'zzzword'))).toEqual(['url', 'fence']);
+  });
+
+  it('does not take a tag from code, a destination or a wikilink body', () => {
+    const notes = [
+      note('code', 'T `#x`'),
+      note('fence', 'T\n```\n#x\n```'),
+      note('dest', 'T [a](#x)'),
+      note('wiki', 'T [[#x]]'),
+      note('real', 'T #x'),
+      note('linktext', 'T [#x](u)'),
+    ];
+    expect(ids(searchResults(notes, '#x'))).toEqual(['real', 'linktext']);
+    expect(ids(searchResults(notes, '', ['x']))).toEqual(['real', 'linktext']);
+  });
+});
