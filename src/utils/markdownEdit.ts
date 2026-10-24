@@ -1,4 +1,11 @@
-import { markdownLineKinds, parseListPrefix, type LineKind } from './markdownLines';
+import {
+  INDENT_WIDTH,
+  indentWidth,
+  markdownLineKinds,
+  parentIndentWidths,
+  parseListPrefix,
+  type LineKind,
+} from './markdownLines';
 
 /**
  * Pure markdown edit helpers for the note editor: list continuation on Enter, checkbox toggle and
@@ -10,7 +17,8 @@ export type Sel = { start: number; end: number };
 export type EditResult = { text: string; selection: Sel };
 export type LineInfo = { start: number; end: number; text: string; eol: string };
 
-export const INDENT_UNIT = '  ';
+/** One indent level while editing: INDENT_WIDTH (4) spaces. Older notes may use 2 spaces per level. */
+export const INDENT_UNIT = ' '.repeat(INDENT_WIDTH);
 
 export function splitLines(text: string): LineInfo[] {
   const out: LineInfo[] = [];
@@ -44,10 +52,25 @@ function kindAtLine(text: string, line: LineInfo): LineKind {
 const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff;
 const isHigh = (c: number) => c >= 0xd800 && c <= 0xdbff;
 
-export function removeIndentUnit(indent: string): string {
+/**
+ * The indent of a list line after one outdent: width max(parentWidth, width - INDENT_WIDTH), never
+ * below 0, where `parentWidth` is the nearest shallower indent above it in its list block. Leading
+ * characters are dropped from the start (a tab counts as INDENT_WIDTH); if that undershoots the
+ * target, spaces make up the difference.
+ */
+export function outdentListIndent(indent: string, parentWidth: number): string {
+  const target = Math.max(parentWidth, indentWidth(indent) - INDENT_WIDTH, 0);
+  let out = indent;
+  while (out.length > 0 && indentWidth(out) > target) out = out.slice(1);
+  const short = target - indentWidth(out);
+  return short > 0 ? ' '.repeat(short) + out : out;
+}
+
+/** The leading whitespace of a non-list line after one outdent: one tab, or up to INDENT_WIDTH spaces. */
+export function outdentPlainIndent(indent: string): string {
   if (indent.startsWith('\t')) return indent.slice(1);
   let n = 0;
-  while (n < 2 && indent[n] === ' ') n += 1;
+  while (n < INDENT_WIDTH && indent[n] === ' ') n += 1;
   return indent.slice(n);
 }
 
@@ -90,7 +113,10 @@ export function continueList(prev: string, next: string, caretBefore?: number): 
 
   if (c === line.end && rest.trim() === '') {
     // Empty item: no newline. Outdent one level, or drop the marker.
-    const outdented = removeIndentUnit(p.indent);
+    const lineIndex = splitLines(prev).findIndex((l) => l.start === line.start);
+    const kinds = markdownLineKinds(prev);
+    const prefixes = splitLines(prev).map((l, i) => parseListPrefix(l.text, kinds[i]));
+    const outdented = outdentListIndent(p.indent, parentIndentWidths(prefixes)[lineIndex]);
     const newLine = outdented !== p.indent ? outdented + line.text.slice(p.indent.length) : '';
     return {
       text: prev.slice(0, line.start) + newLine + prev.slice(line.end),

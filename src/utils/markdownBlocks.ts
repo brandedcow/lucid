@@ -1,4 +1,9 @@
-import { markdownLines, parseListPrefix, type MarkdownRun } from './markdownLines';
+import {
+  listIndentDepths,
+  markdownLines,
+  parseListPrefix,
+  type MarkdownRun,
+} from './markdownLines';
 import { fenceStates, inlineSpans, splitLines } from './markdownSpans';
 
 /**
@@ -29,7 +34,7 @@ export interface MarkdownBlock {
   startOffset: number;
   /** UTF-16 offset where the line content ends (the line terminator is excluded). */
   endOffset: number;
-  /** List indent level (leading whitespace width / 2, a tab counting as 2) for list items, else 0. */
+  /** Relative list indent level for list items (see `listIndentDepths`; a tab is 4 columns), else 0. */
   depth: number;
   /** For `checkbox` blocks: true for `[x]` / `[X]`; undefined otherwise. */
   checked?: boolean;
@@ -39,12 +44,6 @@ export interface MarkdownBlock {
   alt?: string;
   /** For `image` blocks: the raw URL, not yet checked with `safeImageUrl`. */
   url?: string;
-}
-
-function indentWidth(indent: string): number {
-  let w = 0;
-  for (const ch of indent) w += ch === '\t' ? 2 : 1;
-  return w;
 }
 
 /** The own-line image of a trimmed line (exactly one `![alt](url)`), or null. */
@@ -63,6 +62,14 @@ export function markdownBlocks(body: string): MarkdownBlock[] {
   const slices = splitLines(body);
   const tokens = markdownLines(body);
   const states = fenceStates(slices.map((s) => s.text));
+  const depths = listIndentDepths(
+    slices.map((slice, i) => {
+      const kind = tokens[i].kind;
+      return kind === 'bullet' || kind === 'numbered' || kind === 'checkbox'
+        ? parseListPrefix(slice.text, kind)
+        : null;
+    }),
+  );
   return slices.map((slice, i) => {
     const token = tokens[i];
     const base = { startOffset: slice.start, endOffset: slice.start + slice.text.length };
@@ -81,8 +88,7 @@ export function markdownBlocks(body: string): MarkdownBlock[] {
       case 'bullet':
       case 'numbered':
       case 'checkbox': {
-        const prefix = parseListPrefix(slice.text, token.kind);
-        const depth = prefix ? Math.floor(indentWidth(prefix.indent) / 2) : 0;
+        const depth = depths[i];
         const block: MarkdownBlock = { kind: token.kind, ...base, depth, runs };
         if (token.kind === 'checkbox') block.checked = token.checked === true;
         return block;

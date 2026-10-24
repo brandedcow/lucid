@@ -320,6 +320,57 @@ export function parseListPrefix(line: string, kind?: LineKind): ListPrefix | nul
   return null;
 }
 
+/** Columns a tab counts for when measuring list indentation. */
+export const INDENT_WIDTH = 4;
+
+/** Width of leading whitespace in columns: a tab is `INDENT_WIDTH` columns, any other char 1. */
+export function indentWidth(indent: string): number {
+  let w = 0;
+  for (const ch of indent) w += ch === '\t' ? INDENT_WIDTH : 1;
+  return w;
+}
+
+/**
+ * Relative list depth of each line, from the list prefix of every line (null for any line that is
+ * not a list item: blank, paragraph, heading, fence, code, quote, rule). A stack of indent widths
+ * starts as [0] and never pops below it; for a list line of width w, pop while the top is greater
+ * than w, push w if the top is smaller, and the depth is the stack height minus one. A non-list
+ * line resets the stack and has depth 0. So 0/2/4 and 0/4/8 spaces both give 0/1/2, and a lone
+ * indented first item gets depth 1.
+ */
+export function listIndentDepths(prefixes: readonly (ListPrefix | null)[]): number[] {
+  let stack = [0];
+  return prefixes.map((prefix) => {
+    if (!prefix) {
+      stack = [0];
+      return 0;
+    }
+    const w = indentWidth(prefix.indent);
+    while (stack[stack.length - 1] > w) stack.pop();
+    if (stack[stack.length - 1] < w) stack.push(w);
+    return stack.length - 1;
+  });
+}
+
+/**
+ * Width of the parent indent of each list line, with the same stack as `listIndentDepths`: the
+ * nearest shallower indent width above the line within the same list block, 0 when there is none
+ * (and for a non-list line). Used to find where an outdent should land.
+ */
+export function parentIndentWidths(prefixes: readonly (ListPrefix | null)[]): number[] {
+  let stack = [0];
+  return prefixes.map((prefix) => {
+    if (!prefix) {
+      stack = [0];
+      return 0;
+    }
+    const w = indentWidth(prefix.indent);
+    while (stack[stack.length - 1] > w) stack.pop();
+    if (stack[stack.length - 1] < w) stack.push(w);
+    return stack.length > 1 ? stack[stack.length - 2] : 0;
+  });
+}
+
 /** Tokenizes a note body into lines of styled runs. Accepts "\n", "\r\n" and "\r" line endings. */
 export function markdownLines(body: string): MarkdownLine[] {
   const slices = splitLines(body);
