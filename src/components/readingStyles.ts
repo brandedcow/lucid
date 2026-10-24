@@ -13,7 +13,7 @@ import {
 
 export const BODY_SIZE = DEFAULT_BODY_FONT_SIZE;
 export const BODY_LINE_HEIGHT = 24;
-export const INDENT_PER_DEPTH = 20;
+export const INDENT_PER_DEPTH = 28;
 export const CHECKBOX_HIT = 44;
 export const IMAGE_FIXED_HEIGHT = 200;
 export const IMAGE_MAX_HEIGHT = 480;

@@ -42,15 +42,47 @@ describe('markdownBlocks kinds', () => {
 });
 
 describe('lists', () => {
-  it('computes depth from indent width / 2', () => {
-    const body = '- a\n  - b\n    1. c\n      - [x] d\n   - e\n\t- f';
+  it('computes relative depth for a regular 2-space note', () => {
+    const body = '- a\n  - b\n    1. c\n      - [x] d\n  - e';
     expect(markdownBlocks(body).map((b) => [b.kind, b.depth])).toEqual([
       ['bullet', 0],
       ['bullet', 1],
       ['numbered', 2],
       ['checkbox', 3],
       ['bullet', 1],
-      ['bullet', 1],
+    ]);
+  });
+  it('odd widths and a tab (4 columns) nest relative to the stack', () => {
+    // widths 0,2,4,6,3,tab(4): the 3 pops to 2 and pushes (depth 2); the tab (4) is deeper than 3 and pushes (depth 3).
+    const body = '- a\n  - b\n    1. c\n      - [x] d\n   - e\n\t- f';
+    expect(markdownBlocks(body).map((b) => b.depth)).toEqual([0, 1, 2, 3, 2, 3]);
+  });
+  it.each([
+    ['0/2/4 spaces', '- a\n  - b\n    - c', [0, 1, 2]],
+    ['0/4/8 spaces', '- a\n    - b\n        - c', [0, 1, 2]],
+    ['mixed 0/2/6', '- a\n  - b\n      - c', [0, 1, 2]],
+    ['lone first item at 2', '  - a', [1]],
+    ['lone first item at 4', '    - a', [1]],
+    ['skipped level 0 then 6', '- a\n      - b', [0, 1]],
+    ['tab nest', '- a\n\t- b\n\t\t- c', [0, 1, 2]],
+    ['tab then 4 spaces equal', '- a\n\t- b\n    - c', [0, 1, 1]],
+    ['tab plus 2 spaces', '- a\n\t- b\n\t  - c', [0, 1, 2]],
+    ['paragraph resets', '- a\n    - b\ntext\n    - c', [0, 1, 0, 1]],
+    ['blank resets', '- a\n    - b\n\n    - c', [0, 1, 0, 1]],
+    ['heading resets', '- a\n    - b\n# H\n    - c', [0, 1, 0, 1]],
+    ['fence resets', '- a\n    - b\n```\n    - x\n```\n    - c', [0, 1, 0, 0, 0, 1]],
+    ['quote resets', '- a\n    - b\n> q\n    - c', [0, 1, 0, 1]],
+    ['rule resets', '- a\n    - b\n---\n    - c', [0, 1, 0, 1]],
+  ])('depths: %s', (_n, body, expected) => {
+    expect(markdownBlocks(body).map((b) => b.depth)).toEqual(expected);
+  });
+  it('bullets, numbers and checkboxes share the same depths', () => {
+    const body = '- a\n    1. b\n        - [ ] c\n    2. d';
+    expect(markdownBlocks(body).map((b) => [b.kind, b.depth])).toEqual([
+      ['bullet', 0],
+      ['numbered', 1],
+      ['checkbox', 2],
+      ['numbered', 1],
     ]);
   });
   it('checked, unchecked and uppercase X', () => {

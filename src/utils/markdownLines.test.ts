@@ -1,4 +1,7 @@
 import {
+  INDENT_WIDTH,
+  indentWidth,
+  listIndentDepths,
   markdownLineKinds,
   markdownLines,
   parseListPrefix,
@@ -661,5 +664,38 @@ describe('markdownLines properties', () => {
       for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)];
       expect(tagRuns(s)).toEqual(scanned(s));
     }
+  });
+});
+
+describe('indentWidth and listIndentDepths', () => {
+  const depths = (lines: string[]) => listIndentDepths(lines.map((l) => parseListPrefix(l)));
+  it('counts a tab as INDENT_WIDTH columns and anything else as 1', () => {
+    expect(INDENT_WIDTH).toBe(4);
+    expect(indentWidth('')).toBe(0);
+    expect(indentWidth('  ')).toBe(2);
+    expect(indentWidth('\t')).toBe(4);
+    expect(indentWidth('\t  ')).toBe(6);
+    expect(indentWidth(' \t')).toBe(5);
+  });
+  it('gives relative depths', () => {
+    expect(depths(['- a', '  - b', '    - c'])).toEqual([0, 1, 2]);
+    expect(depths(['- a', '    - b', '        - c'])).toEqual([0, 1, 2]);
+    expect(depths(['- a', '  - b', '      - c'])).toEqual([0, 1, 2]);
+    expect(depths(['  - a'])).toEqual([1]);
+    expect(depths(['    1. a'])).toEqual([1]);
+    expect(depths(['- a', '      - b'])).toEqual([0, 1]);
+  });
+  it('pops back to a shallower level and never below the base', () => {
+    expect(depths(['- a', '    - b', '        - c', '    - d', '- e'])).toEqual([0, 1, 2, 1, 0]);
+    expect(depths(['    - a', '- b'])).toEqual([1, 0]);
+  });
+  it('a non-list line resets the stack', () => {
+    expect(depths(['- a', '    - b', 'text', '    - c'])).toEqual([0, 1, 0, 1]);
+  });
+  it('mixes tabs and spaces', () => {
+    expect(depths(['- a', '\t- b', '\t\t- c', '    - d'])).toEqual([0, 1, 2, 1]);
+  });
+  it('is empty for no lines', () => {
+    expect(listIndentDepths([])).toEqual([]);
   });
 });
