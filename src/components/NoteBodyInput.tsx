@@ -282,8 +282,9 @@ export function NoteBodyInput({
   const awaitCommit = useRef(false);
   // Latest props for the Android focus retries (timers must not use stale closures).
   const latestProps = useRef({ showSoftInputOnFocus, editable });
-  // Android: a selection event the user (not a programmatic edit) caused since the last remount.
-  const selectionSinceRemount = useRef(false);
+  // Android: the user touched or typed since the last remount (selection events do not count: the
+  // native view fires its own on attach, focus and text set).
+  const userInputSinceRemount = useRef(false);
   const knowSelection = (sel: Sel) => {
     selections.current = { latest: sel, previous: sel };
   };
@@ -395,12 +396,15 @@ export function NoteBodyInput({
   // fresh view, so after a programmatic remount the wanted caret is set again once the text is in.
   useEffect(() => {
     if (epoch === 0) return;
-    selectionSinceRemount.current = false;
+    userInputSinceRemount.current = false;
     if (enterLogOn()) enterLog(`REMOUNT epoch=${epoch} pending=${fmtSel(pending)}`);
     if (Platform.OS !== 'android' || !pending) return;
     const want = pending;
     const id = setTimeout(() => {
-      if (selectionSinceRemount.current) return;
+      if (userInputSinceRemount.current) {
+        if (enterLogOn()) enterLog('RESELECT skipped (user input)');
+        return;
+      }
       if (enterLogOn()) enterLog(`RESELECT want=${fmtSel(want)}`);
       inputRef.current?.setSelection(want.start, want.end);
     }, ANDROID_RESELECT_MS);
@@ -427,6 +431,7 @@ export function NoteBodyInput({
   }, []);
 
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    userInputSinceRemount.current = true;
     const key = e.nativeEvent.key;
     const { latest, previous } = selections.current;
     const tracked = trackedCaret.current;
@@ -463,7 +468,6 @@ export function NoteBodyInput({
       if (enterLogOn()) enterLog(`POSTSEL ${fmtSel(e.nativeEvent.selection)}`);
     }
     trackedCaret.current = undefined;
-    selectionSinceRemount.current = true;
     setPending(undefined);
     selections.current = { latest: e.nativeEvent.selection, previous: selections.current.latest };
     onSelectionChange?.(e.nativeEvent.selection);
@@ -575,6 +579,9 @@ export function NoteBodyInput({
       selection={pending}
       onChangeText={handleChange}
       onKeyPress={handleKeyPress}
+      onTouchStart={() => {
+        userInputSinceRemount.current = true;
+      }}
       onSelectionChange={handleSelection}
       onFocus={() => {
         if (enterLogOn()) enterLog('FOCUS onFocus');

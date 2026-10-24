@@ -1274,8 +1274,47 @@ describe('Android focus retry and caret re-assert', () => {
     expect(setSelection).toHaveBeenCalledWith(2, 4);
   });
 
-  it('Android: does not re-assert when a user selection event arrived after the remount', async () => {
+  it('Android: native-style selection events after the remount do not cancel the re-assert', async () => {
     withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await caretAt(4);
+    await caretAt(0);
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection).toHaveBeenCalledTimes(1);
+    expect(setSelection).toHaveBeenCalledWith(1, 1);
+  });
+
+  it('Android: a touch after the remount cancels the re-assert', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await fireEvent(input(), 'touchStart');
+    await advance(2000);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: a key press after the remount cancels the re-assert', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await outside('abcd', { start: 1, end: 1 });
+    await fireEvent(input(), 'keyPress', { nativeEvent: { key: 'a' } });
+    await advance(2000);
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('Android: a touch before the remount does not suppress the re-assert after it', async () => {
+    withOs('android');
+    await render(<Harness initial="abc" />);
+    await fireEvent(input(), 'touchStart');
+    await outside('abcd', { start: 1, end: 1 });
+    await advance(ANDROID_RESELECT_MS);
+    expect(setSelection).toHaveBeenCalledTimes(1);
+    expect(setSelection).toHaveBeenCalledWith(1, 1);
+  });
+
+  it('iOS: touch and selection events never lead to setSelection', async () => {
+    withOs('ios');
     await render(<Harness initial="abc" />);
     await outside('abcd', { start: 1, end: 1 });
     await caretAt(3);
