@@ -4,6 +4,7 @@ import {
   listIndentDepths,
   markdownLineKinds,
   markdownLines,
+  parentIndentWidths,
   parseListPrefix,
   plainLineText,
   type LineKind,
@@ -697,5 +698,17 @@ describe('indentWidth and listIndentDepths', () => {
   });
   it('is empty for no lines', () => {
     expect(listIndentDepths([])).toEqual([]);
+  });
+});
+
+describe('parentIndentWidths', () => {
+  const widths = (body: string) =>
+    parentIndentWidths(body.split('\n').map((l) => parseListPrefix(l)));
+
+  it('gives the nearest shallower indent in the list block', () => {
+    expect(widths('- a\n  - b\n      - c\n    - d')).toEqual([0, 0, 2, 2]);
+    expect(widths('- a\n    - b\n        - c')).toEqual([0, 0, 4]);
+    expect(widths('        - a')).toEqual([0]);
+    expect(widths('- a\n  - b\n\nplain\n    - c')).toEqual([0, 0, 0, 0, 0]);
   });
 });

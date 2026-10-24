@@ -57,10 +57,20 @@ describe('continueList', () => {
   });
 
   it('outdents an empty indented bullet first, then exits', () => {
-    const first = cont('- a\n    - ');
-    expect(first).toEqual({ text: '- a\n  - ', selection: at(8) });
-    expect(cont(first!.text)).toEqual({ text: '- a\n- ', selection: at(6) });
+    // 2-space note: 2 -> 0 (the marker stays), then the empty item is dropped at indent 0.
+    const first = cont('- a\n  - ');
+    expect(first).toEqual({ text: '- a\n- ', selection: at(6) });
+    expect(cont(first!.text)).toEqual({ text: '- a\n', selection: at(4) });
+    // 4-space note: 4 -> 0 in one step.
+    expect(cont('- a\n    - ')).toEqual({ text: '- a\n- ', selection: at(6) });
+    // A 6-width item under a 2-width parent goes to the parent's width, then 0.
+    const mixed = cont('- a\n  - b\n      - ');
+    expect(mixed).toEqual({ text: '- a\n  - b\n  - ', selection: at(14) });
+    expect(cont(mixed!.text)).toEqual({ text: '- a\n  - b\n- ', selection: at(12) });
     expect(cont('- a\n\t- ')).toEqual({ text: '- a\n- ', selection: at(6) });
+    // Enter on a non-empty nested item keeps its own indent string, in either note style.
+    expect(cont('- a\n  - b')).toEqual({ text: '- a\n  - b\n  - ', selection: at(14) });
+    expect(cont('- a\n    - b')).toEqual({ text: '- a\n    - b\n    - ', selection: at(18) });
   });
 
   it('exits an empty checkbox with and without the trailing space', () => {

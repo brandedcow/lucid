@@ -247,7 +247,7 @@ describe('undo and redo', () => {
   });
 
   it.each([
-    ['Indent', '- a\n- b', 5, '- a\n  - b'],
+    ['Indent', '- a\n- b', 5, '- a\n    - b'],
     ['Outdent', '- a\n  - b', 8, '- a\n- b'],
     ['Move up', '- a\n- b', 7, '- b\n- a'],
     ['Move down', '- a\n- b', 2, '- b\n- a'],

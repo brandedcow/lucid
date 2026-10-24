@@ -73,11 +73,11 @@ describe('useNoteEditor', () => {
     expect(setBodySpy).not.toHaveBeenCalled();
     await move(8);
     await act(() => view.result.current.indentItem());
-    const indented = 'plain\n  - [ ] task\n# Head\n- bullet';
+    const indented = 'plain\n    - [ ] task\n# Head\n- bullet';
     expect(setBodySpy).toHaveBeenCalledWith(indented);
     expect(onEdit).toHaveBeenLastCalledWith(BODY, indented, 'format');
-    expect(view.result.current.selection).toEqual(at(10));
-    expect(view.result.current.inputProps.selection).toEqual(at(10));
+    expect(view.result.current.selection).toEqual(at(12));
+    expect(view.result.current.inputProps.selection).toEqual(at(12));
     await act(() => view.result.current.outdentItem());
     expect(setBodySpy).toHaveBeenLastCalledWith(BODY);
   });

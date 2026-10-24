@@ -1,13 +1,16 @@
 import {
   INDENT_UNIT,
-  removeIndentUnit,
+  outdentListIndent,
+  outdentPlainIndent,
   splitLines,
   type EditResult,
   type LineInfo,
   type Sel,
 } from './markdownEdit';
 import {
+  indentWidth,
   markdownLineKinds,
+  parentIndentWidths,
   parseListPrefix,
   type LineKind,
   type ListPrefix,
@@ -51,13 +54,6 @@ function analyze(text: string): Doc {
     kinds,
     prefixes: lines.map((l, i) => parseListPrefix(l.text, kinds[i])),
   };
-}
-
-/** Indent width as the reading view counts it: a tab is 2 columns, anything else 1. */
-function indentWidth(indent: string): number {
-  let w = 0;
-  for (const ch of indent) w += ch === '\t' ? 2 : 1;
-  return w;
 }
 
 function normalize(text: string, sel: Sel): Sel | null {
@@ -251,14 +247,22 @@ function planIndent(
 ): { edits: Edit[]; changed: number[] } | null {
   const edits: Edit[] = [];
   const changed: number[] = [];
+  const parents = outdent ? parentIndentWidths(doc.prefixes) : [];
   for (const i of eligibleLines(doc, sel, SKIP_TYPE)) {
     const l = doc.lines[i];
     if (!outdent) {
       edits.push({ at: l.start, removed: 0, text: INDENT_UNIT });
     } else {
-      const removed = l.text.length - removeIndentUnit(l.text).length;
-      if (removed === 0) continue;
-      edits.push({ at: l.start, removed, text: '' });
+      const p = doc.prefixes[i];
+      const old = p ? p.indent : l.text.match(/^[ \t]*/)![0];
+      const next = p ? outdentListIndent(old, parents[i]) : outdentPlainIndent(old);
+      if (next === old) continue;
+      // Usually only leading characters go; selection mapping then matches a plain removal.
+      if (old.endsWith(next)) {
+        edits.push({ at: l.start, removed: old.length - next.length, text: '' });
+      } else {
+        edits.push({ at: l.start, removed: old.length, text: next });
+      }
     }
     changed.push(i);
   }
@@ -266,7 +270,7 @@ function planIndent(
 }
 
 /**
- * Indents (or outdents) the line(s) touched by the selection by one level, without their
+ * Indents (or outdents) the line(s) touched by the selection by one level (4 spaces in, see INDENT_UNIT; out to the parent's indent or 4 less, see outdentListIndent), without their
  * sub-items. Works on list items, paragraphs and (for a caret only) blank lines; headings, quotes,
  * rules and fenced lines are skipped; no depth limit. Null at indent 0 for outdent, or when no
  * line applies. Renumbers the numbered runs it

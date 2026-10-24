@@ -352,6 +352,25 @@ export function listIndentDepths(prefixes: readonly (ListPrefix | null)[]): numb
   });
 }
 
+/**
+ * Width of the parent indent of each list line, with the same stack as `listIndentDepths`: the
+ * nearest shallower indent width above the line within the same list block, 0 when there is none
+ * (and for a non-list line). Used to find where an outdent should land.
+ */
+export function parentIndentWidths(prefixes: readonly (ListPrefix | null)[]): number[] {
+  let stack = [0];
+  return prefixes.map((prefix) => {
+    if (!prefix) {
+      stack = [0];
+      return 0;
+    }
+    const w = indentWidth(prefix.indent);
+    while (stack[stack.length - 1] > w) stack.pop();
+    if (stack[stack.length - 1] < w) stack.push(w);
+    return stack.length > 1 ? stack[stack.length - 2] : 0;
+  });
+}
+
 /** Tokenizes a note body into lines of styled runs. Accepts "\n", "\r\n" and "\r" line endings. */
 export function markdownLines(body: string): MarkdownLine[] {
   const slices = splitLines(body);
